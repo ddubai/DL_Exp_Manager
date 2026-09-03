@@ -13,7 +13,7 @@ from .. import editing, theme
 from ..config_store import GpuDef, OptionsConfig, ServerDef
 from ..db import Database
 from ..qt import QtWidgets, Signal
-from ..utils import elapsed_since, format_duration, open_in_file_manager
+from ..utils import elapsed_since, format_duration, open_in_file_manager, parse_gpu_count
 from .common import copy_to_clipboard, toast
 
 
@@ -185,22 +185,19 @@ class ServerStatusPanel(QtWidgets.QWidget):
 
         for position, server in enumerate(servers):
             jobs: list[dict[str, Any]] = []
-            assign: dict[int, dict[str, Any]] = {}
-            conflicts: set[int] = set()
+            used = 0
             for job in running.get(server.name, []):
                 job = dict(job)
                 job["color"] = colors.get(int(job["id"]), theme.color("status.running"))
                 jobs.append(job)
-                for index in self._parse_indices(job.get("gpu_indices")):
-                    if index in assign:
-                        conflicts.add(index)
-                    assign[index] = job
+                used += self._parse_count(job.get("gpu_indices"))
 
+            total = len(server.gpus)
             self._state[server.name] = {
                 "server": server,
                 "jobs": jobs,
-                "assign": assign,
-                "conflicts": conflicts,
+                "used": used,
+                "over_capacity": bool(total) and used > total,
             }
 
             chip = self._chips.get(server.name)
@@ -216,7 +213,7 @@ class ServerStatusPanel(QtWidgets.QWidget):
 
         state = self._state[name]
         server: ServerDef = state["server"]
-        busy = len(state["assign"])
+        busy = state["used"]
         total = len(server.gpus)
 
         if not total:
@@ -259,12 +256,12 @@ class ServerStatusPanel(QtWidgets.QWidget):
             lines.append("No running jobs")
         else:
             for job in state["jobs"]:
-                gpus = str(job.get("gpu_indices") or "-")
+                gpu_text = self._gpu_label(job.get("gpu_indices"))
                 elapsed = elapsed_since(job.get("started_at"))
                 time_text = f" · {format_duration(elapsed)}" if elapsed is not None else ""
-                lines.append(f"GPU {gpus}  {job.get('model') or '-'}{time_text}")
-        if state["conflicts"]:
-            lines.append("⚠ Multiple runs claim the same GPU")
+                lines.append(f"{gpu_text}  {job.get('model') or '-'}{time_text}")
+        if state["over_capacity"]:
+            lines.append("⚠ More GPUs claimed than this server has")
         return "\n".join(lines)
 
     def _build_menu(self, name: str) -> QtWidgets.QMenu:
@@ -283,11 +280,11 @@ class ServerStatusPanel(QtWidgets.QWidget):
         return menu
 
     def _add_job_section(self, menu: QtWidgets.QMenu, job: dict[str, Any]) -> None:
-        gpus = str(job.get("gpu_indices") or "-")
+        gpu_text = self._gpu_label(job.get("gpu_indices"))
         elapsed = elapsed_since(job.get("started_at"))
         time_text = f"  ·  {format_duration(elapsed)}" if elapsed is not None else ""
         header = menu.addAction(
-            f"GPU {gpus}   {job.get('model') or '-'}   "
+            f"{gpu_text}   {job.get('model') or '-'}   "
             f"{job.get('task_name')}/{job.get('work_name')}{time_text}"
         )
         header.setEnabled(False)
@@ -318,13 +315,13 @@ class ServerStatusPanel(QtWidgets.QWidget):
         )
 
     @staticmethod
-    def _parse_indices(text: Any) -> list[int]:
-        out: list[int] = []
-        for part in str(text or "").split(","):
-            part = part.strip()
-            if part.isdigit():
-                out.append(int(part))
-        return out
+    def _parse_count(text: Any) -> int:
+        return parse_gpu_count(text)
+
+    @staticmethod
+    def _gpu_label(text: Any) -> str:
+        count = parse_gpu_count(text)
+        return f"{count} GPU(s)" if count else "GPU count not set"
 
     # -- editing --------------------------------------------------------------
     def add_server(self) -> None:

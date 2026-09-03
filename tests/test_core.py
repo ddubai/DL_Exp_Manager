@@ -154,6 +154,53 @@ def test_inference_numeric_fields():
     db.close()
 
 
+def test_run_history_records_create_update_duplicate():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    run_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
+
+    history = db.list_history("train", run_id)
+    assert len(history) == 1 and history[0]["action"] == "created"
+
+    db.update_run("train", run_id, {"work_id": work_id, "model": "SwinIR"})
+    history = db.list_history("train", run_id)
+    assert history[0]["action"] == "updated"
+    assert "model" in history[0]["detail"] and "Restormer" in history[0]["detail"]
+
+    # Saving with no actual change should not add a no-op history entry.
+    before = len(db.list_history("train", run_id))
+    db.update_run("train", run_id, {"work_id": work_id, "model": "SwinIR"})
+    assert len(db.list_history("train", run_id)) == before
+
+    dup_id = db.duplicate_run("train", run_id)
+    dup_history = db.list_history("train", dup_id)
+    assert dup_history[0]["action"] == "duplicated"
+    assert f"#{run_id}" in dup_history[0]["detail"]
+
+    db.delete_runs("train", [run_id])
+    assert db.list_history("train", run_id) == []
+    db.close()
+
+
+def test_inference_source_train_run_and_epoch_round_trip():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    train_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
+    infer_id = db.insert_run(
+        "inference",
+        {
+            "work_id": work_id,
+            "model": "Restormer",
+            "source_train_run_id": train_id,
+            "checkpoint_epoch": "300000",
+        },
+    )
+    row = db.get_run("inference", infer_id)
+    assert row["source_train_run_id"] == train_id
+    assert row["checkpoint_epoch"] == "300000"
+    db.close()
+
+
 def test_task_scope_lists_runs_of_all_works():
     db = make_db()
     task_id = db.add_task("SR")

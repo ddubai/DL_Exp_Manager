@@ -40,6 +40,7 @@ from ..utils import (
     now_iso,
     open_in_file_manager,
     parse_duration,
+    parse_gpu_count,
     render_html_report,
     render_markdown_report,
     scan_result_folder,
@@ -53,6 +54,7 @@ from .common import (
     MetricsEditor,
     OpenFolderButton,
     PathEdit,
+    ServerCombo,
     copy_to_clipboard,
     monospace_font,
     table_selection_to_tsv,
@@ -158,6 +160,7 @@ class BaseRunPanel(QtWidgets.QWidget):
     METRIC_PRESETS: Sequence[str] = ()
     DETAIL_PATHS: Sequence[tuple[str, str]] = ()
     SAMPLE_COMMAND: str = ""
+    SHOW_SERVER_GPU: bool = True
 
     runsChanged = Signal()
     configChanged = Signal()
@@ -329,7 +332,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_meta.setWordWrap(True)
         self.detail_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-        paths_box = QtWidgets.QGroupBox("Paths", container)
+        self.paths_box = QtWidgets.QGroupBox("Paths", container)
+        paths_box = self.paths_box
         paths_layout = QtWidgets.QFormLayout(paths_box)
         paths_layout.setContentsMargins(8, 8, 8, 8)
         paths_layout.setSpacing(4)
@@ -360,11 +364,13 @@ class BaseRunPanel(QtWidgets.QWidget):
         )
         self.detail_config = LabeledText("config.yml", container, read_only=True, min_height=90)
         self.detail_notes = LabeledText("Metrics & Notes", container, read_only=True, min_height=90)
+        self.detail_history = LabeledText("History", container, read_only=True, mono=False, min_height=90)
 
         self.detail_tabs = QtWidgets.QTabWidget(container)
         self.detail_tabs.addTab(self.detail_command, "Command")
         self.detail_tabs.addTab(self.detail_config, "config.yml")
         self.detail_tabs.addTab(self.detail_notes, "Metrics / Notes")
+        self.detail_tabs.addTab(self.detail_history, "History")
 
         self.detail_favorite_btn = QtWidgets.QPushButton("☆ Favorite", container)
         self.detail_favorite_btn.clicked.connect(lambda: self.toggle_favorite())
@@ -448,7 +454,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.work_combo = EditableCombo([], inner, "Work ID (new if not found)")
         self.work_combo.setToolTip("The Work ID this run belongs to. Typing a new value creates it.")
 
-        self.server_combo = self._make_option_combo("server", "Server", inner)
+        self.server_combo = ServerCombo(inner)
         self.server_combo.currentTextChanged.connect(self._on_server_changed)
         self.model_combo = self._make_option_combo("model", "Model", inner)
         self.dataset_combo = self._make_option_combo("dataset", "Dataset", inner)
@@ -456,7 +462,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.status_combo = QtWidgets.QComboBox(inner)
         for status in C.STATUS_LIST:
             self.status_combo.addItem(f"●  {status}", status)
-        self.status_combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_DONE))
+        self.status_combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_QUEUED))
 
         self.started_edit = QtWidgets.QLineEdit(inner)
         self.started_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
@@ -476,8 +482,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.gpu_selector = GpuSelector(inner)
 
         self.form_layout.addRow("Work ID:", self.work_combo)
-        self.form_layout.addRow("Server:", self.server_combo)
-        self.form_layout.addRow("GPU:", self.gpu_selector)
+        if self.SHOW_SERVER_GPU:
+            self.form_layout.addRow("Server:", self.server_combo)
+            self.form_layout.addRow("GPU:", self.gpu_selector)
         self.form_layout.addRow("Model:", self.model_combo)
         self.form_layout.addRow("Dataset:", self.dataset_combo)
         self.form_layout.addRow("Status:", self.status_combo)
@@ -748,8 +755,8 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _refresh_combo_sources(self) -> None:
         """Base the list on config, but merge in legacy values only found in the DB."""
         scope = self._task_id  # keep values scoped so other Tasks' data doesn't leak in
-        self.server_combo.reload()
-        self.server_combo.merge_items(self.db.distinct_values(self.KIND, "server", scope))
+        # Server 는 상단 Servers 목록(config.servers)에서만 고른다 - 여기서 관리하지 않는다.
+        self.server_combo.set_items(self.config.server_names())
         self.model_combo.reload()
         self.model_combo.merge_items(self.db.distinct_values(self.KIND, "model", scope))
         self.dataset_combo.reload()
@@ -858,8 +865,14 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_command.clear()
         self.detail_config.clear()
         self.detail_notes.clear()
+        self.detail_history.clear()
+        # Paths / Execution Command 등은 실행을 하나 고르기 전엔 보여 줄 내용이 없다.
+        self.paths_box.setVisible(False)
+        self.detail_tabs.setVisible(False)
 
     def _show_detail(self, row: dict[str, Any]) -> None:
+        self.paths_box.setVisible(True)
+        self.detail_tabs.setVisible(True)
         star = "★ " if row.get("favorite") else ""
         title = (
             f"{star}#{row.get('id')}  ·  {row.get('task_name', '')} ▸ {row.get('work_name', '')}  ·  "
@@ -887,14 +900,28 @@ class BaseRunPanel(QtWidgets.QWidget):
         if failure_reason:
             sections.append(f"[Failure Reason]\n{failure_reason}")
         self.detail_notes.set_text("\n\n".join(sections))
+        self.detail_history.set_text(self._format_history(int(row["id"])))
+
+    def _format_history(self, run_id: int) -> str:
+        entries = self.db.list_history(self.KIND, run_id)
+        if not entries:
+            return "(no history recorded)"
+        lines = []
+        for entry in entries:
+            when = entry.get("created_at") or ""
+            action = str(entry.get("action") or "").capitalize()
+            detail = entry.get("detail") or ""
+            lines.append(f"{when}  ·  {action}\n{detail}" if detail else f"{when}  ·  {action}")
+        return "\n\n".join(lines)
 
     def _detail_meta_text(self, row: dict[str, Any]) -> str:
         status = str(row.get("status") or "")
         duration = format_duration(row.get("duration_sec"))
-        gpus = str(row.get("gpu_indices") or "").strip()
+        gpu_count = parse_gpu_count(row.get("gpu_indices"))
+        gpu_text = f"{gpu_count} GPU(s)" if gpu_count else "-"
         parts = [
             f"● {status}",
-            f"{row.get('server') or '-'} · GPU {gpus or '-'}",
+            f"{row.get('server') or '-'} · {gpu_text}",
             f"Started {row.get('started_at') or '-'}",
             f"Duration {duration or '-'}",
             f"Logged {row.get('created_at') or '-'}",
@@ -1293,13 +1320,17 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.server_combo.set_text("")
         self.model_combo.set_text("")
         self.dataset_combo.set_text("")
-        self.status_combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_DONE))
+        self.status_combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_QUEUED))
         self.started_edit.setText(now_iso())
         self.duration_edit.clear()
         self.gpu_selector.clear()
         self.dataset_path_edit.clear()
         self.result_path_edit.clear()
-        self.metrics_editor.clear()
+        # 같은 Task 안에서는 지표를 공유한다 - 이전에 이 Task 의 어느 Run 에서든
+        # 등록한 지표는 새 Run 을 만들 때 값 없는 행으로 미리 채워 둔다.
+        self.metrics_editor.set_metrics(
+            {key: "" for key in self.config.metric_keys(self._task_name)}
+        )
         for combo in self._custom_widgets.values():
             combo.set_text("")
         self.command_input.clear()
@@ -1420,6 +1451,9 @@ class BaseRunPanel(QtWidgets.QWidget):
             self.duration_edit.setFocus()
             return None
 
+        metrics = self.metrics_editor.metrics()
+        self._register_new_metrics(metrics)
+
         data: dict[str, Any] = {
             "work_id": work_id,
             "server": self.server_combo.current_text(),
@@ -1436,7 +1470,7 @@ class BaseRunPanel(QtWidgets.QWidget):
                 for name, combo in self._custom_widgets.items()
                 if combo.current_text()
             },
-            "metrics_json": self.metrics_editor.metrics(),
+            "metrics_json": metrics,
             "exec_command": self.command_input.text(),
             "config_yaml": self.config_input.text(),
             "notes": self.notes_input.text(),
@@ -1446,6 +1480,21 @@ class BaseRunPanel(QtWidgets.QWidget):
         }
         data.update(self._collect_extra_fields())
         return data
+
+    def _register_new_metrics(self, metrics: dict[str, Any]) -> None:
+        """Metrics are shared within a Task: a value typed for a new metric name
+        on any Run becomes that Task's default, pre-filled on the next New Run."""
+        if not self._task_name or not metrics:
+            return
+        known = set(self.config.metric_keys(self._task_name))
+        added = False
+        for key in metrics:
+            if key not in known:
+                self.config.add_metric(self._task_name, MetricDef(key=key))
+                known.add(key)
+                added = True
+        if added:
+            self.configChanged.emit()
 
     def save_form(self) -> None:
         data = self._collect_form()
@@ -1568,16 +1617,29 @@ class InferencePanel(BaseRunPanel):
     KIND = "inference"
     SAMPLE_COMMAND = C.SAMPLE_INFER_CMD
     METRIC_PRESETS = C.INFER_METRIC_PRESETS
+    SHOW_SERVER_GPU = False  # 추론은 서버/GPU 를 굳이 안 골라도 된다 - Train run + epoch 이 핵심
     DETAIL_PATHS = (
         ("checkpoint_path", "Checkpoint Path"),
         ("dataset_path", "Test Dataset Path"),
         ("result_path", "Result Folder Path"),
     )
 
+    NO_SOURCE_RUN = "(none - fill in manually)"
+
     def _dataset_path_label(self) -> str:
         return "Test Dataset Path"
 
     def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
+        self.source_run_combo = QtWidgets.QComboBox(parent)
+        self.source_run_combo.setToolTip(
+            "Pick a Train run from this Work to base the inference on. "
+            "Sets Model automatically; you still pick which checkpoint/epoch."
+        )
+        self.source_run_combo.currentIndexChanged.connect(self._on_source_run_changed)
+
+        self.checkpoint_epoch_edit = QtWidgets.QLineEdit(parent)
+        self.checkpoint_epoch_edit.setPlaceholderText("e.g. 300000 (iter) or 200 (epoch)")
+
         self.checkpoint_edit = PathEdit(
             parent,
             "/mnt/exp/SSL2SL/restormer_x4/models/net_g_300000.pth",
@@ -1593,6 +1655,8 @@ class InferencePanel(BaseRunPanel):
         self.throughput_edit.setPlaceholderText("images/sec (FPS)")
 
         self.form_layout.addRow(self._section("Inference Settings / Speed", parent))
+        self.form_layout.addRow("Source Train Run:", self.source_run_combo)
+        self.form_layout.addRow("Model Epoch / Checkpoint:", self.checkpoint_epoch_edit)
         self.form_layout.addRow("Checkpoint Path:", self.checkpoint_edit)
         self.form_layout.addRow("Device:", self.device_combo)
         self.form_layout.addRow("Input size:", self.input_size_edit)
@@ -1602,8 +1666,34 @@ class InferencePanel(BaseRunPanel):
     def _refresh_extra_combo_sources(self) -> None:
         self.device_combo.reload()
         self.device_combo.merge_items(self.db.distinct_values("inference", "device", self._task_id))
+        self._refresh_source_run_combo()
+
+    def _refresh_source_run_combo(self, keep: int | None = None) -> None:
+        """List Train runs from the same Task + Work only - that's the whole point."""
+        current = keep if keep is not None else self.source_run_combo.currentData()
+        self.source_run_combo.blockSignals(True)
+        self.source_run_combo.clear()
+        self.source_run_combo.addItem(self.NO_SOURCE_RUN, None)
+        if self._work_id:
+            for run in self.db.list_train_runs(work_id=self._work_id):
+                label = f"#{run['id']} · {run.get('model') or '-'} · {run.get('status')}"
+                self.source_run_combo.addItem(label, int(run["id"]))
+        index = self.source_run_combo.findData(current)
+        self.source_run_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.source_run_combo.blockSignals(False)
+
+    def _on_source_run_changed(self, _index: int) -> None:
+        run_id = self.source_run_combo.currentData()
+        if run_id is None:
+            return
+        run = self.db.get_run("train", int(run_id))
+        if run:
+            self.model_combo.set_text(run.get("model"))
 
     def _reset_extra_fields(self) -> None:
+        self._refresh_source_run_combo(keep=None)
+        self.source_run_combo.setCurrentIndex(0)
+        self.checkpoint_epoch_edit.clear()
         self.checkpoint_edit.clear()
         self.device_combo.set_text("")
         self.input_size_edit.clear()
@@ -1611,6 +1701,9 @@ class InferencePanel(BaseRunPanel):
         self.throughput_edit.clear()
 
     def _load_extra_fields(self, row: dict[str, Any]) -> None:
+        source_id = row.get("source_train_run_id")
+        self._refresh_source_run_combo(keep=int(source_id) if source_id else None)
+        self.checkpoint_epoch_edit.setText(str(row.get("checkpoint_epoch") or ""))
         self.checkpoint_edit.set_path(row.get("checkpoint_path"))
         self.device_combo.set_text(row.get("device"))
         self.input_size_edit.setText(str(row.get("input_size") or ""))
@@ -1624,4 +1717,6 @@ class InferencePanel(BaseRunPanel):
             "input_size": self.input_size_edit.text().strip(),
             "latency_ms": self.latency_edit.text().strip(),
             "throughput_fps": self.throughput_edit.text().strip(),
+            "source_train_run_id": self.source_run_combo.currentData(),
+            "checkpoint_epoch": self.checkpoint_epoch_edit.text().strip(),
         }

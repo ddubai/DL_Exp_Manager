@@ -288,6 +288,23 @@ def coerce_number(value: Any) -> Any:
         return text
 
 
+def parse_gpu_count(text: Any) -> int:
+    """GPU 개수를 해석한다.
+
+    새 형식은 단순 개수("2")이고, 옛 형식은 콤마로 구분된 인덱스 목록("0,1")이다.
+    콤마가 있으면 인덱스 개수를, 아니면 숫자 그대로를 개수로 본다.
+    """
+    text = str(text or "").strip()
+    if not text:
+        return 0
+    if "," in text:
+        return len([part for part in text.split(",") if part.strip() != ""])
+    try:
+        return int(float(text))
+    except ValueError:
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # 메트릭 JSON
 # ---------------------------------------------------------------------------

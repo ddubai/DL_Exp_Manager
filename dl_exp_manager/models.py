@@ -20,6 +20,7 @@ from .utils import (
     format_duration,
     format_number,
     loads_metrics,
+    parse_gpu_count,
     parse_iso,
 )
 
@@ -84,6 +85,7 @@ FIELD_SPECS: dict[str, ColumnSpec] = {
         ColumnSpec("batch_size", "Batch", "text", 70),
         ColumnSpec("lr", "LR", "text", 82),
         ColumnSpec("optimizer", "Optimizer", "text", 94),
+        ColumnSpec("checkpoint_epoch", "Model Epoch", "text", 110),
         ColumnSpec("tags", "Tags", "text", 140),
         ColumnSpec("failure_reason", "Failure Reason", "text", 170),
         ColumnSpec("notes", "Notes", "text", 180),
@@ -378,8 +380,8 @@ class RunTableModel(QtCore.QAbstractTableModel):
             status = str(value or "")
             return f"● {status}" if status else ""
         if spec.kind == "gpus":
-            text = str(value or "").strip()
-            return f"GPU {text}" if text else ""
+            count = parse_gpu_count(value)
+            return f"{count} GPU(s)" if count else ""
         if spec.kind == "duration":
             if value in (None, "") and str(row.get("status")) == "running":
                 running = elapsed_since(row.get("started_at"))
@@ -408,13 +410,8 @@ class RunTableModel(QtCore.QAbstractTableModel):
             parsed = parse_iso(value)
             return parsed.timestamp() if parsed else float("-inf")
         if spec.kind == "gpus":
-            text = str(value or "").strip()
-            if not text:
-                return float("inf")  # 미지정은 뒤로
-            try:
-                return float(text.split(",")[0])
-            except ValueError:
-                return float("inf")
+            count = parse_gpu_count(value)
+            return float(count) if count else float("inf")  # 미지정은 뒤로
         return str(value or "").lower()
 
     def _tooltip(self, row: dict[str, Any], spec: ColumnSpec) -> str:

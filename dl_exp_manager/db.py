@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -101,10 +101,20 @@ CREATE TABLE IF NOT EXISTS inference_runs (
     updated_at      TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS run_history (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_kind    TEXT    NOT NULL,   -- 'train' | 'inference'
+    run_id      INTEGER NOT NULL,
+    action      TEXT    NOT NULL,   -- 'created' | 'updated' | 'duplicated'
+    detail      TEXT    DEFAULT '',
+    created_at  TEXT    NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_works_task       ON works(task_id);
 CREATE INDEX IF NOT EXISTS idx_train_work       ON train_runs(work_id);
 CREATE INDEX IF NOT EXISTS idx_train_status     ON train_runs(status);
 CREATE INDEX IF NOT EXISTS idx_infer_work       ON inference_runs(work_id);
+CREATE INDEX IF NOT EXISTS idx_history_run      ON run_history(run_kind, run_id);
 """
 
 TRAIN_FIELDS: tuple[str, ...] = (
@@ -120,6 +130,7 @@ INFER_FIELDS: tuple[str, ...] = (
     "status", "started_at", "duration_sec", "gpu_indices", "extra_json",
     "metrics_json", "exec_command", "config_yaml", "notes",
     "favorite", "tags", "failure_reason",
+    "source_train_run_id", "checkpoint_epoch",
 )
 
 # v1 -> v2 에서 추가된 컬럼. (테이블, 컬럼, 정의)
@@ -138,6 +149,12 @@ _V3_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("inference_runs", "favorite", "INTEGER DEFAULT 0"),
     ("inference_runs", "tags", "TEXT DEFAULT ''"),
     ("inference_runs", "failure_reason", "TEXT DEFAULT ''"),
+)
+
+# v3 -> v4: Inference 가 어느 Train 실행의 체크포인트를 쓰는지 + 몇 epoch/iter 인지
+_V4_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("inference_runs", "source_train_run_id", "INTEGER"),
+    ("inference_runs", "checkpoint_epoch", "TEXT DEFAULT ''"),
 )
 
 
@@ -174,7 +191,7 @@ class Database:
         """기존 DB 를 현재 스키마로 올린다. 몇 번 실행해도 안전하다."""
         current = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
         with self.conn:
-            for table, column, definition in _V2_COLUMNS + _V3_COLUMNS:
+            for table, column, definition in _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS:
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -394,7 +411,13 @@ class Database:
     def _fields(kind: str) -> tuple[str, ...]:
         return TRAIN_FIELDS if kind == "train" else INFER_FIELDS
 
-    def insert_run(self, kind: str, data: dict[str, Any]) -> int:
+    def insert_run(
+        self,
+        kind: str,
+        data: dict[str, Any],
+        history_action: str = "created",
+        history_detail: str = "Run created.",
+    ) -> int:
         table, fields = self._table(kind), self._fields(kind)
         payload = self._normalize(data, fields)
         ts = now_iso()
@@ -404,14 +427,21 @@ class Database:
         cur = self._exec(
             f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders})", values
         )
-        return int(cur.lastrowid)
+        run_id = int(cur.lastrowid)
+        self._record_history(kind, run_id, history_action, history_detail)
+        return run_id
 
     def update_run(self, kind: str, run_id: int, data: dict[str, Any]) -> None:
         table, fields = self._table(kind), self._fields(kind)
+        old = self.get_run(kind, run_id)
         payload = self._normalize(data, fields)
         assignments = ",".join(f"{f} = ?" for f in fields)
         values = [payload.get(f) for f in fields] + [now_iso(), run_id]
         self._exec(f"UPDATE {table} SET {assignments}, updated_at = ? WHERE id = ?", values)
+        if old is not None:
+            detail = self._diff_summary(old, payload, fields)
+            if detail:
+                self._record_history(kind, run_id, "updated", detail)
 
     def delete_runs(self, kind: str, run_ids: Iterable[int]) -> int:
         ids = [int(i) for i in run_ids]
@@ -420,6 +450,10 @@ class Database:
         table = self._table(kind)
         placeholders = ",".join("?" * len(ids))
         cur = self._exec(f"DELETE FROM {table} WHERE id IN ({placeholders})", ids)
+        self._exec(
+            f"DELETE FROM run_history WHERE run_kind = ? AND run_id IN ({placeholders})",
+            [kind, *ids],
+        )
         return cur.rowcount
 
     def toggle_favorite(self, kind: str, run_id: int) -> bool:
@@ -444,7 +478,79 @@ class Database:
         row["notes"] = (row["notes"] + "\n(copy)").strip()
         row["status"] = C.STATUS_QUEUED
         row["favorite"] = 0
-        return self.insert_run(kind, row)
+        return self.insert_run(
+            kind,
+            row,
+            history_action="duplicated",
+            history_detail=f"Duplicated from run #{run_id}.",
+        )
+
+    # -- 실행 히스토리 --------------------------------------------------------
+    def _record_history(self, kind: str, run_id: int, action: str, detail: str) -> None:
+        self._exec(
+            "INSERT INTO run_history(run_kind, run_id, action, detail, created_at) "
+            "VALUES (?,?,?,?,?)",
+            (kind, run_id, action, detail, now_iso()),
+        )
+
+    def list_history(self, kind: str, run_id: int) -> list[dict[str, Any]]:
+        return self._rows(
+            self.conn.execute(
+                "SELECT * FROM run_history WHERE run_kind = ? AND run_id = ? ORDER BY id DESC",
+                (kind, run_id),
+            )
+        )
+
+    # 히스토리에 사람이 읽을 만한 요약을 남길 때 무시할 필드 (JSON 은 따로 비교한다)
+    _DIFF_SKIP = {"metrics_json", "extra_json"}
+    _DIFF_LABELS = {"work_id": "Work"}
+
+    def _diff_summary(
+        self, old: dict[str, Any], new: dict[str, Any], fields: Sequence[str]
+    ) -> str:
+        changes: list[str] = []
+        for field in fields:
+            if field in self._DIFF_SKIP:
+                continue
+            old_value, new_value = old.get(field), new.get(field)
+            if field == "work_id":
+                if old_value == new_value:
+                    continue
+                old_text = self._work_label(old_value)
+                new_text = self._work_label(new_value)
+            else:
+                old_text = "" if old_value is None else str(old_value)
+                new_text = "" if new_value is None else str(new_value)
+                if old_text == new_text:
+                    continue
+            label = self._DIFF_LABELS.get(field, field)
+            changes.append(f"{label}: '{old_text or '—'}' → '{new_text or '—'}'")
+
+        for source, label in (("metrics_json", "metric"), ("extra_json", "field")):
+            old_map = self._json_map(old.get(source))
+            new_map = self._json_map(new.get(source))
+            for key in sorted(set(old_map) | set(new_map)):
+                old_value, new_value = old_map.get(key, ""), new_map.get(key, "")
+                if str(old_value) == str(new_value):
+                    continue
+                changes.append(
+                    f"{key} ({label}): '{old_value or '—'}' → '{new_value or '—'}'"
+                )
+        return "; ".join(changes)
+
+    def _work_label(self, work_id: Any) -> str:
+        if not work_id:
+            return ""
+        work = self.get_work(int(work_id))
+        return work["name"] if work else str(work_id)
+
+    @staticmethod
+    def _json_map(raw: Any) -> dict[str, Any]:
+        try:
+            data = json.loads(raw or "{}")
+        except (TypeError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
 
     @staticmethod
     def _normalize(data: dict[str, Any], fields: Sequence[str]) -> dict[str, Any]:
@@ -481,8 +587,8 @@ class Database:
                     except (TypeError, ValueError):
                         out[field] = None
                 continue
-            if field == "work_id":
-                out[field] = int(value) if value is not None else None
+            if field in ("work_id", "source_train_run_id"):
+                out[field] = int(value) if value not in (None, "") else None
                 continue
             out[field] = "" if value is None else str(value)
         return out

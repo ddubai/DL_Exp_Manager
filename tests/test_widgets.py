@@ -122,10 +122,14 @@ def test_gpu_selector_reflects_server_inventory(qapp, config):
 
     selector = GpuSelector()
     selector.set_server(config.server("Server 1"))
-    assert len(selector._boxes) == 4
+    assert selector.spin.maximum() == 4
+    selector.spin.setValue(2)
+    assert selector.value() == "2"
+    assert selector.hint.text() == "2 of 4 GPU(s) on this server"
+
+    # legacy comma-index data still round-trips to a sensible count
     selector.set_value("0,2")
-    assert selector.value() == "0,2"
-    assert selector.hint.text() == "CUDA_VISIBLE_DEVICES=0,2"
+    assert selector.value() == "2"
 
 
 def test_gpu_selector_without_server(qapp):
@@ -134,7 +138,7 @@ def test_gpu_selector_without_server(qapp):
     selector = GpuSelector()
     selector.set_server(None)
     assert selector.value() == ""
-    assert selector._empty.isVisibleTo(selector)
+    assert selector.spin.maximum() == 64
 
 
 # --- 서버 패널 ---------------------------------------------------------------
@@ -156,7 +160,7 @@ def test_server_panel_shows_multiple_jobs_per_server(qapp, config):
     state = panel._state["Server 3"]
     assert len(state["jobs"]) == 2
     assert state["jobs"][0]["color"] != state["jobs"][1]["color"]
-    assert len(state["assign"]) == 4  # GPU 0,1,2,3 all claimed
+    assert state["used"] == 4  # 2 + 2 GPUs claimed
     chip = panel._chips["Server 3"]
     assert "Server 3" in chip.text()
     assert "4/4" in chip.text()
@@ -171,9 +175,9 @@ def test_server_panel_flags_gpu_conflict(qapp, config):
     work_id = db.add_work(db.add_task("SR"), "W")
     for model in ("A", "B"):
         db.insert_run("train", {"work_id": work_id, "server": "Server 1", "model": model,
-                                "gpu_indices": "0", "status": "running"})
+                                "gpu_indices": "3", "status": "running"})
     panel = ServerStatusPanel(db, config)
-    assert panel._state["Server 1"]["conflicts"] == {0}
+    assert panel._state["Server 1"]["over_capacity"] is True  # 3+3=6 > 4 GPUs on Server 1
     assert "⚠" in panel._tooltip_text("Server 1")
     db.close()
 
@@ -192,13 +196,13 @@ def test_server_panel_shows_unknown_server_from_db(qapp, config):
     db.close()
 
 
-def test_gpu_index_parsing():
+def test_gpu_count_parsing():
     from dl_exp_manager.widgets.server_panel import ServerStatusPanel
 
-    assert ServerStatusPanel._parse_indices("0,1,3") == [0, 1, 3]
-    assert ServerStatusPanel._parse_indices("") == []
-    assert ServerStatusPanel._parse_indices("a,1") == [1]
-    assert ServerStatusPanel._parse_indices(None) == []
+    assert ServerStatusPanel._parse_count("0,1,3") == 3  # legacy index list -> count
+    assert ServerStatusPanel._parse_count("2") == 2       # new format: a plain count
+    assert ServerStatusPanel._parse_count("") == 0
+    assert ServerStatusPanel._parse_count(None) == 0
 
 
 # --- #7 Favorites / tags / failure reason (run_panel wiring) -----------------
@@ -314,6 +318,100 @@ def test_new_run_defaults_to_not_favorite(qapp, config):
     rows = db.list_train_runs()
     new_row = next(r for r in rows if r["model"] == "NewModel")
     assert new_row["favorite"] == 0
+    db.close()
+
+
+def test_new_run_defaults_to_queued_status(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+    assert panel.status_combo.currentData() == "queued"
+    db.close()
+
+
+def test_server_combo_only_lists_configured_servers(qapp, config):
+    """#1: Server can only be picked from the top Servers list, not typed in."""
+    db, panel, run_id = _panel_with_one_run(config)
+    assert panel.server_combo.isEditable() is False
+    names = {panel.server_combo.itemText(i) for i in range(panel.server_combo.count())}
+    assert names - {""} == set(config.server_names())
+    db.close()
+
+
+def test_metrics_are_shared_within_a_task(qapp, config):
+    """#6: a metric typed on one Run becomes the Task's default, prefilled (empty)
+    on the next New Run - without needing the explicit "register" menu action."""
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.view.selectRow(0)
+    panel.load_selected_into_form()
+    panel.metrics_editor.set_metrics({"CustomMetric": 12.5})
+    panel.save_form()
+
+    assert "CustomMetric" in config.metric_keys("SR")
+
+    panel.reset_form()
+    assert panel.metrics_editor.metrics() == {}  # empty prefilled row isn't "set"
+    keys = {
+        panel.metrics_editor.table.item(r, 0).text()
+        for r in range(panel.metrics_editor.table.rowCount())
+    }
+    assert "CustomMetric" in keys
+    db.close()
+
+
+def test_paths_and_command_hidden_until_row_selected(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    assert panel.paths_box.isVisibleTo(panel) is False
+    assert panel.detail_tabs.isVisibleTo(panel) is False
+
+    panel.view.selectRow(0)
+    assert panel.paths_box.isVisibleTo(panel) is True
+    assert panel.detail_tabs.isVisibleTo(panel) is True
+    db.close()
+
+
+def test_inference_hides_server_and_gpu_rows(qapp, config):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import InferencePanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    window = QtWidgets.QMainWindow()
+    panel = InferencePanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel.set_scope(task_id, work_id)
+
+    assert panel.form_layout.getWidgetPosition(panel.server_combo)[0] == -1
+    assert panel.form_layout.getWidgetPosition(panel.gpu_selector)[0] == -1
+    db.close()
+
+
+def test_inference_source_train_run_prefills_model(qapp, config):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import InferencePanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    train_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
+    window = QtWidgets.QMainWindow()
+    panel = InferencePanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel.set_scope(task_id, work_id)
+    panel.reset_form()
+
+    index = panel.source_run_combo.findData(train_id)
+    assert index >= 0
+    panel.source_run_combo.setCurrentIndex(index)
+    assert panel.model_combo.current_text() == "Restormer"
+
+    panel.checkpoint_epoch_edit.setText("300000")
+    panel.result_path_edit.set_path("/mnt/exp/x")
+    panel.save_form()
+
+    row = db.list_inference_runs(work_id=work_id)[0]
+    assert row["source_train_run_id"] == train_id
+    assert row["checkpoint_epoch"] == "300000"
     db.close()
 
 

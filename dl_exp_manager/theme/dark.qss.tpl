@@ -80,11 +80,23 @@ QComboBox:focus { border-color: {{accent}}; }
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: center right;
-    width: 20px;
+    width: 22px;
     border: none;
 }
-/* 화살표는 Fusion 기본 렌더러에 맡긴다(QSS 로 그리면 플랫폼마다 사각형으로 깨진다).
-   색은 QPalette.ButtonText 를 따라가므로 다크에서도 잘 보인다. */
+/* Fusion 기본 화살표 아이콘은 플랫폼에 따라 안 보이거나 배경에 묻히므로,
+   테두리로 그린 삼각형을 강조색(파란색)으로 직접 그린다. */
+QComboBox::down-arrow {
+    image: none;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {{accent}};
+    margin-right: 7px;
+}
+QComboBox::down-arrow:disabled {
+    border-top-color: {{text.disabled}};
+}
 QComboBox QAbstractItemView {
     background-color: {{bg.elevated}};
     border: 1px solid {{border.strong}};

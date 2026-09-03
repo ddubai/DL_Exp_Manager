@@ -68,7 +68,7 @@ def test_metric_display_uses_unit_and_digits(qapp, config):
     values = dict(zip(model.headers(), model.row_values(0)))
     assert values["PSNR"] == "32.41 dB"   # digits=2 + unit
     assert values["SSIM"] == "0.8993"     # digits=4, 단위 없음
-    assert values["GPU"] == "GPU 0,1"
+    assert values["GPU"] == "2 GPU(s)"
     assert values["scale"] == "x4"        # extra_json 에서 옴
 
 

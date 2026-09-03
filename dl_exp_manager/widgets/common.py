@@ -10,6 +10,7 @@ from ..utils import (
     coerce_number,
     format_number,
     open_in_file_manager,
+    parse_gpu_count,
     rows_to_tsv,
 )
 
@@ -486,6 +487,47 @@ class ManagedCombo(QtWidgets.QComboBox):
         return bool(task_def and self.field in task_def.options)
 
 
+class ServerCombo(QtWidgets.QComboBox):
+    """서버 선택 콤보 - 상단 Servers 목록(config.servers)에서만 고를 수 있다.
+
+    자유 입력을 막아 두는 것 자체가 요구사항이다: 서버는 상단 서버 바에서만
+    추가/이름변경/삭제하고, 각 실행 폼에서는 그 목록 중 하나를 고르기만 한다.
+    """
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setEditable(False)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
+        )
+
+    def set_items(self, names: Iterable[str], keep_text: bool = True) -> None:
+        current = self.current_text() if keep_text else ""
+        self.blockSignals(True)
+        self.clear()
+        self.addItem("", "")
+        seen: set[str] = set()
+        for name in names:
+            text = str(name).strip()
+            if text and text not in seen:
+                seen.add(text)
+                self.addItem(text, text)
+        # 값이 목록에서 지워졌어도(서버 삭제) 현재 실행 기록의 값은 잃지 않는다.
+        if current and current not in seen:
+            self.addItem(f"{current}  (not in Servers list)", current)
+        self.set_text(current)
+        self.blockSignals(False)
+
+    def current_text(self) -> str:
+        data = self.currentData()
+        return str(data) if data else ""
+
+    def set_text(self, value: str | None) -> None:
+        value = (value or "").strip()
+        index = self.findData(value) if value else 0
+        self.setCurrentIndex(index if index >= 0 else 0)
+
+
 class LabeledText(QtWidgets.QWidget):
     """제목 + [복사] 버튼 + 멀티라인 텍스트 박스.
 
@@ -678,9 +720,11 @@ class MetricsEditor(QtWidgets.QWidget):
             key_item = self.table.item(row, 0)
             val_item = self.table.item(row, 1)
             key = (key_item.text().strip() if key_item else "")
-            if not key:
+            value_text = val_item.text().strip() if val_item else ""
+            if not key or not value_text:
+                # 값을 아직 안 채운 프리필 행(Task 지표 기본값)은 저장하지 않는다.
                 continue
-            out[key] = coerce_number(val_item.text() if val_item else "")
+            out[key] = coerce_number(value_text)
         return out
 
     def set_metrics(self, metrics: dict[str, Any] | None) -> None:
@@ -724,102 +768,85 @@ class MetricsEditor(QtWidgets.QWidget):
 
 
 class GpuSelector(QtWidgets.QWidget):
-    """서버의 GPU 목록을 체크박스로 보여 주고 선택 결과를 문자열로 돌려준다.
+    """GPU 개수 선택 - 특정 인덱스가 아니라 몇 장을 쓸지만 정한다.
 
-    서버당 GPU 가 여러 장이고 한 서버에서 학습을 여러 개 돌리므로,
-    자유 입력 대신 실제 인벤토리에서 고르게 한다.
+    실제로 어떤 GPU 슬롯에 배정할지는 서버 운영진/스케줄러가 정하는 경우가
+    많아, 폼에서는 "몇 장"만 물어보는 편이 실제 사용 흐름에 더 가깝다.
+    서버를 고르면 그 서버가 가진 GPU 수를 넘지 않게 상한을 건다.
     """
 
     changed = Signal()
 
     def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
-        self._boxes: list[tuple[int, QtWidgets.QCheckBox]] = []
+        self._max = 0
 
-        self._empty = QtWidgets.QLabel("Select a server first.", self)
-        self._empty.setStyleSheet(f"color: {theme.color('text.muted')};")
-
-        self._grid_host = QtWidgets.QWidget(self)
-        self._grid = QtWidgets.QGridLayout(self._grid_host)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(4)
+        self.spin = QtWidgets.QSpinBox(self)
+        self.spin.setRange(0, 64)
+        self.spin.setSuffix(" GPU(s)")
+        self.spin.setToolTip("Select a server first to see its GPU capacity.")
+        self.spin.valueChanged.connect(self._on_changed)
 
         self.hint = QtWidgets.QLabel("", self)
         self.hint.setStyleSheet(f"color: {theme.color('text.secondary')};")
         self.hint.setFont(monospace_font(-1))
         self.hint.setWordWrap(True)
 
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(self.spin)
+        row.addStretch(1)
+
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(self._empty)
-        layout.addWidget(self._grid_host)
+        layout.addLayout(row)
         layout.addWidget(self.hint)
         self.set_server(None)
 
     def set_server(self, server) -> None:
         """server 는 config_store.ServerDef 또는 None."""
-        selected = set(self.indices())
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-        self._boxes = []
-
+        current = self.spin.value()
         gpus = list(getattr(server, "gpus", []) or [])
-        self._empty.setVisible(not gpus)
-        self._grid_host.setVisible(bool(gpus))
-        if not gpus:
-            self._empty.setText(
-                "This server has no GPU info.\nAdd it under servers in config/servers.yaml."
-                if server is not None else "Select a server first."
-            )
-            self._update_hint()
-            return
+        self._max = len(gpus)
 
-        for position, gpu in enumerate(gpus):
-            box = QtWidgets.QCheckBox(f"{gpu.index}  {gpu.type}", self._grid_host)
-            box.setToolTip(
-                f"GPU {gpu.index} · {gpu.type}"
-                + (f" · {gpu.memory_gb:g}GB" if gpu.memory_gb else "")
+        self.spin.blockSignals(True)
+        if self._max:
+            self.spin.setRange(0, self._max)
+            self.spin.setToolTip(f"This server has {self._max} GPU(s) available.")
+        else:
+            self.spin.setRange(0, 64)
+            self.spin.setToolTip(
+                "This server has no GPU info." if server is not None
+                else "Select a server first to see its GPU capacity."
             )
-            box.setChecked(gpu.index in selected)
-            box.toggled.connect(self._on_toggled)
-            self._grid.addWidget(box, position // 2, position % 2)
-            self._boxes.append((gpu.index, box))
+        self.spin.setValue(min(current, self._max) if self._max else current)
+        self.spin.blockSignals(False)
         self._update_hint()
 
-    def _on_toggled(self) -> None:
+    def _on_changed(self, *_args) -> None:
         self._update_hint()
         self.changed.emit()
 
     def _update_hint(self) -> None:
-        indices = self.indices()
-        if indices:
-            self.hint.setText(
-                "CUDA_VISIBLE_DEVICES=" + ",".join(str(i) for i in indices)
-            )
+        n = self.spin.value()
+        if n and self._max:
+            self.hint.setText(f"{n} of {self._max} GPU(s) on this server")
+        elif n:
+            self.hint.setText(f"{n} GPU(s) requested")
         else:
             self.hint.setText("")
 
-    def indices(self) -> list[int]:
-        return sorted(index for index, box in self._boxes if box.isChecked())
-
     def value(self) -> str:
-        return ",".join(str(i) for i in self.indices())
+        n = self.spin.value()
+        return str(n) if n else ""
 
     def set_value(self, text: str | None) -> None:
-        wanted: set[int] = set()
-        for part in str(text or "").split(","):
-            part = part.strip()
-            if part.isdigit():
-                wanted.add(int(part))
-        for index, box in self._boxes:
-            box.blockSignals(True)
-            box.setChecked(index in wanted)
-            box.blockSignals(False)
+        n = parse_gpu_count(text)
+        self.spin.blockSignals(True)
+        self.spin.setValue(min(n, self.spin.maximum()))
+        self.spin.blockSignals(False)
         self._update_hint()
 
     def clear(self) -> None:
