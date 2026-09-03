@@ -297,3 +297,139 @@ def test_render_html_report_handles_no_rows():
 
     out = render_html_report("Empty", ["id"], [])
     assert "(no rows)" in out
+
+
+# --- find_representative_image / unified_diff_text ---------------------------
+def test_find_representative_image_prefers_hinted_name():
+    from dl_exp_manager.utils import find_representative_image
+
+    d = tempfile.mkdtemp()
+    open(os.path.join(d, "input.png"), "w").close()
+    open(os.path.join(d, "restormer_output.png"), "w").close()
+    assert find_representative_image(d) == os.path.join(d, "restormer_output.png")
+
+
+def test_find_representative_image_falls_back_to_first_and_subdir():
+    from dl_exp_manager.utils import find_representative_image
+
+    d = tempfile.mkdtemp()
+    open(os.path.join(d, "b.png"), "w").close()
+    open(os.path.join(d, "a.png"), "w").close()
+    assert find_representative_image(d) == os.path.join(d, "a.png")
+
+    d2 = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d2, "visualization"))
+    open(os.path.join(d2, "visualization", "x.jpg"), "w").close()
+    assert find_representative_image(d2) == os.path.join(d2, "visualization", "x.jpg")
+
+
+def test_find_representative_image_missing_folder_is_safe():
+    from dl_exp_manager.utils import find_representative_image
+
+    assert find_representative_image("/does/not/exist") is None
+    assert find_representative_image("") is None
+
+
+def test_unified_diff_text():
+    from dl_exp_manager.utils import unified_diff_text
+
+    diff = unified_diff_text("a\nb\nc\n", "a\nx\nc\n", "left", "right")
+    assert "-b" in diff and "+x" in diff
+    assert unified_diff_text("same", "same", "a", "b") == ""
+
+
+# --- log_parser: train.py 의 config.yaml / loss.log 파싱 ----------------------
+_BASICSR_CONFIG = """\
+name: SSL2SL_Restormer_x4
+scale: 4
+network_g:
+  type: Restormer
+datasets:
+  train:
+    name: DIV2K
+    dataroot_gt: /mnt/data/DIV2K/train
+    batch_size_per_gpu: 8
+train:
+  total_iter: 300000
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+"""
+
+_BASICSR_LOG = """\
+2024-01-15 10:00:00,000 INFO: Start training.
+2024-01-15 10:05:00,000 INFO: [epoch:  1, iter:     100, lr:(3.000e-04,)] l_pix: 5.4321e-02
+2024-01-15 12:00:00,000 INFO: [epoch: 10, iter:  10,000, lr:(3.000e-04,)] l_pix: 1.2345e-02
+2024-01-15 12:00:05,000 INFO: Validation Set5
+\t # psnr: 30.1200\tBest: 30.1200 @ 10000 iter
+\t # ssim: 0.8800\tBest: 0.8800 @ 10000 iter
+2024-01-15 14:00:00,000 INFO: [epoch: 20, iter:  20,000, lr:(3.000e-04,)] l_pix: 9.8760e-03
+2024-01-15 14:00:05,000 INFO: Validation Set5
+\t # psnr: 32.4123\tBest: 32.4123 @ 20000 iter
+\t # ssim: 0.9012\tBest: 0.9012 @ 20000 iter
+2024-01-15 16:00:00,000 INFO: End of training.
+"""
+
+
+def test_parse_train_config_reads_basicsr_style_yaml():
+    from dl_exp_manager.log_parser import parse_train_config
+
+    path = os.path.join(tempfile.mkdtemp(), "config.yml")
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write(_BASICSR_CONFIG)
+
+    fields = parse_train_config(path)
+    assert fields["model"] == "Restormer"
+    assert fields["dataset"] == "DIV2K"
+    assert fields["dataset_path"] == "/mnt/data/DIV2K/train"
+    assert fields["batch_size"] == "8"
+    assert fields["lr"] == "0.0003"
+    assert fields["optimizer"] == "AdamW"
+    assert fields["epochs"] == "300000"
+    assert fields["scale"] == "4"
+
+
+def test_parse_train_config_missing_file_is_safe():
+    from dl_exp_manager.log_parser import parse_train_config
+
+    assert parse_train_config("/does/not/exist.yaml") == {}
+    assert parse_train_config("") == {}
+
+
+def test_parse_loss_log_extracts_curve_and_latest_metrics():
+    from dl_exp_manager.log_parser import parse_loss_log
+
+    path = os.path.join(tempfile.mkdtemp(), "loss.log")
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write(_BASICSR_LOG)
+
+    result = parse_loss_log(path)
+
+    # 최종(가장 마지막) 검증 지표만 남는다
+    assert result.latest_metrics == {"psnr": 32.4123, "ssim": 0.9012}
+
+    # l_pix 곡선: iter 순으로 3개 학습 손실 포인트
+    l_pix_points = [(i, v["l_pix"]) for i, v in result.points if "l_pix" in v]
+    assert l_pix_points == [(100, 5.4321e-02), (10000, 1.2345e-02), (20000, 9.876e-03)]
+
+    # psnr 곡선: 검증 시점(@ N iter)에 찍힌 포인트도 곡선에 들어간다
+    psnr_points = [(i, v["psnr"]) for i, v in result.points if "psnr" in v]
+    assert psnr_points == [(10000, 30.12), (20000, 32.4123)]
+
+    # 첫/마지막 타임스탬프 차이로 소요 시간을 추정한다 (10:00 -> 16:00 = 6시간)
+    assert result.duration_sec == 6 * 3600
+
+
+def test_parse_loss_log_missing_file_is_safe():
+    from dl_exp_manager.log_parser import parse_loss_log
+
+    result = parse_loss_log("/does/not/exist.log")
+    assert result.points == [] and result.latest_metrics == {} and result.duration_sec is None
+
+
+def test_canonical_metric_name():
+    from dl_exp_manager.log_parser import canonical_metric_name
+
+    assert canonical_metric_name("psnr") == "PSNR"
+    assert canonical_metric_name("Top-5") == "Top-5"
+    assert canonical_metric_name("SomeCustomThing") == "SomeCustomThing"

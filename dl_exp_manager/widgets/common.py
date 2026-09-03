@@ -732,6 +732,16 @@ class MetricsEditor(QtWidgets.QWidget):
         for key, value in sorted((metrics or {}).items()):
             self._append_row(str(key), format_number(value))
 
+    def set_value(self, key: str, value: Any) -> None:
+        """하나의 지표 값만 채우거나 갱신한다 (로그 자동 파싱 결과 반영용)."""
+        text = value if isinstance(value, str) else format_number(value)
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.text().strip() == key:
+                self.table.item(row, 1).setText(text)
+                return
+        self._append_row(key, text)
+
     def clear(self) -> None:
         self.table.setRowCount(0)
 

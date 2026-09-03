@@ -11,6 +11,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PyQt6.QtWidgets", reason="Qt 바인딩 필요")
+QtGui = pytest.importorskip("PyQt6.QtGui", reason="Qt 바인딩 필요")
 
 from dl_exp_manager.config_store import OptionsConfig
 
@@ -770,4 +771,229 @@ def test_view_log_opens_dialog_for_selected_run(qapp, config, monkeypatch):
     monkeypatch.setattr(LogViewerDialog, "exec", fake_exec)
     panel.view_log()
     assert "run log content" in opened["content"]
+    db.close()
+
+
+# --- Image viewer (representative image) --------------------------------------
+def test_image_viewer_auto_detects_and_renders_image(qapp):
+    from dl_exp_manager.widgets.image_viewer import ImageViewerDialog
+
+    folder = tempfile.mkdtemp()
+    pixmap = QtGui.QPixmap(40, 20)
+    pixmap.fill(QtGui.QColor("red"))
+    pixmap.save(os.path.join(folder, "restormer_output.png"))
+    open(os.path.join(folder, "input.png"), "w").close()  # 0바이트 - 대표 이미지 후보에서 밀림
+
+    dialog = ImageViewerDialog(folder, title="Test Image")
+    assert dialog._image_path == os.path.join(folder, "restormer_output.png")
+    assert dialog._pixmap is not None and not dialog._pixmap.isNull()
+
+
+def test_image_viewer_reports_missing_image_without_crashing(qapp):
+    from dl_exp_manager.widgets.image_viewer import ImageViewerDialog
+
+    dialog = ImageViewerDialog(tempfile.mkdtemp(), title="Test Image")
+    assert dialog._image_path is None
+    assert "No image found" in dialog.image_label.text()
+
+
+def test_view_image_opens_dialog_for_selected_run(qapp, config, monkeypatch):
+    db, panel, run_id = _panel_with_one_run(config)
+    folder = tempfile.mkdtemp()
+    pixmap = QtGui.QPixmap(10, 10)
+    pixmap.fill(QtGui.QColor("blue"))
+    pixmap.save(os.path.join(folder, "out.png"))
+    db.update_run("train", run_id, {**db.get_run("train", run_id), "result_path": folder})
+    panel.reload()
+    panel.view.selectRow(0)
+
+    opened = {}
+
+    def fake_exec(self):
+        opened["image_path"] = self._image_path
+        return 0
+
+    from dl_exp_manager.widgets.image_viewer import ImageViewerDialog
+
+    monkeypatch.setattr(ImageViewerDialog, "exec", fake_exec)
+    panel.view_image()
+    assert opened["image_path"] == os.path.join(folder, "out.png")
+    db.close()
+
+
+# --- Training curve -------------------------------------------------------------
+def test_curve_dialog_parses_log_into_selectable_metric_series(qapp):
+    from dl_exp_manager.widgets.curve_chart import CurveDialog
+
+    folder = tempfile.mkdtemp()
+    with open(os.path.join(folder, "loss.log"), "w") as fp:
+        fp.write(
+            "2024-01-01 00:00:00,000 INFO: [iter: 100] l_pix: 5.0e-02\n"
+            "2024-01-01 01:00:00,000 INFO: [iter: 200] l_pix: 2.0e-02\n"
+        )
+
+    dialog = CurveDialog(folder, title="Test Curve")
+    items = [dialog.metric_combo.itemText(i) for i in range(dialog.metric_combo.count())]
+    assert "l_pix" in items
+    dialog.metric_combo.setCurrentText("l_pix")
+    assert dialog.chart._points == [(100, 5.0e-02), (200, 2.0e-02)]
+
+
+def test_curve_dialog_no_log_shows_message(qapp):
+    from dl_exp_manager.widgets.curve_chart import CurveDialog
+
+    dialog = CurveDialog(tempfile.mkdtemp(), title="Test Curve")
+    assert dialog.metric_combo.count() == 0
+    assert "No log file found" in dialog.path_label.text()
+
+
+def test_inference_panel_has_no_training_curve_button(qapp, config):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import InferencePanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    window = QtWidgets.QMainWindow()
+    panel = InferencePanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel.set_scope(task_id, work_id)
+    assert panel.SHOW_TRAINING_CURVE is False
+    db.close()
+
+
+# --- Compare runs ---------------------------------------------------------------
+def _fake_run(run_id, model, psnr, config_yaml="", **extra):
+    row = {
+        "id": run_id, "work_id": 1, "status": "done", "server": "Server 1",
+        "gpu_indices": "2", "model": model, "dataset": "DIV2K",
+        "duration_sec": 3600, "epochs": "100", "batch_size": "8", "lr": "3e-4",
+        "optimizer": "AdamW", "metrics_json": f'{{"PSNR": {psnr}}}',
+        "extra_json": "{}", "config_yaml": config_yaml,
+    }
+    row.update(extra)
+    return row
+
+
+def test_compare_dialog_highlights_differing_fields(qapp, config):
+    from dl_exp_manager.qt import Qt
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+
+    rows = [_fake_run(1, "Restormer", 30.0, "a: 1\nb: 2\n"), _fake_run(2, "SwinIR", 32.0, "a: 1\nb: 3\n")]
+    dialog = CompareRunsDialog(rows, config, "SR")
+
+    table = dialog.findChild(QtWidgets.QTableWidget)
+    labels = [table.item(r, 0).text() for r in range(table.rowCount())]
+    assert "Model" in labels and "PSNR" in labels
+
+    model_row = labels.index("Model")
+    assert table.item(model_row, 1).text() == "Restormer"
+    assert table.item(model_row, 2).text() == "SwinIR"
+    # 값이 다른 필드(Model)는 배경이 칠해지고, 같은 필드(Optimizer)는 칠해지지 않는다
+    assert table.item(model_row, 1).background().style() != Qt.BrushStyle.NoBrush
+    optimizer_row = labels.index("Optimizer")
+    assert table.item(optimizer_row, 1).background().style() == Qt.BrushStyle.NoBrush
+
+    tabs = dialog.findChild(QtWidgets.QTabWidget)
+    assert tabs.tabText(1) == "config.yaml Diff"
+
+
+def test_compare_dialog_three_runs_shows_separate_config_tabs(qapp, config):
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+
+    rows = [_fake_run(i, f"Model{i}", 30.0 + i) for i in (1, 2, 3)]
+    dialog = CompareRunsDialog(rows, config, "SR")
+    tabs = dialog.findChild(QtWidgets.QTabWidget)
+    tab_labels = [tabs.tabText(i) for i in range(tabs.count())]
+    assert tab_labels == ["Metrics / Params", "#1 config.yaml", "#2 config.yaml", "#3 config.yaml"]
+
+
+def test_compare_selected_opens_dialog_for_two_or_three_rows(qapp, config, monkeypatch):
+    from dl_exp_manager.qt import QtCore
+
+    db, panel, run_id = _panel_with_one_run(config)
+    dup_id = db.duplicate_run("train", run_id)
+    panel.reload()
+    panel.view.selectRow(0)
+    panel.view.selectionModel().select(
+        panel.proxy.index(1, 0),
+        QtCore.QItemSelectionModel.SelectionFlag.Select | QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+
+    opened = {}
+
+    def fake_exec(self):
+        opened["columns"] = self.findChild(QtWidgets.QTableWidget).columnCount()
+        return 0
+
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+
+    monkeypatch.setattr(CompareRunsDialog, "exec", fake_exec)
+    panel.compare_selected()
+    assert opened["columns"] == 3  # Field + 2 selected runs
+    db.close()
+
+
+# --- Auto-logging: parse config.yaml + training log ---------------------------
+_TRAIN_CONFIG_YAML = """\
+network_g:
+  type: Restormer
+datasets:
+  train:
+    name: DIV2K
+    dataroot_gt: /mnt/data/DIV2K/train
+    batch_size_per_gpu: 8
+train:
+  total_iter: 300000
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+"""
+
+_TRAIN_LOG = """\
+2024-01-01 00:00:00,000 INFO: start
+2024-01-01 01:00:00,000 INFO: [iter: 1,000] l_pix: 1.0e-02
+2024-01-01 02:00:00,000 INFO: Validation
+\t # psnr: 31.5000\tBest: 31.5 @ 1000 iter
+\t # ssim: 0.9000\tBest: 0.9 @ 1000 iter
+"""
+
+
+def test_parse_result_folder_fills_train_form(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+
+    folder = tempfile.mkdtemp()
+    with open(os.path.join(folder, "config.yml"), "w") as fp:
+        fp.write(_TRAIN_CONFIG_YAML)
+    with open(os.path.join(folder, "loss.log"), "w") as fp:
+        fp.write(_TRAIN_LOG)
+    panel.result_path_edit.set_path(folder)
+
+    panel._parse_result_folder()
+
+    assert panel.model_combo.current_text() == "Restormer"
+    assert panel.dataset_combo.current_text() == "DIV2K"
+    assert panel.dataset_path_edit.path() == "/mnt/data/DIV2K/train"
+    assert panel.epochs_edit.text() == "300000"
+    assert panel.batch_edit.text() == "8"
+    assert panel.lr_edit.text() == "0.0003"
+    assert panel.optimizer_combo.current_text() == "AdamW"
+    assert panel.metrics_editor.metrics() == {"PSNR": 31.5, "SSIM": 0.9}
+    assert panel.duration_edit.text() == "02:00:00"
+    db.close()
+
+
+def test_parse_result_folder_does_not_clobber_manual_dataset_path(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+    panel.dataset_path_edit.set_path("/my/own/path")
+
+    folder = tempfile.mkdtemp()
+    with open(os.path.join(folder, "config.yml"), "w") as fp:
+        fp.write(_TRAIN_CONFIG_YAML)
+    panel.result_path_edit.set_path(folder)
+
+    panel._parse_result_folder()
+    assert panel.dataset_path_edit.path() == "/my/own/path"
     db.close()

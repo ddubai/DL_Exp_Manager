@@ -148,6 +148,68 @@ def scan_result_folder(folder: str) -> dict[str, str | None]:
     return result
 
 
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
+_IMAGE_DIRNAME_HINTS = ("visualization", "vis", "results", "val_images", "images", "samples")
+_IMAGE_NAME_HINTS = ("result", "output", "vis", "pred", "sr", "fake")
+
+
+def find_representative_image(folder: str) -> str | None:
+    """결과 폴더에서 대표로 보여줄 이미지 하나를 고른다.
+
+    바로 아래에 이미지가 있으면 그중 하나(이름에 result/output/vis 등이 있으면
+    우선, 없으면 이름순 첫 번째), 없으면 흔한 하위 폴더 한 단계만 더 본다.
+    그 이상 재귀하지 않는다 - 느려지고 어떤 게 나올지 예측하기 어려워진다.
+    """
+    if not folder or not os.path.isdir(folder):
+        return None
+
+    def pick(dir_path: str) -> str | None:
+        try:
+            entries = sorted(os.listdir(dir_path))
+        except OSError:
+            return None
+        images = [
+            os.path.join(dir_path, name)
+            for name in entries
+            if name.lower().endswith(_IMAGE_EXTS) and os.path.isfile(os.path.join(dir_path, name))
+        ]
+        if not images:
+            return None
+        for hint in _IMAGE_NAME_HINTS:
+            for image in images:
+                if hint in os.path.basename(image).lower():
+                    return image
+        return images[0]
+
+    found = pick(folder)
+    if found:
+        return found
+
+    try:
+        subdirs = sorted(
+            name for name in os.listdir(folder) if os.path.isdir(os.path.join(folder, name))
+        )
+    except OSError:
+        return None
+    for name in subdirs:
+        if name.lower() in _IMAGE_DIRNAME_HINTS:
+            found = pick(os.path.join(folder, name))
+            if found:
+                return found
+    return None
+
+
+def unified_diff_text(a: str, b: str, label_a: str, label_b: str) -> str:
+    """두 텍스트(주로 config.yaml)의 unified diff. 동일하면 빈 문자열."""
+    import difflib
+
+    lines = difflib.unified_diff(
+        (a or "").splitlines(), (b or "").splitlines(),
+        fromfile=label_a, tofile=label_b, lineterm="",
+    )
+    return "\n".join(lines)
+
+
 def tail_file(path: str, max_lines: int = 400, max_bytes: int = 512_000) -> str:
     """파일 끝부분 최대 `max_lines` 줄을 돌려준다.
 

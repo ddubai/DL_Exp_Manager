@@ -22,6 +22,7 @@ from .. import constants as C
 from .. import editing, theme
 from ..config_store import MetricDef, OptionsConfig
 from ..db import Database
+from ..log_parser import canonical_metric_name, parse_loss_log, parse_train_config
 from ..models import (
     FIELD_SPECS,
     PATH_KEYS,
@@ -60,6 +61,9 @@ from .common import (
     table_selection_to_tsv,
     toast,
 )
+from .compare_dialog import CompareRunsDialog
+from .curve_chart import CurveDialog
+from .image_viewer import ImageViewerDialog
 from .log_viewer import LogViewerDialog
 
 
@@ -161,6 +165,7 @@ class BaseRunPanel(QtWidgets.QWidget):
     DETAIL_PATHS: Sequence[tuple[str, str]] = ()
     SAMPLE_COMMAND: str = ""
     SHOW_SERVER_GPU: bool = True
+    SHOW_TRAINING_CURVE: bool = True
 
     runsChanged = Signal()
     configChanged = Signal()
@@ -259,6 +264,11 @@ class BaseRunPanel(QtWidgets.QWidget):
         dup_btn.setToolTip("Duplicate the selected run with the same settings (status becomes queued).")
         dup_btn.clicked.connect(self.duplicate_selected)
 
+        compare_btn = QtWidgets.QToolButton(container)
+        compare_btn.setText("⇄ Compare")
+        compare_btn.setToolTip("Compare 2-3 selected runs side by side (Ctrl/Cmd-click rows).")
+        compare_btn.clicked.connect(self.compare_selected)
+
         del_btn = QtWidgets.QToolButton(container)
         del_btn.setText("🗑 Delete")
         del_btn.clicked.connect(self.delete_selected)
@@ -274,6 +284,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         toolbar.addWidget(export_btn)
         toolbar.addWidget(copy_btn)
         toolbar.addWidget(dup_btn)
+        toolbar.addWidget(compare_btn)
         toolbar.addWidget(del_btn)
 
         self.view = QtWidgets.QTableView(container)
@@ -379,6 +390,10 @@ class BaseRunPanel(QtWidgets.QWidget):
         log_btn.setToolTip("Show the last lines of this run's log file (from its result folder).")
         log_btn.clicked.connect(self.view_log)
 
+        image_btn = QtWidgets.QPushButton("🖼 View Image", container)
+        image_btn.setToolTip("Show one representative image from this run's result folder.")
+        image_btn.clicked.connect(self.view_image)
+
         edit_btn = QtWidgets.QPushButton("✎ Edit This Run", container)
         edit_btn.clicked.connect(self.open_edit_dialog)
 
@@ -386,6 +401,12 @@ class BaseRunPanel(QtWidgets.QWidget):
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.addWidget(self.detail_favorite_btn)
         action_row.addWidget(log_btn)
+        action_row.addWidget(image_btn)
+        if self.SHOW_TRAINING_CURVE:
+            curve_btn = QtWidgets.QPushButton("📈 Training Curve", container)
+            curve_btn.setToolTip("Parse the result folder's log and plot a metric over iterations.")
+            curve_btn.clicked.connect(self.view_curve)
+            action_row.addWidget(curve_btn)
         action_row.addWidget(edit_btn, 1)
 
         layout = QtWidgets.QVBoxLayout(container)
@@ -427,6 +448,41 @@ class BaseRunPanel(QtWidgets.QWidget):
             self,
             title=f"Log · Run #{row.get('id')}",
         )
+        dialog.exec()
+
+    def view_image(self) -> None:
+        row = self._current_row()
+        if row is None:
+            toast(self, False, "Select a run first.", "View Image")
+            return
+        dialog = ImageViewerDialog(
+            str(row.get("result_path") or ""),
+            self,
+            title=f"Image · Run #{row.get('id')}",
+        )
+        dialog.exec()
+
+    def view_curve(self) -> None:
+        row = self._current_row()
+        if row is None:
+            toast(self, False, "Select a run first.", "Training Curve")
+            return
+        dialog = CurveDialog(
+            str(row.get("result_path") or ""),
+            self,
+            title=f"Training Curve · Run #{row.get('id')}",
+        )
+        dialog.exec()
+
+    def compare_selected(self) -> None:
+        rows = self._selected_rows()
+        if len(rows) < 2:
+            toast(self, False, "Select 2-3 runs to compare (Ctrl/Cmd-click rows).", "Compare")
+            return
+        if len(rows) > 3:
+            toast(self, False, "Pick at most 3 runs to compare.", "Compare")
+            return
+        dialog = CompareRunsDialog(rows, self.config, self._task_name, self)
         dialog.exec()
 
     def _show_form_dialog(self) -> None:
@@ -515,9 +571,22 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.dataset_path_edit = PathEdit(inner, "/mnt/data/DIV2K/train", compact=True)
         self.result_path_edit = PathEdit(inner, "/mnt/exp/SSL2SL/restormer_x4", compact=True)
         self.result_path_edit.folderDropped.connect(self._on_result_folder_dropped)
+        parse_btn = QtWidgets.QToolButton(inner)
+        parse_btn.setText("⇪ Parse")
+        parse_btn.setToolTip(
+            "Read config.yaml + the training log in Result Folder Path and fill in "
+            "Model/Dataset/hyperparameters/Metrics/Duration automatically."
+        )
+        parse_btn.clicked.connect(self._parse_result_folder)
+        result_path_row = QtWidgets.QWidget(inner)
+        result_path_layout = QtWidgets.QHBoxLayout(result_path_row)
+        result_path_layout.setContentsMargins(0, 0, 0, 0)
+        result_path_layout.setSpacing(4)
+        result_path_layout.addWidget(self.result_path_edit, 1)
+        result_path_layout.addWidget(parse_btn)
         self.form_layout.addRow(self._section("Paths", inner))
         self.form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
-        self.form_layout.addRow("Result Folder Path:", self.result_path_edit)
+        self.form_layout.addRow("Result Folder Path:", result_path_row)
 
         # -- Metrics -----------------------------------------------------------
         self.metrics_editor = MetricsEditor(
@@ -678,29 +747,87 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _on_result_folder_dropped(self, path: str) -> None:
         """A folder was dragged onto the Result Folder Path field (#9).
 
-        Fills the path (already done by PathEdit itself) and, as a bonus,
-        looks for a config.yml/log file directly inside it - drop the whole
+        Fills the path (already done by PathEdit itself) and parses it the
+        same way the explicit "⇪ Parse" button does - drop the whole
         experiment folder and the boring part fills itself in.
         """
+        self._parse_result_folder(path)
+
+    def _parse_result_folder(self, path: str | None = None) -> None:
+        """train.py's config.yaml + training log -> auto-fill the form.
+
+        This is the "자동 로깅" entry point: read config.yaml (model/dataset/
+        hyperparameters) and the training log (latest validation metrics +
+        elapsed time) from the Result Folder Path and fill in the matching
+        fields. Never overwrites text the user already typed into raw areas
+        (config.yml paste box, Dataset Path, Duration) - safe to re-run.
+        """
+        path = path if path is not None else self.result_path_edit.path()
+        if not path:
+            toast(self, False, "Set Result Folder Path first.", "Parse Config + Log")
+            return
         found = scan_result_folder(path)
-        notes = [f"Result folder set: {os.path.basename(path) or path}"]
+        filled: list[str] = []
 
         config_path = found.get("config")
-        if config_path and not self.config_input.text().strip():
-            try:
-                with open(config_path, "r", encoding="utf-8") as fp:
-                    self.config_input.set_text(fp.read())
-                notes.append(f"loaded {os.path.basename(config_path)}")
-            except OSError:
-                pass
-        elif config_path:
-            notes.append(f"found {os.path.basename(config_path)} (config already has content)")
+        if config_path:
+            fields = parse_train_config(config_path)
+            if fields.get("model"):
+                self.model_combo.set_text(fields["model"])
+                filled.append("Model")
+            if fields.get("dataset"):
+                self.dataset_combo.set_text(fields["dataset"])
+                filled.append("Dataset")
+            if fields.get("dataset_path") and not self.dataset_path_edit.path():
+                self.dataset_path_edit.set_path(fields["dataset_path"])
+                filled.append("Dataset Path")
+            self._apply_parsed_hyperparams(fields, filled)
+            for key, combo in self._custom_widgets.items():
+                if fields.get(key):
+                    combo.set_text(fields[key])
+                    filled.append(key)
+            if not self.config_input.text().strip():
+                try:
+                    with open(config_path, "r", encoding="utf-8") as fp:
+                        self.config_input.set_text(fp.read())
+                    filled.append("config.yml text")
+                except OSError:
+                    pass
 
         log_path = found.get("log")
         if log_path:
-            notes.append(f"found {os.path.basename(log_path)}")
+            log_result = parse_loss_log(log_path)
+            if log_result.latest_metrics:
+                self._apply_parsed_metrics(log_result.latest_metrics)
+                filled.append("Metrics")
+            if log_result.duration_sec and not self.duration_edit.text().strip():
+                self.duration_edit.setText(format_duration(log_result.duration_sec))
+                filled.append("Duration")
 
-        toast(self, True, " · ".join(notes))
+        if filled:
+            toast(self, True, "Parsed from result folder: " + ", ".join(filled), "Parse Config + Log")
+        else:
+            # 정보성일 뿐 사용자 실수가 아니므로(예: 아직 config/log 가 없는 폴더) - 경고 팝업 대신
+            # 상태바 메시지로 조용히 알린다.
+            toast(
+                self,
+                True,
+                "No config.yaml/log recognized in that folder (or nothing new to fill in).",
+                "Parse Config + Log",
+            )
+
+    def _apply_parsed_hyperparams(self, fields: dict[str, str], filled: list[str]) -> None:
+        """Subclasses fill their own hyperparameter fields here (Train: epochs/batch/lr/optimizer)."""
+
+    def _apply_parsed_metrics(self, metrics: dict[str, float]) -> None:
+        known = (
+            {key.lower(): key for key in self.config.metric_keys(self._task_name)}
+            if self._task_name
+            else {}
+        )
+        for raw_key, value in metrics.items():
+            display_key = known.get(raw_key.lower()) or canonical_metric_name(raw_key)
+            self.metrics_editor.set_value(display_key, value)
 
     # ==================================================================
     # Scope / loading
@@ -957,10 +1084,14 @@ class BaseRunPanel(QtWidgets.QWidget):
             menu.addAction("Copy config.yml", lambda: copy_to_clipboard(row.get("config_yaml") or "", self, "config.yml"))
             menu.addSeparator()
             menu.addAction("📄 View Log", self.view_log)
+            menu.addAction("🖼 View Image", self.view_image)
+            if self.SHOW_TRAINING_CURVE:
+                menu.addAction("📈 Training Curve", self.view_curve)
             menu.addAction("✎ Edit This Run", self.open_edit_dialog)
             menu.addAction("⎘ Duplicate", self.duplicate_selected)
             menu.addSeparator()
 
+        menu.addAction("⇄ Compare Selected (2-3)", self.compare_selected)
         menu.addAction("Copy Selected Rows (TSV)", lambda: self.copy_table(selected_only=True))
         menu.addAction("Export Entire Table to CSV", self.export_csv)
         menu.addAction("Export Report (Markdown/HTML)", self.export_report)
@@ -1595,6 +1726,20 @@ class TrainPanel(BaseRunPanel):
         self.optimizer_combo.reload()
         self.optimizer_combo.merge_items(self.db.distinct_values("train", "optimizer", self._task_id))
 
+    def _apply_parsed_hyperparams(self, fields: dict[str, str], filled: list[str]) -> None:
+        if fields.get("epochs"):
+            self.epochs_edit.setText(fields["epochs"])
+            filled.append("Epochs/Iter")
+        if fields.get("batch_size"):
+            self.batch_edit.setText(fields["batch_size"])
+            filled.append("Batch size")
+        if fields.get("lr"):
+            self.lr_edit.setText(fields["lr"])
+            filled.append("LR")
+        if fields.get("optimizer"):
+            self.optimizer_combo.set_text(fields["optimizer"])
+            filled.append("Optimizer")
+
     def _reset_extra_fields(self) -> None:
         self.epochs_edit.clear()
         self.batch_edit.clear()
@@ -1623,6 +1768,7 @@ class InferencePanel(BaseRunPanel):
     SAMPLE_COMMAND = C.SAMPLE_INFER_CMD
     METRIC_PRESETS = C.INFER_METRIC_PRESETS
     SHOW_SERVER_GPU = False  # 추론은 서버/GPU 를 굳이 안 골라도 된다 - Train run + epoch 이 핵심
+    SHOW_TRAINING_CURVE = False  # 학습 곡선은 loss.log 기반 - 추론에는 해당 없음
     DETAIL_PATHS = (
         ("checkpoint_path", "Checkpoint Path"),
         ("dataset_path", "Test Dataset Path"),
