@@ -9,15 +9,18 @@
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
+import shutil
 import sqlite3
+from datetime import datetime
 from typing import Any, Iterable, Sequence
 
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -108,7 +111,7 @@ TRAIN_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "dataset", "dataset_path", "result_path",
     "status", "started_at", "duration_sec", "epochs", "batch_size", "lr",
     "optimizer", "gpu_indices", "extra_json", "metrics_json", "exec_command",
-    "config_yaml", "notes",
+    "config_yaml", "notes", "favorite", "tags", "failure_reason",
 )
 
 INFER_FIELDS: tuple[str, ...] = (
@@ -116,6 +119,7 @@ INFER_FIELDS: tuple[str, ...] = (
     "result_path", "device", "input_size", "latency_ms", "throughput_fps",
     "status", "started_at", "duration_sec", "gpu_indices", "extra_json",
     "metrics_json", "exec_command", "config_yaml", "notes",
+    "favorite", "tags", "failure_reason",
 )
 
 # v1 -> v2 에서 추가된 컬럼. (테이블, 컬럼, 정의)
@@ -124,6 +128,16 @@ _V2_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("train_runs", "extra_json", "TEXT DEFAULT '{}'"),
     ("inference_runs", "gpu_indices", "TEXT DEFAULT ''"),
     ("inference_runs", "extra_json", "TEXT DEFAULT '{}'"),
+)
+
+# v2 -> v3: 즐겨찾기 / 태그 / 실패 사유
+_V3_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("train_runs", "favorite", "INTEGER DEFAULT 0"),
+    ("train_runs", "tags", "TEXT DEFAULT ''"),
+    ("train_runs", "failure_reason", "TEXT DEFAULT ''"),
+    ("inference_runs", "favorite", "INTEGER DEFAULT 0"),
+    ("inference_runs", "tags", "TEXT DEFAULT ''"),
+    ("inference_runs", "failure_reason", "TEXT DEFAULT ''"),
 )
 
 
@@ -160,7 +174,7 @@ class Database:
         """기존 DB 를 현재 스키마로 올린다. 몇 번 실행해도 안전하다."""
         current = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
         with self.conn:
-            for table, column, definition in _V2_COLUMNS:
+            for table, column, definition in _V2_COLUMNS + _V3_COLUMNS:
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -408,6 +422,19 @@ class Database:
         cur = self._exec(f"DELETE FROM {table} WHERE id IN ({placeholders})", ids)
         return cur.rowcount
 
+    def toggle_favorite(self, kind: str, run_id: int) -> bool:
+        """즐겨찾기를 뒤집고 새 상태를 돌려준다."""
+        table = self._table(kind)
+        row = self.conn.execute(f"SELECT favorite FROM {table} WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            return False
+        new_value = 0 if row["favorite"] else 1
+        self._exec(
+            f"UPDATE {table} SET favorite = ?, updated_at = ? WHERE id = ?",
+            (new_value, now_iso(), run_id),
+        )
+        return bool(new_value)
+
     def duplicate_run(self, kind: str, run_id: int) -> int | None:
         row = self.get_run(kind, run_id)
         if row is None:
@@ -416,6 +443,7 @@ class Database:
         row["notes"] = (row.get("notes") or "").strip()
         row["notes"] = (row["notes"] + "\n(copy)").strip()
         row["status"] = C.STATUS_QUEUED
+        row["favorite"] = 0
         return self.insert_run(kind, row)
 
     @staticmethod
@@ -425,6 +453,9 @@ class Database:
         numeric = {"duration_sec", "latency_ms", "throughput_fps"}
         for field in fields:
             value = data.get(field)
+            if field == "favorite":
+                out[field] = 1 if value in (True, 1, "1", "true", "True") else 0
+                continue
             if field == "extra_json":
                 if isinstance(value, dict):
                     value = json.dumps(
@@ -517,6 +548,54 @@ class Database:
             ),
         }
 
+    # -- 백업 ---------------------------------------------------------------
+    BACKUP_DIRNAME = "backups"
+    BACKUP_SUFFIX = ".bak.db"
+
+    def backup(self, keep: int = 5) -> str | None:
+        """DB 파일을 옆 폴더에 타임스탬프로 복사하고, 오래된 백업은 지워 `keep` 개만 남긴다.
+
+        SQLite 파일 하나에 모든 기록이 들어 있으므로 실수 한 번(잘못된 삭제, 깨진 편집)에
+        전부 잃을 수 있다. 종료 시점마다 스냅샷을 남겨 두면 최소한의 보험이 된다.
+        WAL 모드라 커밋된 내용을 그대로 복사하면 되고, 복사 전에 체크포인트로 -wal 을
+        메인 파일에 합쳐 둔다.
+        """
+        if not os.path.exists(self.path):
+            return None
+        try:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+
+        backup_dir = os.path.join(os.path.dirname(self.path), self.BACKUP_DIRNAME)
+        os.makedirs(backup_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(self.path))[0]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = os.path.join(backup_dir, f"{stem}_{timestamp}{self.BACKUP_SUFFIX}")
+
+        try:
+            shutil.copy2(self.path, dest)
+        except OSError:
+            return None
+
+        self._prune_backups(backup_dir, stem, keep)
+        return dest
+
+    def _prune_backups(self, backup_dir: str, stem: str, keep: int) -> None:
+        pattern = os.path.join(backup_dir, f"{stem}_*{self.BACKUP_SUFFIX}")
+        existing = sorted(glob.glob(pattern))  # 타임스탬프가 이름에 있어 사전순 = 시간순
+        for old in existing[:-keep] if keep > 0 else existing:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+
+    def list_backups(self) -> list[str]:
+        backup_dir = os.path.join(os.path.dirname(self.path), self.BACKUP_DIRNAME)
+        stem = os.path.splitext(os.path.basename(self.path))[0]
+        pattern = os.path.join(backup_dir, f"{stem}_*{self.BACKUP_SUFFIX}")
+        return sorted(glob.glob(pattern), reverse=True)
+
     def distinct_values(
         self, kind: str, column: str, task_id: int | None = None
     ) -> list[str]:
@@ -541,3 +620,39 @@ class Database:
             sql += " WHERE"
         sql += f" r.{column} IS NOT NULL AND r.{column} != '' ORDER BY r.{column} COLLATE NOCASE"
         return [row[0] for row in self.conn.execute(sql, params).fetchall()]
+
+    # -- 전역 검색 -------------------------------------------------------------
+    _SEARCH_COLUMNS: dict[str, tuple[str, ...]] = {
+        "train_runs": (
+            "server", "model", "dataset", "dataset_path", "result_path",
+            "notes", "tags", "failure_reason", "exec_command",
+        ),
+        "inference_runs": (
+            "server", "model", "checkpoint_path", "dataset", "dataset_path",
+            "result_path", "notes", "tags", "failure_reason", "exec_command",
+        ),
+    }
+
+    def search_runs(self, text: str, limit: int = 200) -> list[dict[str, Any]]:
+        """Task/Work 이름과 실행의 여러 컬럼을 가로질러 부분일치 검색한다."""
+        needle = f"%{text.strip()}%"
+        if needle == "%%":
+            return []
+        out: list[dict[str, Any]] = []
+        for table, columns in self._SEARCH_COLUMNS.items():
+            kind = "train" if table == "train_runs" else "inference"
+            where = " OR ".join(f"r.{c} LIKE ?" for c in columns)
+            where += " OR t.name LIKE ? OR w.name LIKE ?"
+            sql = (
+                f"SELECT r.*, w.name AS work_name, t.name AS task_name, t.id AS task_id, "
+                f"'{kind}' AS kind "
+                f"FROM {table} r "
+                f"JOIN works w ON w.id = r.work_id "
+                f"JOIN tasks t ON t.id = w.task_id "
+                f"WHERE {where} "
+                f"ORDER BY r.id DESC LIMIT ?"
+            )
+            params = [needle] * len(columns) + [needle, needle, limit]
+            out.extend(self._rows(self.conn.execute(sql, params)))
+        out.sort(key=lambda r: r.get("updated_at") or "", reverse=True)
+        return out[:limit]

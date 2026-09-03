@@ -160,7 +160,9 @@ def test_v1_database_migrates_and_keeps_data():
 
     db = Database(path, seed=False)
     assert db.migrated_from == 1
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    from dl_exp_manager.db import SCHEMA_VERSION
+
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
     rows = db.list_train_runs()
     assert len(rows) == 1
@@ -226,3 +228,209 @@ def test_bulk_rename_updates_both_tables():
     assert db.count_runs_using("model", "Old") == 0
     assert db.count_runs_using("model", "New") == 2
     db.close()
+
+
+# --- v3: favorites / tags / failure_reason ---------------------------------
+def test_v3_columns_present_and_default():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    work_id = db.add_work(db.add_task("SR"), "W")
+    run_id = db.insert_run("train", {"work_id": work_id, "model": "M"})
+    row = db.get_run("train", run_id)
+    assert row["favorite"] == 0
+    assert row["tags"] == ""
+    assert row["failure_reason"] == ""
+    db.close()
+
+
+def test_toggle_favorite_round_trips():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    work_id = db.add_work(db.add_task("SR"), "W")
+    run_id = db.insert_run("train", {"work_id": work_id, "model": "M"})
+    assert db.toggle_favorite("train", run_id) is True
+    assert db.get_run("train", run_id)["favorite"] == 1
+    assert db.toggle_favorite("train", run_id) is False
+    assert db.get_run("train", run_id)["favorite"] == 0
+    assert db.toggle_favorite("train", 99999) is False
+    db.close()
+
+
+def test_duplicate_resets_favorite_but_keeps_tags():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    work_id = db.add_work(db.add_task("SR"), "W")
+    run_id = db.insert_run(
+        "train", {"work_id": work_id, "model": "M", "tags": "keep-me", "favorite": True}
+    )
+    dup_id = db.duplicate_run("train", run_id)
+    dup = db.get_run("train", dup_id)
+    assert dup["favorite"] == 0
+    assert dup["tags"] == "keep-me"
+    db.close()
+
+
+def test_search_runs_matches_notes_tags_and_names():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    work_id = db.add_work(db.add_task("SR"), "SSL2SL")
+    db.insert_run("train", {"work_id": work_id, "model": "Restormer", "notes": "OOM crash here"})
+    db.insert_run("train", {"work_id": work_id, "model": "SwinIR", "tags": "paper-final"})
+    db.insert_run("inference", {"work_id": work_id, "model": "NAFNet", "checkpoint_path": "/mnt/x/net.pth"})
+
+    assert {r["model"] for r in db.search_runs("OOM")} == {"Restormer"}
+    assert {r["model"] for r in db.search_runs("paper-final")} == {"SwinIR"}
+    assert {r["model"] for r in db.search_runs("SSL2SL")} == {"Restormer", "SwinIR", "NAFNet"}
+    assert {r["model"] for r in db.search_runs("net.pth")} == {"NAFNet"}
+    assert db.search_runs("   ") == []
+    db.close()
+
+
+def test_search_runs_marks_kind():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    work_id = db.add_work(db.add_task("SR"), "W")
+    db.insert_run("train", {"work_id": work_id, "model": "FindMe"})
+    db.insert_run("inference", {"work_id": work_id, "model": "FindMe"})
+    results = db.search_runs("FindMe")
+    assert {r["kind"] for r in results} == {"train", "inference"}
+    db.close()
+
+
+# --- backup ------------------------------------------------------------------
+def test_backup_creates_file_and_prunes():
+    import time
+
+    from dl_exp_manager.db import Database
+
+    d = tempfile.mkdtemp()
+    db = Database(os.path.join(d, "e.db"))
+    paths = []
+    for _ in range(4):
+        p = db.backup(keep=2)
+        assert p is not None and os.path.exists(p)
+        paths.append(p)
+        time.sleep(1.01)  # timestamp filename has second resolution
+    assert len(db.list_backups()) == 2
+    # the two survivors are the most recent
+    assert set(db.list_backups()) == set(sorted(paths)[-2:])
+    db.close()
+
+
+def test_backup_keep_zero_removes_all():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    db.backup(keep=0)
+    assert db.list_backups() == []
+    db.close()
+
+
+def test_backup_missing_db_file_returns_none():
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    os.remove(db.path)
+    assert db.backup() is None
+    db.close()
+
+
+# --- #1 Best-value highlight & #4 Path existence badge -----------------------
+def test_best_value_highlight_respects_higher_is_better(qapp, config):
+    from dl_exp_manager.models import RunTableModel, build_columns
+    from dl_exp_manager.qt import Qt
+
+    rows = [
+        dict(SAMPLE_ROW, id=1, work_id=10, metrics_json='{"PSNR": 30.0, "LPIPS": 0.20}'),
+        dict(SAMPLE_ROW, id=2, work_id=10, metrics_json='{"PSNR": 32.0, "LPIPS": 0.05}'),
+    ]
+    model = RunTableModel()
+    model.set_content(rows, build_columns(config, "SR", "train"))
+    psnr_col = model.column_index("metric:PSNR")
+    lpips_col = model.column_index("metric:LPIPS")
+
+    # PSNR: higher is better -> row 1 (32.0) wins
+    assert model.data(model.index(0, psnr_col), Qt.ItemDataRole.FontRole) is None
+    assert model.data(model.index(1, psnr_col), Qt.ItemDataRole.FontRole) is not None
+    # LPIPS: lower is better -> row 1 (0.05) wins
+    assert model.data(model.index(0, lpips_col), Qt.ItemDataRole.FontRole) is None
+    assert model.data(model.index(1, lpips_col), Qt.ItemDataRole.FontRole) is not None
+
+
+def test_best_value_not_highlighted_for_lone_row_in_work(qapp, config):
+    """A Work with only one run has nothing to compare against."""
+    from dl_exp_manager.models import RunTableModel, build_columns
+    from dl_exp_manager.qt import Qt
+
+    rows = [
+        dict(SAMPLE_ROW, id=1, work_id=10, metrics_json='{"PSNR": 30.0}'),
+        dict(SAMPLE_ROW, id=2, work_id=20, metrics_json='{"PSNR": 999.0}'),  # different Work, alone
+    ]
+    model = RunTableModel()
+    model.set_content(rows, build_columns(config, "SR", "train"))
+    col = model.column_index("metric:PSNR")
+    assert model.data(model.index(1, col), Qt.ItemDataRole.FontRole) is None
+
+
+def test_best_value_grouped_per_work_not_globally(qapp, config):
+    """Two different Works shouldn't have their metrics compared against each other."""
+    from dl_exp_manager.models import RunTableModel, build_columns
+    from dl_exp_manager.qt import Qt
+
+    rows = [
+        dict(SAMPLE_ROW, id=1, work_id=10, metrics_json='{"PSNR": 30.0}'),
+        dict(SAMPLE_ROW, id=2, work_id=10, metrics_json='{"PSNR": 28.0}'),
+        dict(SAMPLE_ROW, id=3, work_id=20, metrics_json='{"PSNR": 10.0}'),
+        dict(SAMPLE_ROW, id=4, work_id=20, metrics_json='{"PSNR": 5.0}'),
+    ]
+    model = RunTableModel()
+    model.set_content(rows, build_columns(config, "SR", "train"))
+    col = model.column_index("metric:PSNR")
+    best = [
+        model.data(model.index(r, col), Qt.ItemDataRole.FontRole) is not None
+        for r in range(4)
+    ]
+    assert best == [True, False, True, False]  # winner in each Work, not overall
+
+
+def test_path_badge_flags_missing_path(qapp, config):
+    from dl_exp_manager.models import RunTableModel, build_columns
+    from dl_exp_manager.qt import Qt
+
+    row = dict(SAMPLE_ROW, result_path="/definitely/does/not/exist/xyz")
+    model = RunTableModel()
+    model.set_content([row], build_columns(config, "SR", "train"))
+    col = model.column_index("result_path")
+    color = model.data(model.index(0, col), Qt.ItemDataRole.ForegroundRole)
+    tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
+    assert color is not None
+    assert "not reachable" in tooltip
+
+
+def test_path_badge_does_not_flag_existing_path(qapp, config):
+    from dl_exp_manager.models import RunTableModel, build_columns
+    from dl_exp_manager.qt import Qt
+
+    row = dict(SAMPLE_ROW, result_path="/tmp")
+    model = RunTableModel()
+    model.set_content([row], build_columns(config, "SR", "train"))
+    col = model.column_index("result_path")
+    tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
+    assert "not reachable" not in tooltip
+
+
+def test_path_badge_ignores_empty_path(qapp, config):
+    from dl_exp_manager.models import RunTableModel, build_columns
+    from dl_exp_manager.qt import Qt
+
+    row = dict(SAMPLE_ROW, result_path="")
+    model = RunTableModel()
+    model.set_content([row], build_columns(config, "SR", "train"))
+    col = model.column_index("result_path")
+    tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
+    assert tooltip == "(no path set)"

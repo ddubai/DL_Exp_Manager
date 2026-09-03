@@ -11,6 +11,9 @@ env/
 # 로컬 실험 DB / 내보내기 결과
 experiments.db
 experiments.db-journal
+experiments.db-wal
+experiments.db-shm
+backups/
 *.sqlite
 exports/
 

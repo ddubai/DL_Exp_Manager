@@ -377,5 +377,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.setValue("window/splitter", self.splitter.saveState())
         self.settings.setValue("window/tab", self.tabs.currentIndex())
+        # 단일 SQLite 파일이 실험 전체 기록이므로, 종료 시점 스냅샷을 남겨 둔다
+        # (실수로 지우거나 편집을 잘못했을 때의 최소한의 보험).
+        self.db.backup(keep=5)
         self.db.close()
         super().closeEvent(event)

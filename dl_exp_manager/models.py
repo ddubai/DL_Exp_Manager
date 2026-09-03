@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -100,6 +101,10 @@ TRAILING_COLUMNS: tuple[str, ...] = ("notes",)
 
 PATH_KEYS = {"dataset_path", "result_path", "checkpoint_path"}
 
+# 어떤 지표가 Work 안에서 최고값인지 표시할 때 그룹 크기가 최소 이 이상이어야 한다.
+# (행 1개짜리 Work 에서 "최고값" 강조는 의미가 없다.)
+_MIN_GROUP_FOR_BEST = 2
+
 
 def format_metric(value: Any, metric: MetricDef | None) -> str:
     """지표 정의의 자릿수/단위를 반영해 표시 문자열을 만든다."""
@@ -179,12 +184,14 @@ class RunTableModel(QtCore.QAbstractTableModel):
         self._columns: list[ColumnSpec] = []
         self._rows: list[dict[str, Any]] = []
         self._labels: dict[str, str] = {}  # 사용자가 바꾼 헤더 표시명
+        self._best: dict[tuple[Any, str], float] = {}  # (work_id, column key) -> 최고값
 
     # -- 데이터 주입 --------------------------------------------------------
     def set_content(self, rows: Sequence[dict[str, Any]], columns: Sequence[ColumnSpec]) -> None:
         self.beginResetModel()
         self._rows = [self._prepare(dict(r)) for r in rows]
         self._columns = list(columns)
+        self._compute_best()
         self.endResetModel()
 
     @staticmethod
@@ -195,7 +202,46 @@ class RunTableModel(QtCore.QAbstractTableModel):
         except (TypeError, ValueError):
             extra = {}
         row["_extra"] = extra if isinstance(extra, dict) else {}
+        # 경로 존재 여부는 파일시스템 접근이 필요하므로 페인트할 때마다가 아니라
+        # 한 번(행을 불러올 때) 만 확인해 둔다.
+        row["_path_exists"] = {
+            key: (os.path.exists(row[key]) if row.get(key) else None)
+            for key in PATH_KEYS
+            if key in row
+        }
         return row
+
+    def _compute_best(self) -> None:
+        """Work 별로 지표 컬럼의 최고값을 찾아 둔다 (셀 강조용)."""
+        self._best = {}
+        for spec in self._columns:
+            if not spec.is_metric:
+                continue
+            higher_is_better = spec.metric.higher_is_better if spec.metric else True
+            groups: dict[Any, list[float]] = {}
+            for row in self._rows:
+                value = row["_metrics"].get(spec.source_name)
+                if value in (None, ""):
+                    continue
+                try:
+                    groups.setdefault(row.get("work_id"), []).append(float(value))
+                except (TypeError, ValueError):
+                    continue
+            for work_id, values in groups.items():
+                if len(values) < _MIN_GROUP_FOR_BEST:
+                    continue
+                self._best[(work_id, spec.key)] = max(values) if higher_is_better else min(values)
+
+    def _is_best(self, row: dict[str, Any], spec: "ColumnSpec") -> bool:
+        if not spec.is_metric:
+            return False
+        best = self._best.get((row.get("work_id"), spec.key))
+        if best is None:
+            return False
+        try:
+            return abs(float(row["_metrics"].get(spec.source_name)) - best) < 1e-9
+        except (TypeError, ValueError):
+            return False
 
     @staticmethod
     def metric_keys_in(rows: Sequence[dict[str, Any]]) -> list[str]:
@@ -289,8 +335,18 @@ class RunTableModel(QtCore.QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if spec.kind == "status":
                 return QtGui.QBrush(QtGui.QColor(theme.status_color(str(row.get("status") or ""))))
-            if spec.kind == "path" and not str(self._raw(row, spec) or ""):
-                return QtGui.QBrush(QtGui.QColor(theme.color("text.disabled")))
+            if spec.kind == "path":
+                raw_value = str(self._raw(row, spec) or "")
+                if not raw_value:
+                    return QtGui.QBrush(QtGui.QColor(theme.color("text.disabled")))
+                if row.get("_path_exists", {}).get(spec.key) is False:
+                    return QtGui.QBrush(QtGui.QColor(theme.color("warning")))
+            if self._is_best(row, spec):
+                return QtGui.QBrush(QtGui.QColor(theme.color("metric.best")))
+        if role == Qt.ItemDataRole.FontRole and self._is_best(row, spec):
+            font = QtGui.QFont()
+            font.setBold(True)
+            return font
         return None
 
     # -- 값 변환 ------------------------------------------------------------
@@ -351,12 +407,22 @@ class RunTableModel(QtCore.QAbstractTableModel):
     def _tooltip(self, row: dict[str, Any], spec: ColumnSpec) -> str:
         value = self._display(row, spec)
         if spec.kind == "path":
-            return f"{value}\n\nDouble-click or right-click → Open Folder" if value else "(no path set)"
+            if not value:
+                return "(no path set)"
+            note = ""
+            if row.get("_path_exists", {}).get(spec.key) is False:
+                note = (
+                    "\n\n⚠ This path is not reachable from this machine right now"
+                    " (not mounted, or removed on the server)."
+                )
+            return f"{value}{note}\n\nDouble-click or right-click → Open Folder"
         if spec.kind == "gpus":
             server = row.get("server") or "-"
             return f"{server} · {value or 'no GPU set'}"
         if spec.key == "notes":
             return str(row.get("notes") or "")
+        if self._is_best(row, spec):
+            return f"{value}\n\n★ Best in this Work"
         return value
 
     # -- 내보내기용 ---------------------------------------------------------
