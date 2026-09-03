@@ -417,6 +417,13 @@ class NavigationPanel(QtWidgets.QWidget):
             path_label.setFont(monospace_font(-1))
             path_label.setStyleSheet(f"color: {theme.color('text.muted')}; font-size: 10.5px;")
             outer.addWidget(path_label)
+
+        meta_bits = [b for b in (dataset.get("image_size"), dataset.get("extension")) if b]
+        if meta_bits:
+            meta_label = QtWidgets.QLabel(" · ".join(meta_bits), row)
+            meta_label.setFont(monospace_font(-1))
+            meta_label.setStyleSheet(f"color: {theme.color('text.muted')}; font-size: 10.5px;")
+            outer.addWidget(meta_label)
         return row
 
     def _add_dataset(self) -> None:
@@ -425,20 +432,20 @@ class NavigationPanel(QtWidgets.QWidget):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
         if not name:
             return
-        self.db.add_dataset(self._work_id, name, variant, path, notes, sample_count)
+        self.db.add_dataset(self._work_id, name, variant, path, notes, sample_count, image_size, extension)
         self._render()
 
     def _edit_dataset(self, dataset: dict[str, Any]) -> None:
         dialog = DatasetEditDialog(self, dataset)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
         if not name:
             return
-        self.db.update_dataset(dataset["id"], name, variant, path, notes, sample_count)
+        self.db.update_dataset(dataset["id"], name, variant, path, notes, sample_count, image_size, extension)
         self._render()
 
     def _delete_dataset(self, dataset: dict[str, Any]) -> None:

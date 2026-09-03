@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS datasets (
     variant       TEXT    DEFAULT '',           -- e.g. "Full Pair" / "Subset A" (blank = default)
     path          TEXT    DEFAULT '',           -- registered location
     sample_count  INTEGER,                      -- 총 데이터 개수 (모르면 NULL)
+    image_size    TEXT    DEFAULT '',           -- e.g. "256x256"
+    extension     TEXT    DEFAULT '',           -- e.g. "png", "tiff"
     notes         TEXT    DEFAULT '',
     created_at    TEXT    NOT NULL,
     updated_at    TEXT    NOT NULL,
@@ -176,6 +178,12 @@ _V5_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("datasets", "sample_count", "INTEGER"),
 )
 
+# v5 -> v6: 데이터셋 레지스트리에 이미지 크기 / 확장자
+_V6_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("datasets", "image_size", "TEXT DEFAULT ''"),
+    ("datasets", "extension", "TEXT DEFAULT ''"),
+)
+
 
 def default_db_path() -> str:
     """기본 DB 경로: 프로젝트 루트의 experiments.db"""
@@ -210,7 +218,9 @@ class Database:
         """기존 DB 를 현재 스키마로 올린다. 몇 번 실행해도 안전하다."""
         current = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
         with self.conn:
-            for table, column, definition in _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS + _V5_COLUMNS:
+            for table, column, definition in (
+                _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS + _V5_COLUMNS + _V6_COLUMNS
+            ):
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -402,6 +412,8 @@ class Database:
         path: str = "",
         notes: str = "",
         sample_count: int | None = None,
+        image_size: str = "",
+        extension: str = "",
     ) -> int | None:
         name = name.strip()
         if not name:
@@ -409,9 +421,12 @@ class Database:
         ts = now_iso()
         try:
             cur = self._exec(
-                "INSERT INTO datasets(work_id, name, variant, path, sample_count, notes, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (work_id, name, variant.strip(), path.strip(), sample_count, notes.strip(), ts, ts),
+                "INSERT INTO datasets(work_id, name, variant, path, sample_count, image_size, "
+                "extension, notes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    work_id, name, variant.strip(), path.strip(), sample_count,
+                    image_size.strip(), extension.strip(), notes.strip(), ts, ts,
+                ),
             )
         except sqlite3.IntegrityError:
             existing = self.conn.execute(
@@ -429,11 +444,16 @@ class Database:
         path: str = "",
         notes: str = "",
         sample_count: int | None = None,
+        image_size: str = "",
+        extension: str = "",
     ) -> None:
         self._exec(
-            "UPDATE datasets SET name = ?, variant = ?, path = ?, sample_count = ?, notes = ?, updated_at = ? "
-            "WHERE id = ?",
-            (name.strip(), variant.strip(), path.strip(), sample_count, notes.strip(), now_iso(), dataset_id),
+            "UPDATE datasets SET name = ?, variant = ?, path = ?, sample_count = ?, image_size = ?, "
+            "extension = ?, notes = ?, updated_at = ? WHERE id = ?",
+            (
+                name.strip(), variant.strip(), path.strip(), sample_count,
+                image_size.strip(), extension.strip(), notes.strip(), now_iso(), dataset_id,
+            ),
         )
 
     def delete_dataset(self, dataset_id: int) -> None:

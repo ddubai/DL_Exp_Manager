@@ -203,6 +203,24 @@ def test_dataset_sample_count_round_trip():
     db.close()
 
 
+def test_dataset_image_size_and_extension_round_trip():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    dataset_id = db.add_dataset(
+        work_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K",
+        image_size="256x256", extension="tiff",
+    )
+    row = db.get_dataset(dataset_id)
+    assert row["image_size"] == "256x256"
+    assert row["extension"] == "tiff"
+
+    db.update_dataset(dataset_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K", image_size="512x512", extension="png")
+    row = db.get_dataset(dataset_id)
+    assert row["image_size"] == "512x512"
+    assert row["extension"] == "png"
+    db.close()
+
+
 def test_dataset_deleted_when_work_deleted():
     db = make_db()
     task_id = db.add_task("SR")

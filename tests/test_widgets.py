@@ -637,13 +637,15 @@ def test_nav_add_dataset_via_inline_dialog(qapp, config, monkeypatch):
     monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "", 900),
+        lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "", 900, "256x256", "tiff"),
     )
     nav._add_dataset()
 
     datasets = db.list_datasets(ssl2sl)
     assert len(datasets) == 1 and datasets[0]["name"] == "DIV2K"
     assert datasets[0]["sample_count"] == 900
+    assert datasets[0]["image_size"] == "256x256"
+    assert datasets[0]["extension"] == "tiff"
     db.close()
 
 
@@ -1226,13 +1228,18 @@ def test_dataset_edit_dialog_round_trips_fields(qapp):
     from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
 
     dialog = DatasetEditDialog(
-        dataset={"name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n", "sample_count": 900}
+        dataset={
+            "name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n",
+            "sample_count": 900, "image_size": "256x256", "extension": "tiff",
+        }
     )
     assert dialog.name_edit.text() == "DIV2K"
     assert dialog.variant_edit.text() == "Full Pair"
     assert dialog.path_edit.path() == "/a"
     assert dialog.sample_count_spin.value() == 900
-    assert dialog.result_values() == ("DIV2K", "Full Pair", "/a", "n", 900)
+    assert dialog.image_size_edit.text() == "256x256"
+    assert dialog.extension_edit.text() == "tiff"
+    assert dialog.result_values() == ("DIV2K", "Full Pair", "/a", "n", 900, "256x256", "tiff")
 
 
 def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
@@ -1249,21 +1256,29 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
         DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted
     )
     monkeypatch.setattr(
-        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/a", "", 900)
+        DatasetEditDialog, "result_values",
+        lambda self: ("DIV2K", "Full Pair", "/mnt/a", "", 900, "256x256", "tiff"),
     )
     dialog._add()
     assert dialog.table.rowCount() == 1
     assert db.list_datasets(work_id)[0]["path"] == "/mnt/a"
     assert db.list_datasets(work_id)[0]["sample_count"] == 900
+    assert db.list_datasets(work_id)[0]["image_size"] == "256x256"
+    assert db.list_datasets(work_id)[0]["extension"] == "tiff"
     assert dialog.table.item(0, 3).text() == "900"
+    assert dialog.table.item(0, 4).text() == "256x256"
+    assert dialog.table.item(0, 5).text() == "tiff"
 
     dialog.table.selectRow(0)
     monkeypatch.setattr(
-        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved", 1000)
+        DatasetEditDialog, "result_values",
+        lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved", 1000, "512x512", "png"),
     )
     dialog._edit_selected()
     assert db.list_datasets(work_id)[0]["path"] == "/mnt/b"
     assert db.list_datasets(work_id)[0]["notes"] == "moved"
+    assert db.list_datasets(work_id)[0]["image_size"] == "512x512"
+    assert db.list_datasets(work_id)[0]["extension"] == "png"
     assert db.list_datasets(work_id)[0]["sample_count"] == 1000
 
     monkeypatch.setattr("dl_exp_manager.editing.confirm_delete", lambda *a, **k: True)
@@ -1312,13 +1327,16 @@ def test_dataset_combo_add_new_dataset_inline(qapp, config, monkeypatch):
     monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("Flickr2K", "", "/mnt/data/Flickr2K", "", 2650),
+        lambda self: ("Flickr2K", "", "/mnt/data/Flickr2K", "", 2650, "1920x1080", "png"),
     )
     panel.dataset_combo.add_item()
 
     assert panel.dataset_combo.current_text() == "Flickr2K"
     assert panel.dataset_path_edit.path() == "/mnt/data/Flickr2K"
-    assert db.list_datasets(panel._work_id)[-1]["sample_count"] == 2650
+    added = db.list_datasets(panel._work_id)[-1]
+    assert added["sample_count"] == 2650
+    assert added["image_size"] == "1920x1080"
+    assert added["extension"] == "png"
     db.close()
 
 
