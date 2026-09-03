@@ -199,3 +199,119 @@ def test_gpu_index_parsing():
     assert ServerStatusPanel._parse_indices("") == []
     assert ServerStatusPanel._parse_indices("a,1") == [1]
     assert ServerStatusPanel._parse_indices(None) == []
+
+
+# --- #7 Favorites / tags / failure reason (run_panel wiring) -----------------
+def _panel_with_one_run(config):
+    """Parented under a real QMainWindow so `toast()` finds a status bar.
+
+    Without one, `toast(ok=True)` falls back to a blocking QMessageBox.information()
+    that never returns under the offscreen platform - any test calling a panel method
+    that succeeds and reports via toast() needs this, not a bare `TrainPanel(db, config)`.
+    """
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    run_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
+    window = QtWidgets.QMainWindow()
+    panel = TrainPanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel._test_window = window  # keep it alive as long as panel is referenced
+    panel.set_scope(task_id, work_id)
+    return db, panel, run_id
+
+
+def test_toggle_favorite_updates_db_and_reselects_row(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.view.selectRow(0)
+    assert panel._current_row()["favorite"] == 0
+
+    panel.toggle_favorite()
+    assert db.get_run("train", run_id)["favorite"] == 1
+    assert panel._current_row() is not None and panel._current_row()["id"] == run_id
+
+    panel.toggle_favorite()
+    assert db.get_run("train", run_id)["favorite"] == 0
+    db.close()
+
+
+def test_favorites_only_toolbar_filter(qapp, config):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    db.insert_run("train", {"work_id": work_id, "model": "A", "favorite": True})
+    db.insert_run("train", {"work_id": work_id, "model": "B", "favorite": False})
+    panel = TrainPanel(db, config)
+    panel.set_scope(task_id, work_id)
+
+    assert panel.proxy.rowCount() == 2
+    panel.favorites_btn.setChecked(True)
+    assert panel.proxy.rowCount() == 1
+    panel.favorites_btn.setChecked(False)
+    assert panel.proxy.rowCount() == 2
+    db.close()
+
+
+def test_editing_a_run_preserves_favorite_state(qapp, config):
+    """Saving the edit form must not silently clear favorite - it has no field for it."""
+    db, panel, run_id = _panel_with_one_run(config)
+    db.toggle_favorite("train", run_id)
+    panel.reload()
+    panel.view.selectRow(0)
+
+    assert panel.load_selected_into_form() is True
+    assert panel._editing_favorite is True
+    panel.model_combo.set_text("SwinIR")
+    panel.save_form()
+
+    assert db.get_run("train", run_id)["favorite"] == 1
+    assert db.get_run("train", run_id)["model"] == "SwinIR"
+    db.close()
+
+
+def test_form_collects_tags_and_failure_reason(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.view.selectRow(0)
+    panel.load_selected_into_form()
+    panel.tags_edit.setText("baseline, x4")
+    panel.status_combo.setCurrentIndex(panel.status_combo.findData("failed"))
+    panel.failure_reason_edit.setText("CUDA OOM")
+    panel.save_form()
+
+    row = db.get_run("train", run_id)
+    assert row["tags"] == "baseline, x4"
+    assert row["status"] == "failed"
+    assert row["failure_reason"] == "CUDA OOM"
+    db.close()
+
+
+def test_failure_reason_row_visibility_follows_status(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+    assert panel.form_layout.isRowVisible(panel.failure_reason_edit) is False
+
+    panel.status_combo.setCurrentIndex(panel.status_combo.findData("failed"))
+    assert panel.form_layout.isRowVisible(panel.failure_reason_edit) is True
+
+    panel.status_combo.setCurrentIndex(panel.status_combo.findData("done"))
+    assert panel.form_layout.isRowVisible(panel.failure_reason_edit) is False
+    db.close()
+
+
+def test_new_run_defaults_to_not_favorite(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+    panel.work_combo.set_text("W")
+    panel.model_combo.set_text("NewModel")
+    panel.save_form()
+
+    rows = db.list_train_runs()
+    new_row = next(r for r in rows if r["model"] == "NewModel")
+    assert new_row["favorite"] == 0
+    db.close()

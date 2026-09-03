@@ -171,6 +171,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._task_name: str | None = None
         self._work_id: int | None = None
         self._editing_id: int | None = None
+        # 즐겨찾기는 표/상세에서만 토글하고 폼에는 입력란이 없으므로, 편집 중인 값을
+        # 여기 들고 있다가 저장할 때 그대로 되돌려 준다 (안 그러면 매 저장마다 꺼진다).
+        self._editing_favorite: bool = False
         self._hidden_headers: set[str] = set()
         self._custom_widgets: dict[str, ManagedCombo] = {}
 
@@ -217,6 +220,12 @@ class BaseRunPanel(QtWidgets.QWidget):
             lambda: self.proxy.set_status_filter(self.status_filter.currentData())
         )
 
+        self.favorites_btn = QtWidgets.QToolButton(container)
+        self.favorites_btn.setText("★ Favorites")
+        self.favorites_btn.setCheckable(True)
+        self.favorites_btn.setToolTip("Show only favorited runs.")
+        self.favorites_btn.toggled.connect(self.proxy.set_favorites_only)
+
         refresh_btn = QtWidgets.QToolButton(container)
         refresh_btn.setText("↻ Refresh")
         refresh_btn.clicked.connect(self.reload)
@@ -249,6 +258,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         toolbar.addWidget(new_run_btn)
         toolbar.addWidget(self.filter_edit, 1)
         toolbar.addWidget(self.status_filter)
+        toolbar.addWidget(self.favorites_btn)
         toolbar.addWidget(refresh_btn)
         toolbar.addWidget(export_btn)
         toolbar.addWidget(copy_btn)
@@ -348,8 +358,16 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_tabs.addTab(self.detail_config, "config.yml")
         self.detail_tabs.addTab(self.detail_notes, "Metrics / Notes")
 
+        self.detail_favorite_btn = QtWidgets.QPushButton("☆ Favorite", container)
+        self.detail_favorite_btn.clicked.connect(lambda: self.toggle_favorite())
+
         edit_btn = QtWidgets.QPushButton("✎ Edit This Run", container)
         edit_btn.clicked.connect(self.open_edit_dialog)
+
+        action_row = QtWidgets.QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.addWidget(self.detail_favorite_btn)
+        action_row.addWidget(edit_btn, 1)
 
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 6, 0, 0)
@@ -358,7 +376,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         layout.addWidget(self.detail_meta)
         layout.addWidget(paths_box)
         layout.addWidget(self.detail_tabs, 1)
-        layout.addWidget(edit_btn)
+        layout.addLayout(action_row)
         return container
 
     # ==================================================================
@@ -496,10 +514,21 @@ class BaseRunPanel(QtWidgets.QWidget):
             "Notes", inner, placeholder="Free-form notes", mono=False, min_height=70
         )
 
+        self.tags_edit = QtWidgets.QLineEdit(inner)
+        self.tags_edit.setPlaceholderText("comma-separated, e.g. paper-final, ablation")
+        self.tags_edit.setToolTip("Free-form labels. Also searchable from the toolbar search box.")
+
+        self.failure_reason_edit = QtWidgets.QLineEdit(inner)
+        self.failure_reason_edit.setPlaceholderText("e.g. CUDA OOM at batch 32")
+        self.status_combo.currentIndexChanged.connect(self._sync_failure_reason_visibility)
+
         self.form_layout.addRow(self._section("Execution Code / Config", inner))
         self.form_layout.addRow(self.command_input)
         self.form_layout.addRow(self.config_input)
         self.form_layout.addRow(self.notes_input)
+        self.form_layout.addRow("Tags:", self.tags_edit)
+        self.form_layout.addRow("Failure Reason:", self.failure_reason_edit)
+        self._sync_failure_reason_visibility()
 
         # -- Buttons ---------------------------------------------------------------
         self.save_btn = QtWidgets.QPushButton("+ Register Run", inner)
@@ -572,6 +601,12 @@ class BaseRunPanel(QtWidgets.QWidget):
 
     def _on_server_changed(self, name: str) -> None:
         self.gpu_selector.set_server(self.config.server(name.strip()))
+
+    def _sync_failure_reason_visibility(self) -> None:
+        """Failure reason only matters once a run is marked failed - keep it out of the
+        way otherwise so the form doesn't ask about failures that haven't happened."""
+        is_failed = self.status_combo.currentData() == C.STATUS_FAILED
+        self.form_layout.setRowVisible(self.failure_reason_edit, is_failed)
 
     def _dataset_path_label(self) -> str:
         return "Dataset Path"
@@ -761,6 +796,10 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _clear_detail(self) -> None:
         self.detail_title.setText("Select a row to see details.")
         self.detail_meta.setText("")
+        self.detail_favorite_btn.setText("☆ Favorite")
+        self.detail_favorite_btn.setProperty("variant", None)
+        self.detail_favorite_btn.style().unpolish(self.detail_favorite_btn)
+        self.detail_favorite_btn.style().polish(self.detail_favorite_btn)
         for edit in self._detail_path_edits.values():
             edit.clear()
         self.detail_command.clear()
@@ -768,12 +807,17 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_notes.clear()
 
     def _show_detail(self, row: dict[str, Any]) -> None:
+        star = "★ " if row.get("favorite") else ""
         title = (
-            f"#{row.get('id')}  ·  {row.get('task_name', '')} ▸ {row.get('work_name', '')}  ·  "
+            f"{star}#{row.get('id')}  ·  {row.get('task_name', '')} ▸ {row.get('work_name', '')}  ·  "
             f"{row.get('model') or '-'}  @  {row.get('server') or '-'}"
         )
         self.detail_title.setText(title)
         self.detail_meta.setText(self._detail_meta_text(row))
+        self.detail_favorite_btn.setText("★ Favorited" if row.get("favorite") else "☆ Favorite")
+        self.detail_favorite_btn.setProperty("variant", "primary" if row.get("favorite") else None)
+        self.detail_favorite_btn.style().unpolish(self.detail_favorite_btn)
+        self.detail_favorite_btn.style().polish(self.detail_favorite_btn)
         for key, edit in self._detail_path_edits.items():
             edit.setText(str(row.get(key) or ""))
         self.detail_command.set_text(row.get("exec_command") or "")
@@ -782,9 +826,14 @@ class BaseRunPanel(QtWidgets.QWidget):
         metrics = loads_metrics(row.get("metrics_json"))
         notes_text = metrics_to_text(metrics, sep="\n") or "(no metrics recorded)"
         notes = (row.get("notes") or "").strip()
-        self.detail_notes.set_text(
-            f"[Metrics]\n{notes_text}\n\n[Notes]\n{notes or '(none)'}"
-        )
+        tags = (row.get("tags") or "").strip()
+        failure_reason = (row.get("failure_reason") or "").strip()
+        sections = [f"[Metrics]\n{notes_text}", f"[Notes]\n{notes or '(none)'}"]
+        if tags:
+            sections.append(f"[Tags]\n{tags}")
+        if failure_reason:
+            sections.append(f"[Failure Reason]\n{failure_reason}")
+        self.detail_notes.set_text("\n\n".join(sections))
 
     def _detail_meta_text(self, row: dict[str, Any]) -> str:
         status = str(row.get("status") or "")
@@ -810,6 +859,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         menu = QtWidgets.QMenu(self)
 
         if row is not None:
+            star_label = "☆ Remove from Favorites" if row.get("favorite") else "★ Mark as Favorite"
+            menu.addAction(star_label, lambda: self.toggle_favorite(row))
+            menu.addSeparator()
             for key, label in self.DETAIL_PATHS:
                 path = str(row.get(key) or "")
                 action = menu.addAction(f"📁 Open {label}")
@@ -898,7 +950,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         ]
 
     def _can_remove_column(self, spec: ColumnSpec) -> bool:
-        return spec.key not in ("id", "status", "notes")
+        # id/favorite/notes come from LEADING_COLUMNS/TRAILING_COLUMNS, not from the
+        # Task's configured column list, so "removing" them from config would be a no-op.
+        return spec.key not in ("id", "favorite", "status", "notes")
 
     def add_column(self) -> None:
         task = self._require_task()
@@ -1014,10 +1068,23 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _on_double_click(self, index) -> None:
         spec = self.model.column_spec(self.proxy.mapToSource(index).column())
         row = self._current_row()
+        if spec is not None and spec.key == "favorite" and row is not None:
+            self.toggle_favorite(row)
+            return
         if spec is not None and spec.key in PATH_KEYS and row is not None:
             self._open_path(str(row.get(spec.key) or ""))
             return
         self.open_edit_dialog()
+
+    def toggle_favorite(self, row: dict[str, Any] | None = None) -> None:
+        row = row or self._current_row()
+        if row is None:
+            toast(self, False, "Select a run first.", "Favorite")
+            return
+        new_state = self.db.toggle_favorite(self.KIND, int(row["id"]))
+        self.reload()
+        self._select_run(int(row["id"]))
+        toast(self, True, f"{'Marked' if new_state else 'Unmarked'} run #{row['id']} as favorite.")
 
     # ==================================================================
     # Export / clipboard
@@ -1076,6 +1143,7 @@ class BaseRunPanel(QtWidgets.QWidget):
     # ==================================================================
     def reset_form(self) -> None:
         self._editing_id = None
+        self._editing_favorite = False
         self.server_combo.set_text("")
         self.model_combo.set_text("")
         self.dataset_combo.set_text("")
@@ -1091,6 +1159,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.command_input.clear()
         self.config_input.clear()
         self.notes_input.clear()
+        self.tags_edit.clear()
+        self.failure_reason_edit.clear()
         self._reset_extra_fields()
         self._refresh_work_combo()
         self._update_form_buttons()
@@ -1104,6 +1174,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             toast(self, False, "Select a run in the table first.", "Load Run")
             return False
         self._editing_id = int(row["id"])
+        self._editing_favorite = bool(row.get("favorite"))
         work = self.db.get_work(int(row["work_id"]))
         self.work_combo.set_text(work["name"] if work else "")
         self.server_combo.set_text(row.get("server"))
@@ -1114,6 +1185,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         status = str(row.get("status") or C.STATUS_DONE)
         if status in C.STATUS_LIST:
             self.status_combo.setCurrentIndex(C.STATUS_LIST.index(status))
+        self._sync_failure_reason_visibility()  # setCurrentIndex above may be a no-op
         self.started_edit.setText(row.get("started_at") or "")
         self.duration_edit.setText(format_duration(row.get("duration_sec")))
         self.dataset_path_edit.set_path(row.get("dataset_path"))
@@ -1122,6 +1194,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.command_input.set_text(row.get("exec_command"))
         self.config_input.set_text(row.get("config_yaml"))
         self.notes_input.set_text(row.get("notes"))
+        self.tags_edit.setText(str(row.get("tags") or ""))
+        self.failure_reason_edit.setText(str(row.get("failure_reason") or ""))
         extra = self._row_extra(row)
         for name, combo in self._custom_widgets.items():
             combo.set_text(str(extra.get(name, "")))
@@ -1220,6 +1294,9 @@ class BaseRunPanel(QtWidgets.QWidget):
             "exec_command": self.command_input.text(),
             "config_yaml": self.config_input.text(),
             "notes": self.notes_input.text(),
+            "favorite": self._editing_favorite,
+            "tags": self.tags_edit.text().strip(),
+            "failure_reason": self.failure_reason_edit.text().strip(),
         }
         data.update(self._collect_extra_fields())
         return data

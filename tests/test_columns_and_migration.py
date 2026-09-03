@@ -434,3 +434,53 @@ def test_path_badge_ignores_empty_path(qapp, config):
     col = model.column_index("result_path")
     tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
     assert tooltip == "(no path set)"
+
+
+# --- #7 Favorites column + filter --------------------------------------------
+def test_favorite_column_always_present_and_toggleable_display(qapp, config):
+    from dl_exp_manager.models import RunTableModel, build_columns
+
+    rows = [dict(SAMPLE_ROW, id=1, favorite=1), dict(SAMPLE_ROW, id=2, favorite=0)]
+    model = RunTableModel()
+    model.set_content(rows, build_columns(config, "SR", "train"))
+    assert "★" in model.headers()
+    col = model.column_index("favorite")
+    values = [model.data(model.index(r, col)) for r in range(2)]
+    assert values == ["★", "☆"]
+
+
+def test_favorite_sorts_true_first_descending(qapp, config):
+    from dl_exp_manager.models import RunFilterProxy, RunTableModel, SORT_ROLE, build_columns
+    from dl_exp_manager.qt import Qt
+
+    rows = [dict(SAMPLE_ROW, id=1, favorite=0), dict(SAMPLE_ROW, id=2, favorite=1)]
+    model = RunTableModel()
+    model.set_content(rows, build_columns(config, "SR", "train"))
+    proxy = RunFilterProxy()
+    proxy.setSourceModel(model)
+    col = model.column_index("favorite")
+    proxy.sort(col, Qt.SortOrder.DescendingOrder)
+    ordered_ids = [proxy.data(proxy.index(r, model.column_index("id")), SORT_ROLE) for r in range(2)]
+    assert ordered_ids == [2.0, 1.0]
+
+
+def test_favorites_only_filter(qapp, config):
+    from dl_exp_manager.models import RunFilterProxy, RunTableModel, build_columns
+
+    rows = [dict(SAMPLE_ROW, id=1, favorite=1), dict(SAMPLE_ROW, id=2, favorite=0)]
+    model = RunTableModel()
+    model.set_content(rows, build_columns(config, "SR", "train"))
+    proxy = RunFilterProxy()
+    proxy.setSourceModel(model)
+    assert proxy.rowCount() == 2
+    proxy.set_favorites_only(True)
+    assert proxy.rowCount() == 1
+    proxy.set_favorites_only(False)
+    assert proxy.rowCount() == 2
+
+
+def test_tags_and_failure_reason_columns_available(qapp, config):
+    from dl_exp_manager.models import FIELD_SPECS
+
+    assert "tags" in FIELD_SPECS and FIELD_SPECS["tags"].header == "Tags"
+    assert "failure_reason" in FIELD_SPECS

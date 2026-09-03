@@ -63,6 +63,7 @@ FIELD_SPECS: dict[str, ColumnSpec] = {
     spec.key: spec
     for spec in (
         ColumnSpec("id", "ID", "number", 52, editable_label=False),
+        ColumnSpec("favorite", "★", "favorite", 34, editable_label=False),
         ColumnSpec("status", "Status", "status", 108, editable_label=False),
         ColumnSpec("server", "Server", "text", 92),
         ColumnSpec("gpus", "GPU", "gpus", 112),
@@ -83,6 +84,8 @@ FIELD_SPECS: dict[str, ColumnSpec] = {
         ColumnSpec("batch_size", "Batch", "text", 70),
         ColumnSpec("lr", "LR", "text", 82),
         ColumnSpec("optimizer", "Optimizer", "text", 94),
+        ColumnSpec("tags", "Tags", "text", 140),
+        ColumnSpec("failure_reason", "Failure Reason", "text", 170),
         ColumnSpec("notes", "Notes", "text", 180),
     )
 }
@@ -95,8 +98,9 @@ FALLBACK_COLUMNS: dict[str, tuple[str, ...]] = {
                   "dataset_path", "result_path", "latency_ms", "throughput_fps", "started_at"),
 }
 
-# 항상 맨 앞/뒤에 붙는 컬럼
-LEADING_COLUMNS: tuple[str, ...] = ("id",)
+# 항상 맨 앞/뒤에 붙는 컬럼. favorite 은 Task 설정 없이도 어디서나 눈에 띄어야 하므로
+# (한 눈에 훑어보기용 별표) options.yaml 편집 없이 code-level 로 항상 넣어 둔다.
+LEADING_COLUMNS: tuple[str, ...] = ("id", "favorite")
 TRAILING_COLUMNS: tuple[str, ...] = ("notes",)
 
 PATH_KEYS = {"dataset_path", "result_path", "checkpoint_path"}
@@ -329,6 +333,8 @@ class RunTableModel(QtCore.QAbstractTableModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             return self._tooltip(row, spec)
         if role == Qt.ItemDataRole.TextAlignmentRole:
+            if spec.kind == "favorite":
+                return int(Qt.AlignmentFlag.AlignCenter)
             if spec.kind in ("number", "duration"):
                 return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -341,6 +347,9 @@ class RunTableModel(QtCore.QAbstractTableModel):
                     return QtGui.QBrush(QtGui.QColor(theme.color("text.disabled")))
                 if row.get("_path_exists", {}).get(spec.key) is False:
                     return QtGui.QBrush(QtGui.QColor(theme.color("warning")))
+            if spec.kind == "favorite":
+                token = "accent" if self._raw(row, spec) else "text.muted"
+                return QtGui.QBrush(QtGui.QColor(theme.color(token)))
             if self._is_best(row, spec):
                 return QtGui.QBrush(QtGui.QColor(theme.color("metric.best")))
         if role == Qt.ItemDataRole.FontRole and self._is_best(row, spec):
@@ -363,6 +372,8 @@ class RunTableModel(QtCore.QAbstractTableModel):
 
     def _display(self, row: dict[str, Any], spec: ColumnSpec) -> str:
         value = self._raw(row, spec)
+        if spec.kind == "favorite":
+            return "★" if value else "☆"
         if spec.kind == "status":
             status = str(value or "")
             return f"● {status}" if status else ""
@@ -382,6 +393,8 @@ class RunTableModel(QtCore.QAbstractTableModel):
 
     def _sort_value(self, row: dict[str, Any], spec: ColumnSpec) -> Any:
         value = self._raw(row, spec)
+        if spec.kind == "favorite":
+            return 1.0 if value else 0.0
         if spec.kind in ("number", "duration") or spec.is_metric:
             if value in (None, ""):
                 if spec.kind == "duration" and str(row.get("status")) == "running":
@@ -406,6 +419,8 @@ class RunTableModel(QtCore.QAbstractTableModel):
 
     def _tooltip(self, row: dict[str, Any], spec: ColumnSpec) -> str:
         value = self._display(row, spec)
+        if spec.kind == "favorite":
+            return "Favorite - double-click to remove" if self._raw(row, spec) else "Double-click to mark as favorite"
         if spec.kind == "path":
             if not value:
                 return "(no path set)"
@@ -443,6 +458,7 @@ class RunFilterProxy(QtCore.QSortFilterProxyModel):
         self.setDynamicSortFilter(True)
         self._text = ""
         self._status = ""
+        self._favorites_only = False
 
     def set_text_filter(self, text: str) -> None:
         self._text = (text or "").strip().lower()
@@ -452,12 +468,18 @@ class RunFilterProxy(QtCore.QSortFilterProxyModel):
         self._status = (status or "").strip().lower()
         self.invalidateFilter()
 
+    def set_favorites_only(self, enabled: bool) -> None:
+        self._favorites_only = bool(enabled)
+        self.invalidateFilter()
+
     def filterAcceptsRow(self, source_row: int, source_parent: QtCore.QModelIndex) -> bool:  # noqa: N802
         model = self.sourceModel()
         if model is None:
             return True
         row = model.row_dict(source_row)  # type: ignore[attr-defined]
         if row is None:
+            return False
+        if self._favorites_only and not row.get("favorite"):
             return False
         if self._status and str(row.get("status") or "").lower() != self._status:
             return False
