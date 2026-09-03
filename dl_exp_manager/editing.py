@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .qt import Qt, QtGui, QtWidgets
+from .qt import Qt, QtCore, QtGui, QtWidgets
 
 RENAME_KEY = "F2"
 DELETE_KEY = "Del"
@@ -161,3 +161,29 @@ class AddOptionDialog(QtWidgets.QDialog):
         if not value:
             return None
         return value, dialog.is_task_scope()
+
+
+class _NoWheelFilter(QtCore.QObject):
+    """콤보박스/스핀박스가 마우스 휠만으로 값이 바뀌지 않게 막는다.
+
+    폼이 스크롤 영역 안에 있으면, 휠로 폼을 스크롤하다가 커서가 콤보/스핀박스 위를
+    지나는 순간 그 항목 값이 실수로 바뀌는 사고가 나기 쉽다. 휠 이벤트를 무시해서
+    위젯 자신은 값을 바꾸지 않고, 감싸고 있는 스크롤 영역이 대신 스크롤되게 한다.
+    """
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # noqa: N802
+        if event.type() == QtCore.QEvent.Type.Wheel:
+            event.ignore()
+            return True
+        return False
+
+
+def disable_wheel_scrolling(root: QtWidgets.QWidget) -> None:
+    """`root` 아래 모든 콤보박스/스핀박스에 휠 스크롤 막기를 적용한다.
+
+    필터 인스턴스를 `root` 의 자식으로 부모 지정해 두어, `root` 가 없어질 때 함께
+    정리되고 그 전까지는 파이썬 쪽에서 참조가 사라져도 가비지컬렉션되지 않는다.
+    """
+    blocker = _NoWheelFilter(root)
+    for widget in root.findChildren((QtWidgets.QComboBox, QtWidgets.QAbstractSpinBox)):
+        widget.installEventFilter(blocker)

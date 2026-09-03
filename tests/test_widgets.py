@@ -197,6 +197,62 @@ def test_server_panel_shows_unknown_server_from_db(qapp, config):
     db.close()
 
 
+# --- Wheel scrolling must not change combo/spinbox values in a form ----------
+def _wheel_event(delta_y: int) -> QtGui.QWheelEvent:
+    from dl_exp_manager.qt import Qt as _Qt
+    from dl_exp_manager.qt import QtCore as _QtCore
+
+    return QtGui.QWheelEvent(
+        _QtCore.QPointF(5, 5), _QtCore.QPointF(5, 5),
+        _QtCore.QPoint(0, 0), _QtCore.QPoint(0, delta_y),
+        _Qt.MouseButton.NoButton, _Qt.KeyboardModifier.NoModifier,
+        _Qt.ScrollPhase.NoScrollPhase, False,
+    )
+
+
+def test_disable_wheel_scrolling_blocks_combo_and_spinbox(qapp):
+    from dl_exp_manager import editing
+
+    root = QtWidgets.QWidget()
+    combo = QtWidgets.QComboBox(root)
+    combo.addItems(["a", "b", "c"])
+    combo.setCurrentIndex(0)
+    spin = QtWidgets.QSpinBox(root)
+    spin.setValue(5)
+
+    # baseline: without the filter, a focused combo really does change on wheel
+    window = QtWidgets.QMainWindow()
+    unfiltered = QtWidgets.QComboBox(window)
+    unfiltered.addItems(["a", "b", "c"])
+    window.setCentralWidget(unfiltered)
+    window.show()
+    unfiltered.setFocus()
+    QtWidgets.QApplication.processEvents()
+    QtWidgets.QApplication.sendEvent(unfiltered, _wheel_event(-120))
+    assert unfiltered.currentIndex() == 1
+
+    editing.disable_wheel_scrolling(root)
+    QtWidgets.QApplication.sendEvent(combo, _wheel_event(-120))
+    assert combo.currentIndex() == 0
+
+    QtWidgets.QApplication.sendEvent(spin, _wheel_event(120))
+    assert spin.value() == 5
+
+
+def test_new_run_form_widgets_ignore_wheel(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.open_new_run_dialog()
+
+    before = panel.status_combo.currentIndex()
+    QtWidgets.QApplication.sendEvent(panel.status_combo, _wheel_event(-120))
+    assert panel.status_combo.currentIndex() == before
+
+    panel.gpu_selector.spin.setValue(2)
+    QtWidgets.QApplication.sendEvent(panel.gpu_selector.spin, _wheel_event(-120))
+    assert panel.gpu_selector.spin.value() == 2
+    db.close()
+
+
 # --- ServerEditDialog: "+ Add GPU" defaults to Index 0's Type/Memory ----------
 def test_add_gpu_defaults_to_index0_content(qapp):
     from dl_exp_manager.widgets.server_panel import ServerEditDialog

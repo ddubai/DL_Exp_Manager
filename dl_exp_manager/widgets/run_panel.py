@@ -676,6 +676,10 @@ class BaseRunPanel(QtWidgets.QWidget):
         buttons.addWidget(self.cancel_btn, 1)
         self.form_layout.addRow(self._wrap(buttons, inner))
 
+        # 폼이 스크롤 영역 안에 있어서, 휠로 스크롤하다 커서가 콤보/스핀박스 위를
+        # 지나면 그 값이 실수로 바뀌기 쉽다 - 이 폼 안의 모든 콤보/스핀박스에서 막는다.
+        editing.disable_wheel_scrolling(inner)
+
         scroll.setWidget(inner)
         return scroll
 
