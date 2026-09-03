@@ -1,0 +1,33 @@
+# 서버 & GPU 인벤토리
+# 여기 적은 GPU 가 등록 폼의 체크박스이자 상단 서버 상태 패널의 슬롯이 됩니다.
+#   index = CUDA_VISIBLE_DEVICES 번호 · type = V100 / H100 / A100 … · memory_gb = 참고용
+
+servers:
+- name: Server 1
+  host: 192.168.0.101
+  gpus:
+  - {index: 0, type: H100, memory_gb: 80}
+  - {index: 1, type: H100, memory_gb: 80}
+  - {index: 2, type: H100, memory_gb: 80}
+  - {index: 3, type: H100, memory_gb: 80}
+- name: Server 2
+  host: 192.168.0.102
+  gpus:
+  - {index: 0, type: V100, memory_gb: 32}
+  - {index: 1, type: V100, memory_gb: 32}
+  - {index: 2, type: V100, memory_gb: 32}
+  - {index: 3, type: V100, memory_gb: 32}
+- name: Server 3
+  host: 192.168.0.103
+  gpus:
+  - {index: 0, type: A6000, memory_gb: 48}
+  - {index: 1, type: A6000, memory_gb: 48}
+  - {index: 2, type: A6000, memory_gb: 48}
+  - {index: 3, type: A6000, memory_gb: 48}
+- name: Server 4
+  host: 192.168.0.104
+  gpus:
+  - {index: 0, type: A100, memory_gb: 80}
+  - {index: 1, type: A100, memory_gb: 80}
+  - {index: 2, type: A100, memory_gb: 80}
+  - {index: 3, type: A100, memory_gb: 80}

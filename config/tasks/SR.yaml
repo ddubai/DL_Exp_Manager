@@ -1,0 +1,17 @@
+# Task: SR
+# options = 콤보박스 선택지 · metrics = 표의 지표 컬럼 · columns = 표에 보일 컬럼과 순서
+# 자세한 작성법은 options.yaml 의 머리말 참고.
+
+name: SR
+label: Super Resolution
+options:
+  model: [Restormer, SwinIR, MambaIR, HAT, EDSR, RCAN]
+  dataset: [DIV2K, DF2K, Flickr2K, Set5, Set14, Urban100]
+  scale: [x2, x3, x4]
+metrics:
+- {key: PSNR, unit: dB, digits: 2, higher_is_better: true}
+- {key: SSIM, digits: 4, higher_is_better: true}
+- {key: LPIPS, digits: 3, higher_is_better: false}
+columns:
+  train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
+  inference: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, throughput_fps, PSNR, SSIM, LPIPS, result_path]

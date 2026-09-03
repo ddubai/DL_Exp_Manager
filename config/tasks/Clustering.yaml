@@ -1,0 +1,16 @@
+# Task: Clustering
+# options = 콤보박스 선택지 · metrics = 표의 지표 컬럼 · columns = 표에 보일 컬럼과 순서
+# 자세한 작성법은 options.yaml 의 머리말 참고.
+
+name: Clustering
+label: Unsupervised Clustering
+options:
+  model: [DeepCluster, SCAN, SwAV]
+  dataset: [CIFAR-10, STL-10, ImageNet-50]
+metrics:
+- {key: NMI, digits: 4, higher_is_better: true}
+- {key: ARI, digits: 4, higher_is_better: true}
+- {key: ACC, unit: '%', digits: 2, higher_is_better: true}
+columns:
+  train: [status, server, gpus, model, dataset, duration, NMI, ARI, ACC, result_path]
+  inference: [status, server, model, checkpoint_path, dataset, NMI, ARI, ACC, result_path]

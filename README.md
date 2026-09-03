@@ -41,8 +41,10 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 
 ### 주요 기능
 
-- **선택지를 설정 파일로 관리** — 콤보박스 항목·평가 지표·표 컬럼을 `config/options.yaml` 에서 관리합니다.
-  손으로 편집해도 되고 UI 에서 바꿔도 되며, 두 경로가 같은 파일을 씁니다. 외부 편집기로 저장하면 앱이 즉시 반영합니다.
+- **선택지를 설정 파일로 관리** — 콤보박스 항목·평가 지표·표 컬럼을 `config/` 아래에서 관리합니다.
+  **기능별로 파일이 나뉘어 있어** SR 을 고치려면 `config/tasks/SR.yaml`(약 17줄) 하나만 열면 됩니다.
+  손으로 편집해도 되고 UI 에서 바꿔도 되며, 두 경로가 같은 파일을 씁니다.
+  앱에서 바꾼 값은 **그 값이 있던 파일에만** 저장되고, 외부 편집기로 저장하면 앱이 즉시 반영합니다.
 - **Task 별 구성** — SR 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
   Task 마다 선택지·지표·컬럼이 다릅니다. 좌측에서 Task 를 바꾸면 표 컬럼과 폼 필드가 함께 바뀝니다.
 - **드롭다운 인라인 항목 관리** — 콤보박스를 펼치면 맨 아래 `＋ 새 항목 추가…` 가 있고,
@@ -72,7 +74,8 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 | `Ctrl+C` / `Ctrl+Shift+C` | 선택 행 / 표 전체 클립보드 복사 |
 | `Ctrl+Shift+T` / `Ctrl+Shift+W` | DL Task / Work ID 추가 |
 | `Ctrl+O` | 다른 `experiments.db` 열기 |
-| `Ctrl+R` | `options.yaml` 다시 읽기 |
+| `Ctrl+R` | 설정 파일 다시 읽기 |
+| `Ctrl+Shift+O` | 지금 보고 있는 Task 의 설정 파일 열기 |
 | `F2` | 선택 항목 이름 변경 (트리 / 콤보 항목 / 컬럼 헤더 / 지표 행) |
 | `Del` | 선택 항목 삭제 |
 | `Ins` | 항목 추가 |
@@ -82,11 +85,17 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ```
 main.py                        진입점 (--db, --config, --theme, --sample)
 requirements.txt
-config/options.yaml            선택지 · Task 별 지표/컬럼 · 서버 GPU 인벤토리
+config/
+  options.yaml                 진입점 (버전 + 작성법 안내)
+  servers.yaml                 서버 & GPU 인벤토리
+  defaults.yaml                모든 Task 공통 선택지
+  tasks/SR.yaml                Task 별 선택지 · 지표 · 컬럼
+  tasks/DN.yaml                (Task 를 추가하면 파일도 함께 생깁니다)
+  tasks/...
 dl_exp_manager/
   qt.py                        PyQt6 / PySide6 바인딩 추상화
   constants.py                 상태값, 기본 Task, 샘플 config 텍스트
-  config_store.py              options.yaml 로더/라이터 (검증 + 안전 저장)
+  config_store.py              config/ 의 여러 YAML 을 합쳐 읽고 원래 파일로 되돌려 쓰는 계층
   db.py                        SQLite 스키마, 마이그레이션, CRUD
   models.py                    Task 별 컬럼 구성 + 정렬/필터 프록시
   editing.py                   F2 / Del / 우클릭 편집의 공통 규약
@@ -107,6 +116,48 @@ docs/STYLE_GUIDE.md            디자인 토큰과 컴포넌트 규격
 docs/ROADMAP.md                설계 배경과 남은 계획
 ```
 
+## 설정 파일
+
+```
+config/
+  options.yaml        진입점. 버전과 작성법 안내만 들어 있습니다.
+  servers.yaml        서버와 GPU 인벤토리 (index / type / memory_gb)
+  defaults.yaml       모든 Task 가 공유하는 기본 선택지
+  tasks/
+    SR.yaml           Task 별 options · metrics · columns
+    DN.yaml
+    ...
+```
+
+`config/tasks/SR.yaml` 예시 — 이 한 파일이 SR 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
+
+```yaml
+name: SR
+label: Super Resolution
+options:
+  model: [Restormer, SwinIR, MambaIR, HAT, EDSR, RCAN]
+  dataset: [DIV2K, DF2K, Flickr2K, Set5, Set14, Urban100]
+  scale: [x2, x3, x4]          # model/dataset/optimizer 외의 이름 = 사용자 정의 필드
+metrics:
+- {key: PSNR, unit: dB, digits: 2, higher_is_better: true}
+- {key: SSIM, digits: 4, higher_is_better: true}
+- {key: LPIPS, digits: 3, higher_is_better: false}
+columns:
+  train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
+  inference: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, PSNR, SSIM]
+```
+
+규칙 몇 가지:
+
+- **상속은 "대체"입니다.** Task 의 `options.model` 이 있으면 `defaults.yaml` 의 `model` 을 덮어씁니다.
+  합쳐지지 않으므로 "이 항목이 왜 목록에 있지?" 가 생기지 않습니다.
+- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** SR 모델을 UI 에서 추가하면 `tasks/SR.yaml` 만 바뀝니다.
+- **파일 하나가 깨져도 나머지는 삽니다.** `tasks/DN.yaml` 에 문법 오류가 있으면 그 Task 만 빠지고
+  상태바에 이유가 뜹니다. 정의가 깨졌을 때 같은 이름의 내장 정의로 덮어쓰지 않습니다(원본 유실 방지).
+- **덮어쓰기 전에 `.bak` 을 남깁니다.**
+- 예전처럼 `options.yaml` 한 파일에 전부 들어 있으면 첫 실행 때 자동으로 나눠 줍니다(원본은 `.bak`).
+- `ruamel.yaml` 을 설치하면 주석과 순서를 보존하며 저장합니다. 없으면 PyYAML 로 동작합니다.
+
 ## 데이터베이스 스키마
 
 | 테이블 | 주요 컬럼 |
@@ -126,7 +177,7 @@ docs/ROADMAP.md                설계 배경과 남은 계획
 
 ```bash
 pip install pytest
-pytest -q          # 58 passed
+pytest -q          # 70 passed
 ```
 
 GUI 위젯은 헤드리스에서 `QT_QPA_PLATFORM=offscreen` 으로 구동해 확인했습니다.

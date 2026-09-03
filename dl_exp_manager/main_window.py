@@ -121,7 +121,10 @@ class MainWindow(QtWidgets.QMainWindow):
         tools_menu = self.menuBar().addMenu("도구(&T)")
         tools_menu.addAction(self._action("서버 / GPU 추가…", self.server_bar.add_server))
         tools_menu.addSeparator()
-        tools_menu.addAction(self._action("options.yaml 폴더 열기", self.open_config_file))
+        tools_menu.addAction(self._action("설정 폴더 열기", self.open_config_file))
+        tools_menu.addAction(
+            self._action("현재 Task 설정 파일 열기", self.open_task_config, "Ctrl+Shift+O")
+        )
         tools_menu.addAction(self._action("설정 다시 읽기", self.reload_config, "Ctrl+R"))
         tools_menu.addAction(self._action("설정 상태 보기", self.show_config_status))
         tools_menu.addSeparator()
@@ -241,7 +244,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "<p>4대 학습 서버의 실험을 로컬에서 아카이빙·관리하는 데스크톱 앱.</p>"
             "<p><b>계층</b>: DL Task ▸ Work ID ▸ Train / Inference</p>"
             f"<p><b>DB</b>: {self.db.path}<br>"
-            f"<b>설정</b>: {self.config.path}<br>"
+            f"<b>설정</b>: {self.config.config_dir}<br>"
             f"<b>Qt</b>: {QT_BINDING} · 테마: {theme.current_theme()}<br>"
             f"<b>환경</b>: {platform_label()}</p>",
         )
@@ -251,11 +254,13 @@ class MainWindow(QtWidgets.QMainWindow):
     # 설정 파일
     # ==================================================================
     def _watch_config(self) -> None:
+        """설정이 여러 파일로 나뉘어 있으므로 전부 감시한다."""
         existing = self._watcher.files()
         if existing:
             self._watcher.removePaths(existing)
-        if os.path.exists(self.config.path):
-            self._watcher.addPath(self.config.path)
+        paths = self.config.watch_paths()
+        if paths:
+            self._watcher.addPaths(paths)
 
     def _on_config_file_changed(self, _path: str) -> None:
         # 에디터가 원자적 교체로 저장하면 감시가 끊기므로 다시 걸어 준다.
@@ -266,9 +271,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._watch_config()
         self._apply_config_everywhere()
         if self.config.errors:
-            self.statusBar().showMessage("options.yaml: " + self.config.errors[0], 8000)
+            self.statusBar().showMessage("설정: " + self.config.errors[0], 8000)
         else:
-            self.statusBar().showMessage("options.yaml 을 다시 읽었습니다.", 3000)
+            count = len(self.config.watch_paths())
+            self.statusBar().showMessage(f"설정 파일 {count} 개를 다시 읽었습니다.", 3000)
 
     def _on_config_changed(self) -> None:
         """UI 에서 설정을 바꾼 직후 - 파일은 이미 저장돼 있다."""
@@ -282,28 +288,41 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_startup_status(self) -> None:
         if self.config.errors:
-            self.statusBar().showMessage("⚠ options.yaml: " + self.config.errors[0], 12000)
+            self.statusBar().showMessage("⚠ 설정: " + self.config.errors[0], 12000)
             return
         comment_note = "" if preserves_comments() else " (주석 미보존: ruamel.yaml 미설치)"
         self.statusBar().showMessage(
             f"{platform_label()} · {QT_BINDING} · YAML: {backend_name()}{comment_note}"
+            f" · 설정: {self.config.config_dir}"
             f" · DB: {self.db.path}"
         )
 
     def open_config_file(self) -> None:
-        ok, message = open_in_file_manager(self.config.path, reveal=True)
-        toast(self, ok, message, "설정 파일")
+        ok, message = open_in_file_manager(self.config.config_dir)
+        toast(self, ok, message, "설정 폴더")
+
+    def open_task_config(self) -> None:
+        """지금 보고 있는 Task 의 설정 파일을 탐색기에서 선택한 채로 연다."""
+        task = self._current_panel().current_task_name()
+        if not task:
+            toast(self, False, "좌측에서 Task 를 먼저 선택하세요.", "Task 설정")
+            return
+        ok, message = open_in_file_manager(self.config.task_path(task), reveal=True)
+        toast(self, ok, message, f"{task} 설정 파일")
 
     def reload_config(self) -> None:
         self._reload_config_from_disk()
 
     def show_config_status(self) -> None:
         task = self.train_panel.current_task_name()
+        files = "<br>".join(
+            f"· {role}: <code>{os.path.relpath(path, self.config.config_dir)}</code>"
+            for role, path in self.config.files_summary()
+        )
         lines = [
-            f"<b>설정 파일</b><br>{self.config.path}",
+            f"<b>설정 폴더</b><br>{self.config.config_dir}<br>{files}",
             f"<b>YAML 백엔드</b>: {backend_name()}"
             + ("  (주석 보존)" if preserves_comments() else "  (주석 미보존)"),
-            f"<b>정의된 Task</b>: {', '.join(self.config.task_names) or '(없음)'}",
         ]
         if task:
             lines.append(

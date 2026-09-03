@@ -1,0 +1,16 @@
+# Task: DN
+# options = 콤보박스 선택지 · metrics = 표의 지표 컬럼 · columns = 표에 보일 컬럼과 순서
+# 자세한 작성법은 options.yaml 의 머리말 참고.
+
+name: DN
+label: Denoising
+options:
+  model: [Restormer, NAFNet, SCUNet, Uformer]
+  dataset: [SIDD, DND, BSD68, Kodak24]
+  noise_sigma: ['15', '25', '50']
+metrics:
+- {key: PSNR, unit: dB, digits: 2, higher_is_better: true}
+- {key: SSIM, digits: 4, higher_is_better: true}
+columns:
+  train: [status, server, gpus, model, dataset, noise_sigma, duration, PSNR, SSIM, result_path]
+  inference: [status, server, gpus, model, checkpoint_path, dataset, noise_sigma, latency_ms, PSNR, SSIM, result_path]

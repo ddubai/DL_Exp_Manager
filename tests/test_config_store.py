@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -13,14 +14,42 @@ from dl_exp_manager.config_store import MetricDef, OptionsConfig, GpuDef
 
 
 def make_config() -> OptionsConfig:
-    return OptionsConfig(os.path.join(tempfile.mkdtemp(), "options.yaml"))
+    return OptionsConfig(os.path.join(tempfile.mkdtemp(), "config", "options.yaml"))
 
 
-def test_creates_file_with_builtin_defaults():
+def test_creates_split_files_with_builtin_defaults():
     config = make_config()
-    assert os.path.exists(config.path)
     assert config.errors == []
+    assert os.path.exists(config.path)
+    assert os.path.exists(config.servers_path)
+    assert os.path.exists(config.defaults_path)
+    assert os.path.isdir(config.tasks_dir)
     assert set(config.task_names) >= {"SR", "DN", "Clustering", "Classification"}
+
+
+def test_each_task_gets_its_own_file():
+    config = make_config()
+    for name in ("SR", "DN", "Classification"):
+        path = config.task_path(name)
+        assert os.path.exists(path)
+        assert os.path.basename(path) == f"{name}.yaml"
+
+
+def test_split_files_stay_short():
+    """한 파일이 길어서 못 보겠다는 게 분할의 이유다."""
+    config = make_config()
+    for path in config.watch_paths():
+        with open(path, encoding="utf-8") as fp:
+            assert len(fp.readlines()) < 60, f"{path} 가 너무 깁니다"
+
+
+def test_watch_paths_covers_every_file():
+    config = make_config()
+    paths = set(config.watch_paths())
+    assert config.path in paths
+    assert config.servers_path in paths
+    assert config.defaults_path in paths
+    assert config.task_path("SR") in paths
 
 
 def test_task_options_replace_defaults():
@@ -162,6 +191,11 @@ def test_broken_yaml_keeps_app_usable():
 
 
 def test_non_mapping_task_is_dropped_with_error():
+    """정의가 깨졌으면 내장 Task 로 덮어쓰지 않는다.
+
+    같은 이름의 내장 정의를 채워 넣으면 사용자의 SR 을 가리게 되고,
+    다음 UI 편집이 원본 파일을 덮어써 버린다.
+    """
     path = os.path.join(tempfile.mkdtemp(), "odd.yaml")
     with open(path, "w", encoding="utf-8") as fp:
         yaml.safe_dump({"tasks": {"SR": ["not", "a", "mapping"]}, "defaults": {}, "servers": []}, fp)
@@ -171,11 +205,13 @@ def test_non_mapping_task_is_dropped_with_error():
 
 
 def test_external_edit_is_picked_up_on_reload():
+    """에디터로 tasks/SR.yaml 을 고치면 다시 읽었을 때 반영돼야 한다."""
     config = make_config()
-    with open(config.path, encoding="utf-8") as fp:
+    path = config.task_path("SR")
+    with open(path, encoding="utf-8") as fp:
         data = yaml.safe_load(fp)
-    data["tasks"]["SR"]["options"]["model"].append("HandEdited")
-    with open(config.path, "w", encoding="utf-8") as fp:
+    data["options"]["model"].append("HandEdited")
+    with open(path, "w", encoding="utf-8") as fp:
         yaml.safe_dump(data, fp, allow_unicode=True, sort_keys=False)
     config.load()
     assert "HandEdited" in config.options_for("SR", "model")
@@ -185,4 +221,120 @@ def test_save_keeps_backup():
     config = make_config()
     config.add_option("SR", "model", "One")
     config.add_option("SR", "model", "Two")
-    assert os.path.exists(config.path + ".bak")
+    assert os.path.exists(config.task_path("SR") + ".bak")
+
+
+# --- 기능별 분할 -------------------------------------------------------------
+def _mtimes(config: OptionsConfig) -> dict[str, float]:
+    return {p: os.path.getmtime(p) for p in config.watch_paths()}
+
+
+def _changed(config: OptionsConfig, before: dict[str, float]) -> set[str]:
+    after = _mtimes(config)
+    return {os.path.basename(p) for p in after if after[p] != before.get(p)}
+
+
+def test_task_edit_touches_only_that_task_file():
+    config = make_config()
+    time.sleep(0.02)
+    before = _mtimes(config)
+    config.add_option("SR", "model", "OnlyHere")
+    assert _changed(config, before) == {"SR.yaml"}
+
+
+def test_global_option_edit_touches_only_defaults_file():
+    config = make_config()
+    time.sleep(0.02)
+    before = _mtimes(config)
+    config.add_option(None, "optimizer", "Adan")
+    assert _changed(config, before) == {"defaults.yaml"}
+
+
+def test_server_edit_touches_only_servers_file():
+    config = make_config()
+    time.sleep(0.02)
+    before = _mtimes(config)
+    config.upsert_server("Server 9", "10.0.0.9", [GpuDef(0, "H200", 141)])
+    assert _changed(config, before) == {"servers.yaml"}
+
+
+def test_new_task_creates_its_file():
+    config = make_config()
+    config.ensure_task("Segmentation")
+    assert os.path.exists(config.task_path("Segmentation"))
+    assert "Segmentation" in OptionsConfig(config.path).task_names
+
+
+def test_remove_task_deletes_its_file():
+    config = make_config()
+    path = config.task_path("Clustering")
+    assert config.remove_task("Clustering")
+    assert not os.path.exists(path)
+    assert "Clustering" not in OptionsConfig(config.path).task_names
+
+
+def test_legacy_single_file_is_split_automatically():
+    """예전처럼 options.yaml 한 파일에 전부 들어 있으면 나눠 준다."""
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    os.makedirs(directory)
+    path = os.path.join(directory, "options.yaml")
+    legacy = {
+        "version": 2,
+        "servers": [{"name": "Old1", "host": "1.1.1.1", "gpus": [{"index": 0, "type": "V100"}]}],
+        "defaults": {"optimizer": ["AdamW"]},
+        "tasks": {
+            "SR": {
+                "label": "SR",
+                "options": {"model": ["LegacyNet"]},
+                "metrics": [{"key": "PSNR", "digits": 2}],
+                "columns": {"train": ["status", "model", "PSNR"]},
+            }
+        },
+    }
+    with open(path, "w", encoding="utf-8") as fp:
+        yaml.safe_dump(legacy, fp, allow_unicode=True, sort_keys=False)
+
+    config = OptionsConfig(path)
+    assert os.path.exists(os.path.join(directory, "servers.yaml"))
+    assert os.path.exists(os.path.join(directory, "defaults.yaml"))
+    assert os.path.exists(os.path.join(directory, "tasks", "SR.yaml"))
+    # 내용이 그대로 살아 있어야 한다
+    assert config.options_for("SR", "model") == ["LegacyNet"]
+    assert config.metric_keys("SR") == ["PSNR"]
+    assert [s.name for s in config.servers] == ["Old1"]
+    assert config.options_for("SR", "optimizer") == ["AdamW"]
+    # 원본은 백업된다
+    assert os.path.exists(path + ".bak")
+
+
+def test_split_runs_only_once():
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    os.makedirs(directory)
+    path = os.path.join(directory, "options.yaml")
+    with open(path, "w", encoding="utf-8") as fp:
+        yaml.safe_dump({"version": 2, "tasks": {"SR": {"options": {"model": ["A"]}}}}, fp)
+
+    OptionsConfig(path)
+    second = OptionsConfig(path)
+    assert second.errors == []
+    assert second.task_names == ["SR"]
+
+
+def test_broken_task_file_does_not_break_the_rest():
+    config = make_config()
+    with open(config.task_path("DN"), "w", encoding="utf-8") as fp:
+        fp.write("options: [\n  broken: :\n")
+    reloaded = OptionsConfig(config.path)
+    assert any("DN.yaml" in e for e in reloaded.errors)
+    assert "SR" in reloaded.task_names
+    assert reloaded.metric_keys("SR") == ["PSNR", "SSIM", "LPIPS"]
+
+
+def test_task_file_name_key_wins_over_filename():
+    config = make_config()
+    path = os.path.join(config.tasks_dir, "custom_file.yaml")
+    with open(path, "w", encoding="utf-8") as fp:
+        yaml.safe_dump({"name": "Detection", "options": {"model": ["YOLO"]}}, fp)
+    reloaded = OptionsConfig(config.path)
+    assert "Detection" in reloaded.task_names
+    assert reloaded.options_for("Detection", "model") == ["YOLO"]

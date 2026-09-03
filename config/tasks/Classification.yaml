@@ -1,0 +1,15 @@
+# Task: Classification
+# options = 콤보박스 선택지 · metrics = 표의 지표 컬럼 · columns = 표에 보일 컬럼과 순서
+# 자세한 작성법은 options.yaml 의 머리말 참고.
+
+name: Classification
+label: Image Classification
+options:
+  model: [ResNet-50, ViT-B/16, ConvNeXt-T, Swin-T]
+  dataset: [ImageNet-1k, CIFAR-100, Food-101]
+metrics:
+- {key: Top-1, unit: '%', digits: 2, higher_is_better: true}
+- {key: Top-5, unit: '%', digits: 2, higher_is_better: true}
+columns:
+  train: [status, server, gpus, model, dataset, duration, Top-1, Top-5, result_path]
+  inference: [status, server, model, checkpoint_path, dataset, latency_ms, throughput_fps, Top-1, Top-5, result_path]
