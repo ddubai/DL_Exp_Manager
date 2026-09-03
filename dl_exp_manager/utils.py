@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import json
 import os
 import platform
@@ -344,3 +345,75 @@ def rows_to_tsv(headers: Sequence[str] | None, rows: Iterable[Sequence[Any]]) ->
 
 def platform_label() -> str:
     return f"{platform.system()} {platform.release()} · Python {sys.version.split()[0]}"
+
+
+# ---------------------------------------------------------------------------
+# 리포트 내보내기 (#10) - Markdown / HTML
+# ---------------------------------------------------------------------------
+def render_markdown_table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> str:
+    def cell(value: Any) -> str:
+        text = "" if value is None else str(value)
+        return text.replace("|", "\\|").replace("\n", " ").strip()
+
+    lines = [
+        "| " + " | ".join(cell(h) for h in headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(cell(c) for c in row) + " |")
+    return "\n".join(lines)
+
+
+def render_markdown_report(
+    title: str, headers: Sequence[str], rows: Sequence[Sequence[Any]], generated_at: str | None = None
+) -> str:
+    generated_at = generated_at or now_iso()
+    parts = [
+        f"# {title}",
+        "",
+        f"_Generated {generated_at} · {len(rows)} row(s)_",
+        "",
+        render_markdown_table(headers, rows) if rows else "_(no rows)_",
+        "",
+    ]
+    return "\n".join(parts)
+
+
+def render_html_report(
+    title: str, headers: Sequence[str], rows: Sequence[Sequence[Any]], generated_at: str | None = None
+) -> str:
+    generated_at = generated_at or now_iso()
+
+    def esc(value: Any) -> str:
+        return html.escape("" if value is None else str(value))
+
+    thead = "".join(f"<th>{esc(h)}</th>" for h in headers)
+    body = "".join(
+        "<tr>" + "".join(f"<td>{esc(c)}</td>" for c in row) + "</tr>" for row in rows
+    ) or f'<tr><td colspan="{len(headers)}">(no rows)</td></tr>'
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{esc(title)}</title>
+<style>
+  body {{ font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 24px; color: #1a1a1a; background: #fff; }}
+  h1 {{ font-size: 20px; margin-bottom: 4px; }}
+  .meta {{ color: #666; font-size: 13px; margin-bottom: 16px; }}
+  table {{ border-collapse: collapse; width: 100%; font-size: 13px; }}
+  th, td {{ border: 1px solid #ddd; padding: 4px 10px; text-align: left; white-space: nowrap; }}
+  th {{ background: #f2f2f2; position: sticky; top: 0; }}
+  tr:nth-child(even) {{ background: #fafafa; }}
+</style>
+</head>
+<body>
+<h1>{esc(title)}</h1>
+<div class="meta">Generated {esc(generated_at)} &middot; {len(rows)} row(s)</div>
+<table>
+<thead><tr>{thead}</tr></thead>
+<tbody>{body}</tbody>
+</table>
+</body>
+</html>
+"""

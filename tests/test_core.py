@@ -213,3 +213,40 @@ def test_tail_file_missing_file_reports_error_not_exception():
 
     result = tail_file("/does/not/exist.log")
     assert "could not read file" in result
+
+
+# --- #10 Markdown / HTML report export ---------------------------------------
+def test_render_markdown_report_escapes_pipes_and_lists_rows():
+    from dl_exp_manager.utils import render_markdown_report
+
+    md = render_markdown_report("Train Runs Report", ["id", "model"], [["1", "A|B"], ["2", "SwinIR"]])
+    assert "# Train Runs Report" in md
+    assert "2 row(s)" in md
+    assert "| id | model |" in md
+    assert "| 1 | A\\|B |" in md
+    assert "| 2 | SwinIR |" in md
+
+
+def test_render_markdown_report_handles_no_rows():
+    from dl_exp_manager.utils import render_markdown_report
+
+    md = render_markdown_report("Empty", ["id"], [])
+    assert "0 row(s)" in md
+    assert "(no rows)" in md
+
+
+def test_render_html_report_escapes_html_and_lists_rows():
+    from dl_exp_manager.utils import render_html_report
+
+    out = render_html_report("Train Runs Report", ["id", "model"], [["1", "<script>x</script>"]])
+    assert "<title>Train Runs Report</title>" in out
+    assert "<th>id</th>" in out
+    assert "&lt;script&gt;x&lt;/script&gt;" in out
+    assert "<script>x</script>" not in out
+
+
+def test_render_html_report_handles_no_rows():
+    from dl_exp_manager.utils import render_html_report
+
+    out = render_html_report("Empty", ["id"], [])
+    assert "(no rows)" in out

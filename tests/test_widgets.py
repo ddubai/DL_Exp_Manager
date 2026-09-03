@@ -580,6 +580,73 @@ def test_view_log_requires_selection(qapp, config, monkeypatch):
     db.close()
 
 
+# --- #10 Markdown / HTML report export ---------------------------------------
+def test_export_report_writes_markdown_file(qapp, config, monkeypatch, tmp_path):
+    db, panel, run_id = _panel_with_one_run(config)
+
+    out_path = str(tmp_path / "report.md")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (out_path, "Markdown (*.md)"))
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox, "question", staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.No)
+    )
+
+    panel.export_report()
+
+    with open(out_path, encoding="utf-8") as fp:
+        content = fp.read()
+    assert content.startswith("# Train Runs Report")
+    assert "Restormer" in content
+    db.close()
+
+
+def test_export_report_writes_html_file_when_html_filter_chosen(qapp, config, monkeypatch, tmp_path):
+    db, panel, run_id = _panel_with_one_run(config)
+
+    out_path = str(tmp_path / "report.html")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (out_path, "HTML (*.html)"))
+    )
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox, "question", staticmethod(lambda *a, **k: QtWidgets.QMessageBox.StandardButton.No)
+    )
+
+    panel.export_report()
+
+    with open(out_path, encoding="utf-8") as fp:
+        content = fp.read()
+    assert "<title>Train Runs Report</title>" in content
+    assert "Restormer" in content
+    db.close()
+
+
+def test_export_report_with_no_rows_warns_instead_of_writing(qapp, config, monkeypatch, tmp_path):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    window = QtWidgets.QMainWindow()
+    panel = TrainPanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel._test_window = window
+    panel.set_scope(task_id, work_id)
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    called = {}
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: called.setdefault("called", True) or ("", "")),
+    )
+
+    panel.export_report()
+    assert "called" not in called  # dialog never opened because there were no rows
+    db.close()
+
+
 def test_view_log_opens_dialog_for_selected_run(qapp, config, monkeypatch):
     db, panel, run_id = _panel_with_one_run(config)
     folder = tempfile.mkdtemp()

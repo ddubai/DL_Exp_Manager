@@ -40,6 +40,8 @@ from ..utils import (
     now_iso,
     open_in_file_manager,
     parse_duration,
+    render_html_report,
+    render_markdown_report,
     scan_result_folder,
     write_csv,
 )
@@ -233,9 +235,13 @@ class BaseRunPanel(QtWidgets.QWidget):
         refresh_btn.clicked.connect(self.reload)
 
         export_btn = QtWidgets.QToolButton(container)
-        export_btn.setText("⤓ Export CSV")
-        export_btn.setToolTip("Export the currently filtered/sorted table to a CSV file.")
-        export_btn.clicked.connect(self.export_csv)
+        export_btn.setText("⤓ Export")
+        export_btn.setToolTip("Export the currently filtered/sorted table.")
+        export_btn.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        export_menu = QtWidgets.QMenu(export_btn)
+        export_menu.addAction("Export to CSV…", self.export_csv)
+        export_menu.addAction("Export Report (Markdown/HTML)…", self.export_report)
+        export_btn.setMenu(export_menu)
 
         copy_btn = QtWidgets.QToolButton(container)
         copy_btn.setText("⧉ Copy")
@@ -925,6 +931,7 @@ class BaseRunPanel(QtWidgets.QWidget):
 
         menu.addAction("Copy Selected Rows (TSV)", lambda: self.copy_table(selected_only=True))
         menu.addAction("Export Entire Table to CSV", self.export_csv)
+        menu.addAction("Export Report (Markdown/HTML)", self.export_report)
         if row is not None:
             menu.addSeparator()
             menu.addAction("🗑 Delete Selected", self.delete_selected)
@@ -1212,6 +1219,56 @@ class BaseRunPanel(QtWidgets.QWidget):
             self,
             "Export Complete",
             f"Saved {count} row(s).\n{path}\n\nOpen the folder?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.Yes,
+        )
+        if answer == QtWidgets.QMessageBox.StandardButton.Yes:
+            open_in_file_manager(path, reveal=True)
+
+    def export_report(self) -> None:
+        if self.proxy.rowCount() == 0:
+            toast(self, False, "No rows to export.", "Export Report")
+            return
+        default_name = f"{self.KIND}_report_{QtCore.QDate.currentDate().toString('yyyyMMdd')}.md"
+        path, chosen_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Export Report",
+            os.path.join(QtCore.QDir.homePath(), default_name),
+            "Markdown (*.md);;HTML (*.html)",
+        )
+        if not path:
+            return
+        is_html = path.lower().endswith(".html") or "html" in chosen_filter.lower()
+        if is_html and not path.lower().endswith(".html"):
+            path += ".html"
+        elif not is_html and not path.lower().endswith(".md"):
+            path += ".md"
+
+        headers = self.model.headers()
+        rows = [
+            [
+                str(self.proxy.data(self.proxy.index(r, c), Qt.ItemDataRole.DisplayRole) or "")
+                for c in range(self.proxy.columnCount())
+            ]
+            for r in range(self.proxy.rowCount())
+        ]
+        title = f"{self.KIND.title()} Runs Report"
+        content = (
+            render_html_report(title, headers, rows)
+            if is_html
+            else render_markdown_report(title, headers, rows)
+        )
+        try:
+            with open(path, "w", encoding="utf-8") as fp:
+                fp.write(content)
+        except OSError as exc:
+            toast(self, False, f"Failed to save report:\n{exc}", "Export Report")
+            return
+
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Export Complete",
+            f"Saved report.\n{path}\n\nOpen the folder?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )
