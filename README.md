@@ -17,10 +17,14 @@ pip install -r requirements.txt
 
 python main.py                    # 프로젝트 폴더의 experiments.db 사용
 python main.py --db ~/exp/my.db   # DB 경로 지정
+python main.py --config my.yaml   # 선택지/컬럼 설정 파일 지정
+python main.py --theme light      # 라이트 테마 (기본: dark)
 python main.py --sample           # 비어 있으면 예시 데이터까지 생성 (UI 둘러보기용)
 ```
 
 - Python 3.10+ 권장 (타입 힌트에 `X | None` 문법 사용).
+- 폰트는 시스템에 설치된 것 중 앞 순위를 씁니다(Pretendard → Inter → Noto Sans KR → OS 기본).
+  `assets/fonts/` 에 ttf/otf 를 넣어 두면 자동으로 등록해서 함께 후보로 삼습니다.
 - **PySide6 를 쓰고 싶다면** `requirements.txt` 에서 PyQt6 대신 PySide6 를 설치하기만 하면 됩니다.
   `dl_exp_manager/qt.py` 가 PyQt6 → PySide6 순으로 바인딩을 찾아 API 차이를 흡수합니다.
 - Linux 서버 등 GUI 라이브러리가 없는 환경에서는 `libegl1 libgl1 libxkbcommon0` 등이 추가로 필요합니다.
@@ -29,13 +33,26 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 
 | 영역 | 설명 |
 |---|---|
-| 상단 서버 상태 인디케이터 | Server 1~4 중 현재 학습(`running`) 중인 서버와 모델·경과 시간을 한 줄로 표시. 15초마다 자동 갱신 |
+| 상단 서버 상태 패널 | 서버별 GPU 슬롯 점유 현황. 접으면 한 줄, 펴면 실행 중인 코드까지. 15초마다 자동 갱신 |
 | 좌측 네비게이션 | DL Task ▸ Work ID 드릴다운 트리. Work 별 Train/Inference 건수 표시, 검색·추가·수정·삭제 |
-| 중앙 상단 테이블 | 실행 목록. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, 컬럼 표시/숨김(헤더 우클릭) |
+| 중앙 상단 테이블 | 실행 목록. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
 | 중앙 하단 상세 | 선택한 실행의 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes. 각 항목에 복사 버튼 |
-| 우측 입력 폼 | 신규 등록 / 수정. 모델·데이터셋·서버·Optimizer는 **편집 가능한 콤보박스**(목록 선택 + 직접 입력) |
+| 우측 입력 폼 | 신규 등록 / 수정. 모델·데이터셋·서버 등은 **드롭다운 맨 아래 `＋` 로 항목 추가 / 우클릭 삭제**가 되는 콤보박스. GPU는 서버 인벤토리에서 체크박스로 선택 |
 
 ### 주요 기능
+
+- **선택지를 설정 파일로 관리** — 콤보박스 항목·평가 지표·표 컬럼을 `config/options.yaml` 에서 관리합니다.
+  손으로 편집해도 되고 UI 에서 바꿔도 되며, 두 경로가 같은 파일을 씁니다. 외부 편집기로 저장하면 앱이 즉시 반영합니다.
+- **Task 별 구성** — SR 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
+  Task 마다 선택지·지표·컬럼이 다릅니다. 좌측에서 Task 를 바꾸면 표 컬럼과 폼 필드가 함께 바뀝니다.
+- **드롭다운 인라인 항목 관리** — 콤보박스를 펼치면 맨 아래 `＋ 새 항목 추가…` 가 있고,
+  기존 항목은 우클릭(또는 `F2`/`Del`)으로 이름 변경·삭제할 수 있습니다.
+  추가할 때 *이 Task 전용* / *전체 공통* 을 고를 수 있고, 이름을 바꾸면 기존 기록도 함께 갱신할지 물어봅니다.
+- **GPU 단위 서버 상태** — 서버당 GPU N장을 슬롯으로 표시하고, 동시에 도는 학습을 색으로 구분합니다.
+  펼치면 각 학습의 GPU 번호·모델·경과 시간·실행 명령어가 나옵니다.
+  서로 다른 학습이 같은 GPU 를 잡고 있으면 경고 테두리로 표시합니다.
+- **다크 테마** — 색·폰트·간격은 `dl_exp_manager/theme/tokens.py` 한 곳에서 관리합니다
+  (규격은 [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)).
 
 - **OS 탐색기 연동** — 경로 옆 `📁 폴더 열기` 버튼이 macOS Finder(`open`), Windows 탐색기(`os.startfile`), Linux(`xdg-open`)를 각각 호출합니다.
   경로가 존재하지 않으면 가장 가까운 상위 폴더를 대신 열고 그 사실을 알려 줍니다. 경로 셀을 더블클릭해도 열립니다.
@@ -55,26 +72,39 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 | `Ctrl+C` / `Ctrl+Shift+C` | 선택 행 / 표 전체 클립보드 복사 |
 | `Ctrl+Shift+T` / `Ctrl+Shift+W` | DL Task / Work ID 추가 |
 | `Ctrl+O` | 다른 `experiments.db` 열기 |
-| `Del` | 선택한 실행 삭제 |
+| `Ctrl+R` | `options.yaml` 다시 읽기 |
+| `F2` | 선택 항목 이름 변경 (트리 / 콤보 항목 / 컬럼 헤더 / 지표 행) |
+| `Del` | 선택 항목 삭제 |
+| `Ins` | 항목 추가 |
 
 ## 프로젝트 구조
 
 ```
-main.py                        진입점 (--db, --sample)
+main.py                        진입점 (--db, --config, --theme, --sample)
 requirements.txt
+config/options.yaml            선택지 · Task 별 지표/컬럼 · 서버 GPU 인벤토리
 dl_exp_manager/
   qt.py                        PyQt6 / PySide6 바인딩 추상화
-  constants.py                 서버·Task·모델 프리셋, 상태값, 샘플 config
-  db.py                        SQLite 스키마 및 CRUD (Database 클래스)
-  models.py                    QAbstractTableModel + 정렬/필터 프록시
+  constants.py                 상태값, 기본 Task, 샘플 config 텍스트
+  config_store.py              options.yaml 로더/라이터 (검증 + 안전 저장)
+  db.py                        SQLite 스키마, 마이그레이션, CRUD
+  models.py                    Task 별 컬럼 구성 + 정렬/필터 프록시
+  editing.py                   F2 / Del / 우클릭 편집의 공통 규약
   utils.py                     탐색기 열기, 시간/숫자 포맷, CSV·TSV 직렬화
   sample_data.py               예시 실험 데이터
-  main_window.py               메인 윈도우, 메뉴, 서버 상태 인디케이터
+  main_window.py               메인 윈도우, 메뉴, 설정 파일 감시
+  theme/
+    tokens.py                  색·치수·폰트 크기의 단일 출처
+    dark.qss.tpl               토큰을 치환해 만드는 QSS 템플릿
+    fonts.py                   폰트 스택 해석 / 번들 폰트 로드
   widgets/
-    common.py                  PathEdit, EditableCombo, MetricsEditor 등 재사용 위젯
+    common.py                  PathEdit, ManagedCombo, GpuSelector, MetricsEditor
     nav_panel.py               Level 1 / Level 2 드릴다운 트리
     run_panel.py               Train / Inference 대시보드 (표 + 상세 + 입력 폼)
-tests/test_core.py             GUI 없이 도는 utils / db 테스트
+    server_panel.py            GPU 슬롯 기반 서버 상태 패널
+tests/                         GUI 없이 도는 것 + offscreen 위젯 테스트
+docs/STYLE_GUIDE.md            디자인 토큰과 컴포넌트 규격
+docs/ROADMAP.md                설계 배경과 남은 계획
 ```
 
 ## 데이터베이스 스키마
@@ -87,13 +117,16 @@ tests/test_core.py             GUI 없이 도는 utils / db 테스트
 | `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes |
 | `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes |
 
+두 run 테이블은 `gpu_indices`(예: `"0,1"`)와 `extra_json`(Task 별 사용자 정의 필드)도 가집니다.
+
 `ON DELETE CASCADE` + `PRAGMA foreign_keys = ON` 이므로 Task 를 지우면 하위 Work 와 모든 실행 기록이 함께 정리됩니다.
+스키마 버전은 `PRAGMA user_version` 으로 관리하며, v1 DB 는 앱 실행 시 자동으로 v2 로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
 
 ## 테스트
 
 ```bash
 pip install pytest
-pytest -q          # 12 passed
+pytest -q          # 58 passed
 ```
 
 GUI 위젯은 헤드리스에서 `QT_QPA_PLATFORM=offscreen` 으로 구동해 확인했습니다.

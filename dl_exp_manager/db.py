@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from typing import Any, Iterable, Sequence
@@ -16,7 +17,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -61,6 +62,8 @@ CREATE TABLE IF NOT EXISTS train_runs (
     batch_size    TEXT    DEFAULT '',
     lr            TEXT    DEFAULT '',
     optimizer     TEXT    DEFAULT '',
+    gpu_indices   TEXT    DEFAULT '',
+    extra_json    TEXT    DEFAULT '{}',
     metrics_json  TEXT    DEFAULT '{}',
     exec_command  TEXT    DEFAULT '',
     config_yaml   TEXT    DEFAULT '',
@@ -85,6 +88,8 @@ CREATE TABLE IF NOT EXISTS inference_runs (
     status          TEXT    DEFAULT 'done',
     started_at      TEXT    DEFAULT '',
     duration_sec    REAL,
+    gpu_indices     TEXT    DEFAULT '',
+    extra_json      TEXT    DEFAULT '{}',
     metrics_json    TEXT    DEFAULT '{}',
     exec_command    TEXT    DEFAULT '',
     config_yaml     TEXT    DEFAULT '',
@@ -102,14 +107,23 @@ CREATE INDEX IF NOT EXISTS idx_infer_work       ON inference_runs(work_id);
 TRAIN_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "dataset", "dataset_path", "result_path",
     "status", "started_at", "duration_sec", "epochs", "batch_size", "lr",
-    "optimizer", "metrics_json", "exec_command", "config_yaml", "notes",
+    "optimizer", "gpu_indices", "extra_json", "metrics_json", "exec_command",
+    "config_yaml", "notes",
 )
 
 INFER_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "checkpoint_path", "dataset", "dataset_path",
     "result_path", "device", "input_size", "latency_ms", "throughput_fps",
-    "status", "started_at", "duration_sec", "metrics_json", "exec_command",
-    "config_yaml", "notes",
+    "status", "started_at", "duration_sec", "gpu_indices", "extra_json",
+    "metrics_json", "exec_command", "config_yaml", "notes",
+)
+
+# v1 -> v2 에서 추가된 컬럼. (테이블, 컬럼, 정의)
+_V2_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("train_runs", "gpu_indices", "TEXT DEFAULT ''"),
+    ("train_runs", "extra_json", "TEXT DEFAULT '{}'"),
+    ("inference_runs", "gpu_indices", "TEXT DEFAULT ''"),
+    ("inference_runs", "extra_json", "TEXT DEFAULT '{}'"),
 )
 
 
@@ -140,7 +154,21 @@ class Database:
     def _create_schema(self) -> None:
         with self.conn:
             self.conn.executescript(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """기존 DB 를 현재 스키마로 올린다. 몇 번 실행해도 안전하다."""
+        current = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+        with self.conn:
+            for table, column, definition in _V2_COLUMNS:
+                if not self._has_column(table, column):
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        self.migrated_from = current if current < SCHEMA_VERSION else None
+
+    def _has_column(self, table: str, column: str) -> bool:
+        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(row[1] == column for row in rows)
 
     def _exec(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Cursor:
         with self.conn:
@@ -199,7 +227,9 @@ class Database:
         """서버별 현재 running 상태의 학습 목록."""
         rows = self._rows(
             self.conn.execute(
-                "SELECT t.server, t.model, t.started_at, w.name AS work_name, tk.name AS task_name "
+                "SELECT t.id, t.server, t.model, t.started_at, t.gpu_indices, "
+                "t.exec_command, t.result_path, "
+                "w.name AS work_name, tk.name AS task_name "
                 "FROM train_runs t "
                 "JOIN works w ON w.id = t.work_id "
                 "JOIN tasks tk ON tk.id = w.task_id "
@@ -395,6 +425,15 @@ class Database:
         numeric = {"duration_sec", "latency_ms", "throughput_fps"}
         for field in fields:
             value = data.get(field)
+            if field == "extra_json":
+                if isinstance(value, dict):
+                    value = json.dumps(
+                        {str(k): v for k, v in value.items()}, ensure_ascii=False, sort_keys=True
+                    )
+                elif not value:
+                    value = "{}"
+                out[field] = value
+                continue
             if field == "metrics_json":
                 if isinstance(value, dict):
                     value = dumps_metrics(value)
@@ -417,6 +456,54 @@ class Database:
             out[field] = "" if value is None else str(value)
         return out
 
+    # -- 옵션 값 사용 현황 ---------------------------------------------------
+    _COUNTABLE = {"server", "model", "dataset", "optimizer", "device"}
+
+    def count_runs_using(self, column: str, value: str) -> int:
+        """어떤 옵션 값을 쓰는 실행이 몇 건인지 (삭제/이름변경 경고용)."""
+        if column not in self._COUNTABLE or not value:
+            return 0
+        total = 0
+        for table, fields in (("train_runs", TRAIN_FIELDS), ("inference_runs", INFER_FIELDS)):
+            if column not in fields:
+                continue
+            row = self.conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (value,)
+            ).fetchone()
+            total += int(row[0])
+        return total
+
+    def rename_value_in_runs(self, column: str, old: str, new: str) -> int:
+        """옵션 이름을 바꿀 때 기존 기록도 함께 갱신한다."""
+        if column not in self._COUNTABLE or not old:
+            return 0
+        changed = 0
+        for table, fields in (("train_runs", TRAIN_FIELDS), ("inference_runs", INFER_FIELDS)):
+            if column not in fields:
+                continue
+            cur = self._exec(
+                f"UPDATE {table} SET {column} = ?, updated_at = ? WHERE {column} = ?",
+                (new, now_iso(), old),
+            )
+            changed += cur.rowcount
+        return changed
+
+    def count_extra_value(self, field_name: str, value: str) -> int:
+        """extra_json 안의 사용자 정의 필드 값 사용 건수."""
+        if not field_name or not value:
+            return 0
+        total = 0
+        for table in ("train_runs", "inference_runs"):
+            rows = self.conn.execute(f"SELECT extra_json FROM {table}").fetchall()
+            for row in rows:
+                try:
+                    data = json.loads(row[0] or "{}")
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(data, dict) and str(data.get(field_name, "")) == value:
+                    total += 1
+        return total
+
     # -- 통계 ---------------------------------------------------------------
     def summary(self) -> dict[str, int]:
         q = self.conn.execute
@@ -430,13 +517,27 @@ class Database:
             ),
         }
 
-    def distinct_values(self, kind: str, column: str) -> list[str]:
-        """콤보박스 자동완성 보강용 - 이미 입력된 값들을 수집."""
+    def distinct_values(
+        self, kind: str, column: str, task_id: int | None = None
+    ) -> list[str]:
+        """콤보박스 보강용 - 이미 기록에 쓰인 값들.
+
+        `task_id` 를 주면 그 Task 의 실행에서만 모은다. 옵션이 Task 별로 관리되므로,
+        범위를 주지 않으면 다른 Task 의 값이 섞여 들어온다.
+        """
         table = self._table(kind)
         if column not in self._fields(kind):
             return []
-        cur = self.conn.execute(
-            f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != '' "
-            f"ORDER BY {column} COLLATE NOCASE"
-        )
-        return [row[0] for row in cur.fetchall()]
+        sql = f"SELECT DISTINCT r.{column} FROM {table} r"
+        params: tuple = ()
+        if task_id is not None:
+            sql += (
+                " JOIN works w ON w.id = r.work_id"
+                " JOIN tasks t ON t.id = w.task_id"
+                " WHERE t.id = ? AND"
+            )
+            params = (task_id,)
+        else:
+            sql += " WHERE"
+        sql += f" r.{column} IS NOT NULL AND r.{column} != '' ORDER BY r.{column} COLLATE NOCASE"
+        return [row[0] for row in self.conn.execute(sql, params).fetchall()]

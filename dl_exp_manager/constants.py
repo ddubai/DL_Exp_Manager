@@ -23,37 +23,11 @@ DEFAULT_WORKS = {
     "DN": [("N2N-Base", "Noise2Noise 기반 베이스라인")],
 }
 
-# --- 콤보박스 프리셋 (setEditable(True) 이므로 직접 입력도 가능) ------------
-MODEL_PRESETS = [
-    "Restormer",
-    "SwinIR",
-    "MambaIR",
-    "NAFNet",
-    "HAT",
-    "EDSR",
-    "RCAN",
-    "Uformer",
-    "SCUNet",
-    "ResNet-50",
-    "ViT-B/16",
-]
+# 참고: 콤보박스 선택지(model / dataset / optimizer / device …)와 Task 별 지표·컬럼은
+# 이 파일이 아니라 `config/options.yaml` 에서 관리한다 (dl_exp_manager/config_store.py).
+# 상태 색과 폰트는 `dl_exp_manager/theme/tokens.py` 에 있다.
 
-DATASET_PRESETS = [
-    "DIV2K",
-    "Flickr2K",
-    "SIDD",
-    "DND",
-    "Set5",
-    "Set14",
-    "Urban100",
-    "BSD68",
-    "ImageNet-1k",
-]
-
-OPTIMIZER_PRESETS = ["AdamW", "Adam", "SGD", "Lion", "RMSprop"]
-DEVICE_PRESETS = ["cuda:0", "cuda:1", "cuda:0,1", "cpu", "mps"]
-
-# 자주 쓰는 메트릭 키 (메트릭은 JSON 으로 자유롭게 확장 가능)
+# options.yaml 이 없을 때의 폴백 지표 프리셋
 TRAIN_METRIC_PRESETS = ["PSNR", "SSIM", "LPIPS", "Loss", "Accuracy", "mIoU", "NMI", "ARI"]
 INFER_METRIC_PRESETS = ["PSNR", "SSIM", "LPIPS", "NIQE", "Accuracy", "Top-5", "FID"]
 
@@ -63,20 +37,6 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_LIST = [STATUS_QUEUED, STATUS_RUNNING, STATUS_DONE, STATUS_FAILED]
-
-STATUS_COLORS = {
-    STATUS_QUEUED: "#9aa0a6",
-    STATUS_RUNNING: "#1a73e8",
-    STATUS_DONE: "#188038",
-    STATUS_FAILED: "#d93025",
-}
-
-STATUS_ICONS = {
-    STATUS_QUEUED: "⏳",
-    STATUS_RUNNING: "🔵",
-    STATUS_DONE: "🟢",
-    STATUS_FAILED: "🔴",
-}
 
 SAMPLE_CONFIG_YML = """\
 # config.yml

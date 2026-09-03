@@ -1,0 +1,286 @@
+# DL Experiment Manager - 선택지 / Task 정의
+#
+# 이 파일은 손으로 편집해도 되고, 앱 UI 에서 바꿔도 됩니다(같은 파일을 씁니다).
+#   - defaults : 모든 Task 가 공유하는 기본 선택지
+#   - tasks.<이름>.options : 해당 Task 전용 선택지. 있으면 defaults 를 '대체'합니다.
+#   - tasks.<이름>.metrics : 표의 지표 컬럼 + 표시 자릿수 + 높을수록 좋은지 여부
+#   - tasks.<이름>.columns : Train / Inference 표에 보일 컬럼과 순서
+#
+# columns 에 쓸 수 있는 값
+#   내장 필드 : status, server, gpus, model, dataset, dataset_path, result_path,
+#              checkpoint_path, device, input_size, duration, started_at,
+#              latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
+#   지표      : metrics 에 정의한 key (예: PSNR)
+#   사용자 필드: options 에 직접 만든 이름 (예: scale) -> DB extra_json 에 저장됩니다
+
+version: 2
+servers:
+- name: Server 1
+  host: 192.168.0.101
+  gpus:
+  - index: 0
+    type: H100
+    memory_gb: 80
+  - index: 1
+    type: H100
+    memory_gb: 80
+  - index: 2
+    type: H100
+    memory_gb: 80
+  - index: 3
+    type: H100
+    memory_gb: 80
+- name: Server 2
+  host: 192.168.0.102
+  gpus:
+  - index: 0
+    type: V100
+    memory_gb: 32
+  - index: 1
+    type: V100
+    memory_gb: 32
+  - index: 2
+    type: V100
+    memory_gb: 32
+  - index: 3
+    type: V100
+    memory_gb: 32
+- name: Server 3
+  host: 192.168.0.103
+  gpus:
+  - index: 0
+    type: A6000
+    memory_gb: 48
+  - index: 1
+    type: A6000
+    memory_gb: 48
+  - index: 2
+    type: A6000
+    memory_gb: 48
+  - index: 3
+    type: A6000
+    memory_gb: 48
+- name: Server 4
+  host: 192.168.0.104
+  gpus:
+  - index: 0
+    type: A100
+    memory_gb: 80
+  - index: 1
+    type: A100
+    memory_gb: 80
+  - index: 2
+    type: A100
+    memory_gb: 80
+  - index: 3
+    type: A100
+    memory_gb: 80
+defaults:
+  model:
+  - Restormer
+  - SwinIR
+  - MambaIR
+  - NAFNet
+  dataset:
+  - DIV2K
+  - DF2K
+  optimizer:
+  - AdamW
+  - Adam
+  - SGD
+  - Lion
+tasks:
+  SR:
+    label: Super Resolution
+    options:
+      model:
+      - Restormer
+      - SwinIR
+      - MambaIR
+      - HAT
+      - EDSR
+      - RCAN
+      dataset:
+      - DIV2K
+      - DF2K
+      - Flickr2K
+      - Set5
+      - Set14
+      - Urban100
+      scale:
+      - x2
+      - x3
+      - x4
+    metrics:
+    - key: PSNR
+      unit: dB
+      digits: 2
+      higher_is_better: true
+    - key: SSIM
+      digits: 4
+      higher_is_better: true
+    - key: LPIPS
+      digits: 3
+      higher_is_better: false
+    columns:
+      train:
+      - status
+      - server
+      - gpus
+      - model
+      - dataset
+      - scale
+      - duration
+      - PSNR
+      - SSIM
+      - LPIPS
+      - result_path
+      inference:
+      - status
+      - server
+      - gpus
+      - model
+      - checkpoint_path
+      - dataset
+      - latency_ms
+      - throughput_fps
+      - PSNR
+      - SSIM
+      - LPIPS
+      - result_path
+  DN:
+    label: Denoising
+    options:
+      model:
+      - Restormer
+      - NAFNet
+      - SCUNet
+      - Uformer
+      dataset:
+      - SIDD
+      - DND
+      - BSD68
+      - Kodak24
+      noise_sigma:
+      - '15'
+      - '25'
+      - '50'
+    metrics:
+    - key: PSNR
+      unit: dB
+      digits: 2
+      higher_is_better: true
+    - key: SSIM
+      digits: 4
+      higher_is_better: true
+    columns:
+      train:
+      - status
+      - server
+      - gpus
+      - model
+      - dataset
+      - noise_sigma
+      - duration
+      - PSNR
+      - SSIM
+      - result_path
+      inference:
+      - status
+      - server
+      - gpus
+      - model
+      - checkpoint_path
+      - dataset
+      - noise_sigma
+      - latency_ms
+      - PSNR
+      - SSIM
+      - result_path
+  Clustering:
+    label: Unsupervised Clustering
+    options:
+      model:
+      - DeepCluster
+      - SCAN
+      - SwAV
+      dataset:
+      - CIFAR-10
+      - STL-10
+      - ImageNet-50
+    metrics:
+    - key: NMI
+      digits: 4
+      higher_is_better: true
+    - key: ARI
+      digits: 4
+      higher_is_better: true
+    - key: ACC
+      unit: '%'
+      digits: 2
+      higher_is_better: true
+    columns:
+      train:
+      - status
+      - server
+      - gpus
+      - model
+      - dataset
+      - duration
+      - NMI
+      - ARI
+      - ACC
+      - result_path
+      inference:
+      - status
+      - server
+      - model
+      - checkpoint_path
+      - dataset
+      - NMI
+      - ARI
+      - ACC
+      - result_path
+  Classification:
+    label: Image Classification
+    options:
+      model:
+      - ResNet-50
+      - ViT-B/16
+      - ConvNeXt-T
+      - Swin-T
+      dataset:
+      - ImageNet-1k
+      - CIFAR-100
+      - Food-101
+    metrics:
+    - key: Top-1
+      unit: '%'
+      digits: 2
+      higher_is_better: true
+    - key: Top-5
+      unit: '%'
+      digits: 2
+      higher_is_better: true
+    columns:
+      train:
+      - status
+      - server
+      - gpus
+      - model
+      - dataset
+      - duration
+      - Top-1
+      - Top-5
+      - result_path
+      inference:
+      - status
+      - server
+      - model
+      - checkpoint_path
+      - dataset
+      - latency_ms
+      - throughput_fps
+      - Top-1
+      - Top-5
+      - result_path

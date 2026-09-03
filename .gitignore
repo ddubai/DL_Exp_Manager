@@ -13,3 +13,7 @@ experiments.db
 experiments.db-journal
 *.sqlite
 exports/
+
+# 설정 파일 백업/임시본 (config/options.yaml 자체는 추적한다)
+config/*.yaml.bak
+config/*.yaml.tmp
