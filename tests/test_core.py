@@ -187,6 +187,22 @@ def test_dataset_update_and_delete():
     db.close()
 
 
+def test_dataset_sample_count_round_trip():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    dataset_id = db.add_dataset(work_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K", sample_count=900)
+    row = db.get_dataset(dataset_id)
+    assert row["sample_count"] == 900
+
+    db.update_dataset(dataset_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K", "", sample_count=1000)
+    assert db.get_dataset(dataset_id)["sample_count"] == 1000
+
+    # 지정하지 않으면(=None) 비워 둔다 - "모름"과 "0개"를 구분한다
+    other_id = db.add_dataset(work_id, "DF2K")
+    assert db.get_dataset(other_id)["sample_count"] is None
+    db.close()
+
+
 def test_dataset_deleted_when_work_deleted():
     db = make_db()
     task_id = db.add_task("SR")

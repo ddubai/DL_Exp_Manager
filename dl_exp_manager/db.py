@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -111,14 +111,15 @@ CREATE TABLE IF NOT EXISTS run_history (
 );
 
 CREATE TABLE IF NOT EXISTS datasets (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    work_id     INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
-    name        TEXT    NOT NULL,             -- e.g. "DIV2K"
-    variant     TEXT    DEFAULT '',           -- e.g. "Full Pair" / "Subset A" (blank = default)
-    path        TEXT    DEFAULT '',           -- registered location
-    notes       TEXT    DEFAULT '',
-    created_at  TEXT    NOT NULL,
-    updated_at  TEXT    NOT NULL,
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id       INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+    name          TEXT    NOT NULL,             -- e.g. "DIV2K"
+    variant       TEXT    DEFAULT '',           -- e.g. "Full Pair" / "Subset A" (blank = default)
+    path          TEXT    DEFAULT '',           -- registered location
+    sample_count  INTEGER,                      -- 총 데이터 개수 (모르면 NULL)
+    notes         TEXT    DEFAULT '',
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL,
     UNIQUE(work_id, name, variant)
 );
 
@@ -170,6 +171,11 @@ _V4_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("inference_runs", "checkpoint_epoch", "TEXT DEFAULT ''"),
 )
 
+# v4 -> v5: 데이터셋 레지스트리에 총 데이터 개수
+_V5_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("datasets", "sample_count", "INTEGER"),
+)
+
 
 def default_db_path() -> str:
     """기본 DB 경로: 프로젝트 루트의 experiments.db"""
@@ -204,7 +210,7 @@ class Database:
         """기존 DB 를 현재 스키마로 올린다. 몇 번 실행해도 안전하다."""
         current = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
         with self.conn:
-            for table, column, definition in _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS:
+            for table, column, definition in _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS + _V5_COLUMNS:
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -389,7 +395,13 @@ class Database:
         return dict(row) if row else None
 
     def add_dataset(
-        self, work_id: int, name: str, variant: str = "", path: str = "", notes: str = ""
+        self,
+        work_id: int,
+        name: str,
+        variant: str = "",
+        path: str = "",
+        notes: str = "",
+        sample_count: int | None = None,
     ) -> int | None:
         name = name.strip()
         if not name:
@@ -397,9 +409,9 @@ class Database:
         ts = now_iso()
         try:
             cur = self._exec(
-                "INSERT INTO datasets(work_id, name, variant, path, notes, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (work_id, name, variant.strip(), path.strip(), notes.strip(), ts, ts),
+                "INSERT INTO datasets(work_id, name, variant, path, sample_count, notes, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (work_id, name, variant.strip(), path.strip(), sample_count, notes.strip(), ts, ts),
             )
         except sqlite3.IntegrityError:
             existing = self.conn.execute(
@@ -410,11 +422,18 @@ class Database:
         return int(cur.lastrowid)
 
     def update_dataset(
-        self, dataset_id: int, name: str, variant: str = "", path: str = "", notes: str = ""
+        self,
+        dataset_id: int,
+        name: str,
+        variant: str = "",
+        path: str = "",
+        notes: str = "",
+        sample_count: int | None = None,
     ) -> None:
         self._exec(
-            "UPDATE datasets SET name = ?, variant = ?, path = ?, notes = ?, updated_at = ? WHERE id = ?",
-            (name.strip(), variant.strip(), path.strip(), notes.strip(), now_iso(), dataset_id),
+            "UPDATE datasets SET name = ?, variant = ?, path = ?, sample_count = ?, notes = ?, updated_at = ? "
+            "WHERE id = ?",
+            (name.strip(), variant.strip(), path.strip(), sample_count, notes.strip(), now_iso(), dataset_id),
         )
 
     def delete_dataset(self, dataset_id: int) -> None:

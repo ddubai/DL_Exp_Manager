@@ -38,7 +38,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 | 좌측 네비게이션 | **All Tasks ▸ Task ▸ Work 드릴다운**(트리 아님, 브레드크럼으로 한 번에 한 단계만). Work 까지 들어가면 그 Work 에 등록된 **Dataset(이름 + 위치)** 이 그 자리에 바로 나와 추가/수정/삭제할 수 있습니다. 검색·Task/Work 추가·이름변경·삭제는 그대로 지원 |
 | 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 2~3개 실행을 지표·config.yaml diff 로 나란히 비교. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
 | 중앙 하단 상세 | **행을 선택했을 때만 나타남.** 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes, 그리고 그 실행이 **생성/수정/복제될 때마다 기록되는 History** 탭. **🖼 View Image**(결과 폴더의 대표 이미지 한 장) / **📈 Training Curve**(Train 전용, 로그를 파싱해 iteration 별 지표를 그린 라인 차트) 버튼도 여기에 |
-| 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Registered Dataset** 콤보로 그 Work 에 등록된 데이터셋을 고르면 Dataset/경로가 자동으로 채워집니다. **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Inference 폼은 Server/GPU 대신 **같은 Work 의 Train 실행 + Model Epoch/Checkpoint** 를 고르는 형태 |
+| 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Dataset** 콤보는 그 Work 에 등록된 데이터셋 레지스트리와 바로 연동되어, 고르면 경로가 자동으로 채워집니다(옆 📦 버튼으로 전체 관리). **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Inference 폼은 Server/GPU 대신 **같은 Work 의 Train 실행 + Model Epoch/Checkpoint** 를 고르는 형태 |
 
 ### 주요 기능
 
@@ -51,10 +51,11 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
   평가 지표는 **같은 Task 안에서 공유**됩니다 — 어느 Run 에서든 새 지표 값을 입력하면 그 Task 의 지표로
   등록되고, 다음 New Run 부터 값 빈 상태로 미리 채워집니다. 지표마다 `higher_is_better`(높을수록/낮을수록
   좋음)를 지정할 수 있고, 같은 Work 안 최고값은 표에서 강조됩니다.
-- **Work 별 데이터셋 레지스트리** — 데이터셋을 이름 + (선택) Variant + 경로로 등록해 둡니다.
+- **Work 별 데이터셋 레지스트리** — 데이터셋을 이름 + (선택) Variant + 경로 + 총 데이터 개수로 등록해 둡니다.
   같은 이름이라도 Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개 항목으로 관리할 수 있습니다
   (예: `DIV2K · Full Pair`, `DIV2K · Subset A`). 좌측 네비게이션에서 바로 추가/수정/삭제하고,
-  등록/수정 폼의 Registered Dataset 콤보로 불러와 씁니다.
+  등록/수정 폼의 **Dataset** 콤보 자체가 이 레지스트리와 연동됩니다 — 고르면 경로가 자동으로 채워지고,
+  드롭다운 맨 아래 `＋ 새 데이터셋 추가…` 로 바로 등록할 수도 있습니다.
 - **train.py 결과에서 자동 채우기** — 결과 폴더의 `config.yaml`(BasicSR 류 스키마 우선 시도)과
   학습 로그(`loss.log` 등)를 파싱해 Model/Dataset/Batch/LR/Optimizer/Epoch, 최근 검증 지표,
   소요 시간을 자동으로 채웁니다. 형식을 못 알아봐도 예외 없이 빈 결과만 돌려주고, 채운 값은 저장 전에
@@ -187,7 +188,7 @@ columns:
 | `servers` | name, host, gpu, note |
 | `tasks` | name(UNIQUE), description — **Level 1** |
 | `works` | task_id→tasks, name, description, UNIQUE(task_id, name) — **Level 2** |
-| `datasets` | work_id→works, name, variant, path, notes, UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
+| `datasets` | work_id→works, name, variant, path, **sample_count**, notes, UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
 | `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
 | `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
 | `run_history` | run_kind, run_id, action(created/updated/duplicated), detail, created_at — Run 별 변경 이력 |
@@ -196,7 +197,7 @@ columns:
 `extra_json`(Task 별 사용자 정의 필드)도 가집니다.
 
 `ON DELETE CASCADE` + `PRAGMA foreign_keys = ON` 이므로 Task 를 지우면 하위 Work·Dataset·실행 기록이 함께 정리됩니다.
-스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v4), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
+스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v5), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
 
 ## 테스트
 

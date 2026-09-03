@@ -387,6 +387,11 @@ class NavigationPanel(QtWidgets.QWidget):
                 f" border-radius: {theme.METRICS['radius.small']}px; padding: 0px 5px;"
             )
             top.addWidget(variant_label)
+        if dataset.get("sample_count"):
+            count_label = QtWidgets.QLabel(f"{dataset['sample_count']:,}", row)
+            count_label.setFont(monospace_font(-1))
+            count_label.setStyleSheet(f"color: {theme.color('text.muted')};")
+            top.addWidget(count_label)
         top.addStretch(1)
 
         edit_btn = QtWidgets.QToolButton(row)
@@ -420,20 +425,20 @@ class NavigationPanel(QtWidgets.QWidget):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes = dialog.result_values()
+        name, variant, path, notes, sample_count = dialog.result_values()
         if not name:
             return
-        self.db.add_dataset(self._work_id, name, variant, path, notes)
+        self.db.add_dataset(self._work_id, name, variant, path, notes, sample_count)
         self._render()
 
     def _edit_dataset(self, dataset: dict[str, Any]) -> None:
         dialog = DatasetEditDialog(self, dataset)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes = dialog.result_values()
+        name, variant, path, notes, sample_count = dialog.result_values()
         if not name:
             return
-        self.db.update_dataset(dataset["id"], name, variant, path, notes)
+        self.db.update_dataset(dataset["id"], name, variant, path, notes, sample_count)
         self._render()
 
     def _delete_dataset(self, dataset: dict[str, Any]) -> None:

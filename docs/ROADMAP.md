@@ -419,10 +419,16 @@ History 탭은 이제 **행을 선택했을 때만** 나타납니다(선택 전�
 ### 11.5 Work 별 데이터셋 레지스트리
 
 데이터셋을 **Work 단위**로 등록합니다(Task 단위 옵션 목록과는 별개). `datasets` 테이블
-(work_id, name, variant, path, notes)에 이름 + 선택적 Variant + 경로를 저장합니다. 같은 이름이라도
-Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개 항목으로 등록할 수 있습니다
-(예: `DIV2K · Full Pair` / `DIV2K · Subset A`). 등록/수정 폼의 **Registered Dataset** 콤보로 고르면
-Dataset 필드와 Dataset Path 가 함께 채워집니다. 좌측 네비게이션(§11.6)에서도 인라인으로 관리합니다.
+(work_id, name, variant, path, sample_count, notes)에 이름 + 선택적 Variant + 경로 + 총 데이터
+개수를 저장합니다. 같은 이름이라도 Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개
+항목으로 등록할 수 있습니다(예: `DIV2K · Full Pair` / `DIV2K · Subset A`). 좌측 네비게이션(§11.6)에서
+인라인으로 관리하고, 등록/수정 폼의 **Dataset 콤보 자체가 이 레지스트리와 바로 연동**됩니다(§11.7).
+
+처음 구현할 때는 기존 Dataset 필드(Task 옵션 자유 입력)를 그대로 두고 그 옆에 별도 "Registered
+Dataset" 로더 콤보를 추가하는 additive 방식으로 갔습니다. 그런데 사용자가 "New Run 에서 Dataset
+선택이 Work 데이터셋과 연동이 안 된다"고 지적했습니다 — 메인 Dataset 필드를 보고 있었는데 그건
+여전히 옛날 방식(Task 옵션)이었고, 새로 만든 로더는 Paths 섹션 아래 별도 행이라 눈에 안 띄었던
+겁니다. §11.7 에서 두 콤보를 하나로 합쳤습니다.
 
 ### 11.6 좌측 네비게이션 드릴다운 개편 (Option A)
 
@@ -443,3 +449,16 @@ Dataset 필드와 Dataset Path 가 함께 채워집니다. 좌측 네비게이�
 
 레이아웃 시안은 사용자에게 A(드릴다운) / B(트리 유지 + 요약 줄) / C(평평한 아코디언) 3가지를 스크린샷으로
 제시했고, A 로 확정했습니다. B/C 는 채택하지 않았지만 나중에 다시 참고할 수 있도록 시안만 남겨 둡니다.
+
+### 11.7 후속 수정 — Dataset 콤보를 레지스트리와 직접 연동, 총 데이터 개수 추가
+
+§11.5 의 "Registered Dataset" 로더 콤보를 없애고, **New Run 폼의 메인 Dataset 필드 자체**를
+`widgets/dataset_dialog.py::DatasetCombo` 로 교체했습니다. `ManagedCombo` 와 같은 조작감(드롭다운
+맨 아래 `＋ 새 데이터셋 추가…`, 항목 우클릭/F2/Del 로 수정·삭제)을 그대로 이 Work 의 데이터셋
+레지스트리에 대해 제공합니다. 옆의 📦 버튼은 여러 건을 한눈에 보고 고치는 `DatasetManagerDialog`
+(표 형태)를 그대로 열어 줍니다 - 인라인 콤보와 표 다이얼로그를 상호 보완적으로 남겨 뒀습니다.
+
+또한 `datasets` 테이블에 **`sample_count`(총 데이터 개수)** 컬럼을 추가했습니다(스키마 v5). 값이
+없으면 "0개"와 구분하기 위해 `NULL` 로 둡니다(`DatasetEditDialog` 의 스핀박스는 0 을
+"(unspecified)" 로 표시). 좌측 네비게이션의 인라인 Dataset 행과 `DatasetManagerDialog` 의 표에도
+개수를 함께 보여줍니다.

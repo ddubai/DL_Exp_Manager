@@ -580,12 +580,14 @@ def test_nav_add_dataset_via_inline_dialog(qapp, config, monkeypatch):
 
     monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(
-        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "")
+        DatasetEditDialog, "result_values",
+        lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "", 900),
     )
     nav._add_dataset()
 
     datasets = db.list_datasets(ssl2sl)
     assert len(datasets) == 1 and datasets[0]["name"] == "DIV2K"
+    assert datasets[0]["sample_count"] == 900
     db.close()
 
 
@@ -1167,11 +1169,14 @@ def test_parse_result_folder_does_not_clobber_manual_dataset_path(qapp, config):
 def test_dataset_edit_dialog_round_trips_fields(qapp):
     from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
 
-    dialog = DatasetEditDialog(dataset={"name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n"})
+    dialog = DatasetEditDialog(
+        dataset={"name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n", "sample_count": 900}
+    )
     assert dialog.name_edit.text() == "DIV2K"
     assert dialog.variant_edit.text() == "Full Pair"
     assert dialog.path_edit.path() == "/a"
-    assert dialog.result_values() == ("DIV2K", "Full Pair", "/a", "n")
+    assert dialog.sample_count_spin.value() == 900
+    assert dialog.result_values() == ("DIV2K", "Full Pair", "/a", "n", 900)
 
 
 def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
@@ -1188,19 +1193,22 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
         DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted
     )
     monkeypatch.setattr(
-        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/a", "")
+        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/a", "", 900)
     )
     dialog._add()
     assert dialog.table.rowCount() == 1
     assert db.list_datasets(work_id)[0]["path"] == "/mnt/a"
+    assert db.list_datasets(work_id)[0]["sample_count"] == 900
+    assert dialog.table.item(0, 3).text() == "900"
 
     dialog.table.selectRow(0)
     monkeypatch.setattr(
-        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved")
+        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved", 1000)
     )
     dialog._edit_selected()
     assert db.list_datasets(work_id)[0]["path"] == "/mnt/b"
     assert db.list_datasets(work_id)[0]["notes"] == "moved"
+    assert db.list_datasets(work_id)[0]["sample_count"] == 1000
 
     monkeypatch.setattr("dl_exp_manager.editing.confirm_delete", lambda *a, **k: True)
     dialog.table.selectRow(0)
@@ -1209,33 +1217,52 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     db.close()
 
 
-def test_registered_dataset_combo_scoped_to_work(qapp, config):
+def test_dataset_combo_scoped_to_work_and_links_run_form(qapp, config):
+    """New Run 폼의 Dataset 콤보는 Task 옵션이 아니라 이 Work 에 등록된
+    데이터셋 레지스트리와 바로 연동돼야 한다 (사용자가 보고한 버그)."""
     db, panel, run_id = _panel_with_one_run(config)
     other_work = db.add_work(panel._task_id, "OtherWork")
     db.add_dataset(panel._work_id, "DIV2K", "Full Pair", "/mnt/data/div2k")
     db.add_dataset(other_work, "Set5", "", "/mnt/data/set5")
 
     panel.reset_form()
-    labels = [
-        panel.dataset_registry_combo.itemText(i)
-        for i in range(panel.dataset_registry_combo.count())
-    ]
+    labels = [panel.dataset_combo.itemText(i) for i in range(panel.dataset_combo.count())]
     assert "DIV2K · Full Pair" in labels
     assert not any("Set5" in label for label in labels)
     db.close()
 
 
-def test_picking_registered_dataset_fills_dataset_and_path(qapp, config):
+def test_picking_dataset_fills_path(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
-    dataset_id = db.add_dataset(panel._work_id, "DIV2K", "Full Pair", "/mnt/data/div2k")
+    db.add_dataset(panel._work_id, "DIV2K", "Full Pair", "/mnt/data/div2k")
     panel.reset_form()
 
-    index = panel.dataset_registry_combo.findData(dataset_id)
+    index = panel.dataset_combo.findText("DIV2K · Full Pair")
     assert index >= 0
-    panel.dataset_registry_combo.setCurrentIndex(index)
+    panel.dataset_combo.setCurrentIndex(index)
+    panel.dataset_combo._on_activated(index)
 
     assert panel.dataset_combo.current_text() == "DIV2K · Full Pair"
     assert panel.dataset_path_edit.path() == "/mnt/data/div2k"
+    db.close()
+
+
+def test_dataset_combo_add_new_dataset_inline(qapp, config, monkeypatch):
+    from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
+
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+
+    monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(
+        DatasetEditDialog, "result_values",
+        lambda self: ("Flickr2K", "", "/mnt/data/Flickr2K", "", 2650),
+    )
+    panel.dataset_combo.add_item()
+
+    assert panel.dataset_combo.current_text() == "Flickr2K"
+    assert panel.dataset_path_edit.path() == "/mnt/data/Flickr2K"
+    assert db.list_datasets(panel._work_id)[-1]["sample_count"] == 2650
     db.close()
 
 
