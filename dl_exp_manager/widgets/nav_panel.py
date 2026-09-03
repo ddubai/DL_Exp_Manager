@@ -296,6 +296,17 @@ class NavigationPanel(QtWidgets.QWidget):
             self.db.delete_work(ident)
         self.refresh()
 
+    def manage_datasets(self) -> None:
+        work_id = self.current_work_id()
+        if work_id is None:
+            QtWidgets.QMessageBox.information(self, "Manage Datasets", "Select a Work ID first.")
+            return
+        work = self.db.get_work(work_id)
+        from .dataset_dialog import DatasetManagerDialog
+
+        dialog = DatasetManagerDialog(self.db, work_id, work["name"] if work else "", self)
+        dialog.exec()
+
     def _context_menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
         if item is not None:
@@ -306,6 +317,9 @@ class NavigationPanel(QtWidgets.QWidget):
         if item is None:
             menu = editing.build_item_menu(self, add_label="Add DL Task", on_add=self.add_task)
         else:
+            extra_top = [("+ Add DL Task", self.add_task)]
+            if kind == "work":
+                extra_top.append(("📦 Manage Datasets…", self.manage_datasets))
             menu = editing.build_item_menu(
                 self,
                 add_label="Add Work ID",
@@ -314,6 +328,6 @@ class NavigationPanel(QtWidgets.QWidget):
                 on_rename=self.edit_current,
                 delete_label=f"Delete {label}",
                 on_delete=self.delete_current,
-                extra_top=[("+ Add DL Task", self.add_task)],
+                extra_top=extra_top,
             )
         menu.exec(self.tree.viewport().mapToGlobal(pos))

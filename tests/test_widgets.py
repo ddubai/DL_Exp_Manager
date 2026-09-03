@@ -997,3 +997,96 @@ def test_parse_result_folder_does_not_clobber_manual_dataset_path(qapp, config):
     panel._parse_result_folder()
     assert panel.dataset_path_edit.path() == "/my/own/path"
     db.close()
+
+
+# --- Work-scoped dataset registry -----------------------------------------------
+def test_dataset_edit_dialog_round_trips_fields(qapp):
+    from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
+
+    dialog = DatasetEditDialog(dataset={"name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n"})
+    assert dialog.name_edit.text() == "DIV2K"
+    assert dialog.variant_edit.text() == "Full Pair"
+    assert dialog.path_edit.path() == "/a"
+    assert dialog.result_values() == ("DIV2K", "Full Pair", "/a", "n")
+
+
+def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog, DatasetManagerDialog
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    work_id = db.add_work(db.add_task("SR"), "BSR-x4")
+    window = QtWidgets.QMainWindow()
+    dialog = DatasetManagerDialog(db, work_id, "BSR-x4", parent=window)
+    window.setCentralWidget(dialog)
+
+    monkeypatch.setattr(
+        DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted
+    )
+    monkeypatch.setattr(
+        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/a", "")
+    )
+    dialog._add()
+    assert dialog.table.rowCount() == 1
+    assert db.list_datasets(work_id)[0]["path"] == "/mnt/a"
+
+    dialog.table.selectRow(0)
+    monkeypatch.setattr(
+        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved")
+    )
+    dialog._edit_selected()
+    assert db.list_datasets(work_id)[0]["path"] == "/mnt/b"
+    assert db.list_datasets(work_id)[0]["notes"] == "moved"
+
+    monkeypatch.setattr("dl_exp_manager.editing.confirm_delete", lambda *a, **k: True)
+    dialog.table.selectRow(0)
+    dialog._remove_selected()
+    assert db.list_datasets(work_id) == []
+    db.close()
+
+
+def test_registered_dataset_combo_scoped_to_work(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    other_work = db.add_work(panel._task_id, "OtherWork")
+    db.add_dataset(panel._work_id, "DIV2K", "Full Pair", "/mnt/data/div2k")
+    db.add_dataset(other_work, "Set5", "", "/mnt/data/set5")
+
+    panel.reset_form()
+    labels = [
+        panel.dataset_registry_combo.itemText(i)
+        for i in range(panel.dataset_registry_combo.count())
+    ]
+    assert "DIV2K · Full Pair" in labels
+    assert not any("Set5" in label for label in labels)
+    db.close()
+
+
+def test_picking_registered_dataset_fills_dataset_and_path(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    dataset_id = db.add_dataset(panel._work_id, "DIV2K", "Full Pair", "/mnt/data/div2k")
+    panel.reset_form()
+
+    index = panel.dataset_registry_combo.findData(dataset_id)
+    assert index >= 0
+    panel.dataset_registry_combo.setCurrentIndex(index)
+
+    assert panel.dataset_combo.current_text() == "DIV2K · Full Pair"
+    assert panel.dataset_path_edit.path() == "/mnt/data/div2k"
+    db.close()
+
+
+def test_open_dataset_manager_opens_dialog_scoped_to_current_work(qapp, config, monkeypatch):
+    db, panel, run_id = _panel_with_one_run(config)
+
+    opened = {}
+
+    def fake_exec(self):
+        opened["work_id"] = self.work_id
+        return 0
+
+    from dl_exp_manager.widgets.dataset_dialog import DatasetManagerDialog
+
+    monkeypatch.setattr(DatasetManagerDialog, "exec", fake_exec)
+    panel._open_dataset_manager()
+    assert opened["work_id"] == panel._work_id
+    db.close()

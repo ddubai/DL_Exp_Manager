@@ -140,6 +140,76 @@ def test_delete_task_cascades_to_runs():
     db.close()
 
 
+def test_dataset_registry_is_scoped_per_work():
+    db = make_db()
+    task_id = db.add_task("SR")
+    work1 = db.add_work(task_id, "BSR-x4")
+    work2 = db.add_work(task_id, "SSL2SL")
+
+    db.add_dataset(work1, "DIV2K", "Full Pair", "/mnt/data/DIV2K/full")
+    db.add_dataset(work1, "DIV2K", "Subset A", "/mnt/data/DIV2K/subset_a")
+    db.add_dataset(work2, "DIV2K", "", "/mnt/data/DIV2K/other")
+
+    work1_sets = db.list_datasets(work1)
+    assert len(work1_sets) == 2
+    assert {d["variant"] for d in work1_sets} == {"Full Pair", "Subset A"}
+    assert len(db.list_datasets(work2)) == 1
+
+    full_pair = next(d for d in work1_sets if d["variant"] == "Full Pair")
+    assert full_pair["path"] == "/mnt/data/DIV2K/full"
+    db.close()
+
+
+def test_dataset_add_is_idempotent_per_name_and_variant():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    first = db.add_dataset(work_id, "DIV2K", "Full Pair", "/a")
+    again = db.add_dataset(work_id, "DIV2K", "Full Pair", "/b")
+    assert first == again
+    assert len(db.list_datasets(work_id)) == 1
+    db.close()
+
+
+def test_dataset_update_and_delete():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    dataset_id = db.add_dataset(work_id, "DIV2K", path="/old/path")
+
+    db.update_dataset(dataset_id, "DIV2K", "Full Pair", "/new/path", "updated notes")
+    row = db.get_dataset(dataset_id)
+    assert row["variant"] == "Full Pair"
+    assert row["path"] == "/new/path"
+    assert row["notes"] == "updated notes"
+
+    db.delete_dataset(dataset_id)
+    assert db.get_dataset(dataset_id) is None
+    assert db.list_datasets(work_id) == []
+    db.close()
+
+
+def test_dataset_deleted_when_work_deleted():
+    db = make_db()
+    task_id = db.add_task("SR")
+    work_id = db.add_work(task_id, "W")
+    db.add_dataset(work_id, "DIV2K", path="/a")
+    db.delete_work(work_id)
+    assert db.list_datasets(work_id) == []
+    db.close()
+
+
+def test_count_runs_using_dataset():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+    db.add_dataset(work_id, "DIV2K", "Full Pair", "/a")
+    db.insert_run("train", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
+    db.insert_run("inference", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
+    db.insert_run("train", {"work_id": work_id, "model": "M", "dataset": "Other"})
+
+    assert db.count_runs_using_dataset(work_id, "DIV2K", "Full Pair") == 2
+    assert db.count_runs_using_dataset(work_id, "DIV2K", "") == 0
+    db.close()
+
+
 def test_inference_numeric_fields():
     db = make_db()
     work_id = db.add_work(db.add_task("SR"), "W")

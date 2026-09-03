@@ -63,6 +63,7 @@ from .common import (
 )
 from .compare_dialog import CompareRunsDialog
 from .curve_chart import CurveDialog
+from .dataset_dialog import DatasetManagerDialog
 from .image_viewer import ImageViewerDialog
 from .log_viewer import LogViewerDialog
 
@@ -568,6 +569,25 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._build_extra_form_rows(inner)
 
         # -- Paths -------------------------------------------------------------
+        self.dataset_registry_combo = QtWidgets.QComboBox(inner)
+        self.dataset_registry_combo.setToolTip(
+            "Pick a dataset registered for this Work to fill in Dataset + "
+            f"{self._dataset_path_label()} automatically."
+        )
+        self.dataset_registry_combo.currentIndexChanged.connect(self._on_registered_dataset_changed)
+        manage_datasets_btn = QtWidgets.QToolButton(inner)
+        manage_datasets_btn.setText("📦 Manage…")
+        manage_datasets_btn.setToolTip(
+            "Add/edit/remove datasets registered for this Work (name, variant, path)."
+        )
+        manage_datasets_btn.clicked.connect(self._open_dataset_manager)
+        registry_row = QtWidgets.QWidget(inner)
+        registry_layout = QtWidgets.QHBoxLayout(registry_row)
+        registry_layout.setContentsMargins(0, 0, 0, 0)
+        registry_layout.setSpacing(4)
+        registry_layout.addWidget(self.dataset_registry_combo, 1)
+        registry_layout.addWidget(manage_datasets_btn)
+
         self.dataset_path_edit = PathEdit(inner, "/mnt/data/DIV2K/train", compact=True)
         self.result_path_edit = PathEdit(inner, "/mnt/exp/SSL2SL/restormer_x4", compact=True)
         self.result_path_edit.folderDropped.connect(self._on_result_folder_dropped)
@@ -585,6 +605,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         result_path_layout.addWidget(self.result_path_edit, 1)
         result_path_layout.addWidget(parse_btn)
         self.form_layout.addRow(self._section("Paths", inner))
+        self.form_layout.addRow("Registered Dataset:", registry_row)
         self.form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
         self.form_layout.addRow("Result Folder Path:", result_path_row)
 
@@ -896,6 +917,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.metrics_editor.refresh_presets()
         for combo in self._custom_widgets.values():
             combo.reload()
+        self._refresh_registered_dataset_combo()
         self._refresh_extra_combo_sources()
 
     # -- Task-specific custom fields --------------------------------------------
@@ -938,6 +960,44 @@ class BaseRunPanel(QtWidgets.QWidget):
             self.work_combo.set_text(works[0]["name"])
         else:
             self.work_combo.set_text("")
+
+    # -- Work 별 데이터셋 레지스트리 -----------------------------------------------
+    def _refresh_registered_dataset_combo(self) -> None:
+        current = self.dataset_registry_combo.currentData()
+        self.dataset_registry_combo.blockSignals(True)
+        self.dataset_registry_combo.clear()
+        self.dataset_registry_combo.addItem("(pick a registered dataset to load its path)", None)
+        if self._work_id:
+            for row in self.db.list_datasets(self._work_id):
+                self.dataset_registry_combo.addItem(self._dataset_label(row), int(row["id"]))
+        index = self.dataset_registry_combo.findData(current)
+        self.dataset_registry_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.dataset_registry_combo.blockSignals(False)
+
+    @staticmethod
+    def _dataset_label(row: dict[str, Any]) -> str:
+        return f"{row['name']} · {row['variant']}" if row.get("variant") else row["name"]
+
+    def _on_registered_dataset_changed(self, _index: int) -> None:
+        dataset_id = self.dataset_registry_combo.currentData()
+        if dataset_id is None:
+            return
+        row = self.db.get_dataset(int(dataset_id))
+        if not row:
+            return
+        self.dataset_combo.set_text(self._dataset_label(row))
+        if row.get("path"):
+            self.dataset_path_edit.set_path(row["path"])
+
+    def _open_dataset_manager(self) -> None:
+        if not self._work_id:
+            toast(self, False, "Select a Work on the left first.", "Manage Datasets")
+            return
+        work = self.db.get_work(self._work_id)
+        dialog = DatasetManagerDialog(self.db, self._work_id, work["name"] if work else "", self)
+        dialog.datasetsChanged.connect(self._refresh_registered_dataset_combo)
+        dialog.exec()
+        self._refresh_registered_dataset_combo()
 
     def _update_count_label(self) -> None:
         visible = self.proxy.rowCount()
@@ -1462,6 +1522,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.gpu_selector.clear()
         self.dataset_path_edit.clear()
         self.result_path_edit.clear()
+        self._refresh_registered_dataset_combo()
         # 같은 Task 안에서는 지표를 공유한다 - 이전에 이 Task 의 어느 Run 에서든
         # 등록한 지표는 새 Run 을 만들 때 값 없는 행으로 미리 채워 둔다.
         self.metrics_editor.set_metrics(

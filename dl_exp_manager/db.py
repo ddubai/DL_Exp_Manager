@@ -110,11 +110,24 @@ CREATE TABLE IF NOT EXISTS run_history (
     created_at  TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS datasets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id     INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL,             -- e.g. "DIV2K"
+    variant     TEXT    DEFAULT '',           -- e.g. "Full Pair" / "Subset A" (blank = default)
+    path        TEXT    DEFAULT '',           -- registered location
+    notes       TEXT    DEFAULT '',
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL,
+    UNIQUE(work_id, name, variant)
+);
+
 CREATE INDEX IF NOT EXISTS idx_works_task       ON works(task_id);
 CREATE INDEX IF NOT EXISTS idx_train_work       ON train_runs(work_id);
 CREATE INDEX IF NOT EXISTS idx_train_status     ON train_runs(status);
 CREATE INDEX IF NOT EXISTS idx_infer_work       ON inference_runs(work_id);
 CREATE INDEX IF NOT EXISTS idx_history_run      ON run_history(run_kind, run_id);
+CREATE INDEX IF NOT EXISTS idx_datasets_work    ON datasets(work_id);
 """
 
 TRAIN_FIELDS: tuple[str, ...] = (
@@ -359,6 +372,65 @@ class Database:
             "SELECT COUNT(*) FROM inference_runs WHERE work_id = ?", (work_id,)
         ).fetchone()[0]
         return int(train), int(infer)
+
+    # -- Work 별 데이터셋 레지스트리 ------------------------------------------
+    # 같은 이름이라도 variant 를 다르게 두면(예: "Full Pair" / "Subset A") 한
+    # 데이터셋의 여러 판을 서로 다른 경로로 따로 등록해 둘 수 있다.
+    def list_datasets(self, work_id: int) -> list[dict[str, Any]]:
+        return self._rows(
+            self.conn.execute(
+                "SELECT * FROM datasets WHERE work_id = ? ORDER BY name COLLATE NOCASE, variant COLLATE NOCASE",
+                (work_id,),
+            )
+        )
+
+    def get_dataset(self, dataset_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        return dict(row) if row else None
+
+    def add_dataset(
+        self, work_id: int, name: str, variant: str = "", path: str = "", notes: str = ""
+    ) -> int | None:
+        name = name.strip()
+        if not name:
+            return None
+        ts = now_iso()
+        try:
+            cur = self._exec(
+                "INSERT INTO datasets(work_id, name, variant, path, notes, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (work_id, name, variant.strip(), path.strip(), notes.strip(), ts, ts),
+            )
+        except sqlite3.IntegrityError:
+            existing = self.conn.execute(
+                "SELECT id FROM datasets WHERE work_id = ? AND name = ? AND variant = ?",
+                (work_id, name, variant.strip()),
+            ).fetchone()
+            return existing["id"] if existing else None
+        return int(cur.lastrowid)
+
+    def update_dataset(
+        self, dataset_id: int, name: str, variant: str = "", path: str = "", notes: str = ""
+    ) -> None:
+        self._exec(
+            "UPDATE datasets SET name = ?, variant = ?, path = ?, notes = ?, updated_at = ? WHERE id = ?",
+            (name.strip(), variant.strip(), path.strip(), notes.strip(), now_iso(), dataset_id),
+        )
+
+    def delete_dataset(self, dataset_id: int) -> None:
+        self._exec("DELETE FROM datasets WHERE id = ?", (dataset_id,))
+
+    def count_runs_using_dataset(self, work_id: int, name: str, variant: str = "") -> int:
+        """이름(+variant)이 일치하는 실행이 몇 건인지 - 삭제 확인창에 쓴다."""
+        label = f"{name} · {variant}" if variant else name
+        total = 0
+        for table in ("train_runs", "inference_runs"):
+            row = self.conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE work_id = ? AND dataset = ?",
+                (work_id, label),
+            ).fetchone()
+            total += int(row[0])
+        return total
 
     # -- Level 3 데이터: Runs ----------------------------------------------
     def _select_runs(
