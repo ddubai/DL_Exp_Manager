@@ -277,9 +277,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(f"Reloaded {count} config file(s).", 3000)
 
     def _on_config_changed(self) -> None:
-        """UI 에서 설정을 바꾼 직후 - 파일은 이미 저장돼 있다."""
+        """UI 에서 설정을 바꾼 직후 - 파일은 이미 저장돼 있다(저장 실패는 아래에서 알린다)."""
         self._watch_config()
         self._apply_config_everywhere()
+        if self.config.last_save_error:
+            toast(
+                self,
+                False,
+                f"The change was applied, but could not be saved to disk:\n{self.config.last_save_error}",
+                "Save Failed",
+            )
+            self.config.last_save_error = None
 
     def _apply_config_everywhere(self) -> None:
         self.train_panel.reload_columns()
@@ -287,6 +295,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.server_bar.refresh()
 
     def _show_startup_status(self) -> None:
+        if backend_name() == "none":
+            # A transient status-bar message is easy to miss, and this affects every
+            # future edit (nothing typed into a form/dialog gets saved to disk), so
+            # it gets a dialog once at startup instead.
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No YAML Library Found",
+                "Neither PyYAML nor ruamel.yaml is installed.\n\n"
+                "The app will run with built-in defaults, but changes to servers, "
+                "options, and columns cannot be saved to config/ until you install one:\n\n"
+                "    pip install -r requirements.txt\n\n"
+                "(or just: pip install pyyaml)",
+            )
         if self.config.errors:
             self.statusBar().showMessage("⚠ Config: " + self.config.errors[0], 12000)
             return

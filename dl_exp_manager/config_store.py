@@ -319,6 +319,7 @@ class OptionsConfig:
     def __init__(self, path: str | None = None, auto_create: bool = True) -> None:
         self.path = os.path.abspath(path or default_config_path())
         self.errors: list[str] = []
+        self.last_save_error: str | None = None
         self._data: dict[str, Any] = copy.deepcopy(BUILTIN)
         # 값의 출처: 저장할 때 어느 파일로 되돌릴지 결정한다.
         self._servers_file: str = self.servers_path
@@ -411,10 +412,10 @@ class OptionsConfig:
             if auto_create:
                 self._data = copy.deepcopy(BUILTIN)
                 self._assign_default_origins()
-                try:
-                    self.save(force_all=True)
-                except OSError as exc:
-                    self.errors.append(f"Could not create the default config files: {exc}")
+                if not self.save(force_all=True) and self.last_save_error:
+                    self.errors.append(
+                        f"Could not create the default config files: {self.last_save_error}"
+                    )
             else:
                 self._assign_default_origins()
             return
@@ -556,10 +557,9 @@ class OptionsConfig:
             name: os.path.join(self.tasks_dir, _safe_filename(name))
             for name in self._data["tasks"]
         }
-        try:
-            self.save(force_all=True)
-        except OSError as exc:
-            self.errors.append(f"Could not split the config file: {exc}")
+        if not self.save(force_all=True):
+            if self.last_save_error:
+                self.errors.append(f"Could not split the config file: {self.last_save_error}")
             return
         self.errors.append(
             "Split the settings that used to live in options.yaml into "
@@ -594,22 +594,38 @@ class OptionsConfig:
                     width=120,
                 )
             else:
-                raise OSError("YAML 백엔드가 없어 저장할 수 없습니다.")
+                raise OSError(
+                    "No YAML backend available (PyYAML or ruamel.yaml). "
+                    "Install one, e.g. `pip install pyyaml`, then reload the config."
+                )
         os.replace(tmp, path)
 
-    def save(self, force_all: bool = False) -> None:
-        """변경된 파일만 저장한다. force_all 이면 전부 다시 쓴다."""
+    def save(self, force_all: bool = False) -> bool:
+        """변경된 파일만 저장한다. force_all 이면 전부 다시 쓴다.
+
+        디스크 쓰기가 실패해도(예: YAML 백엔드 없음) 예외를 올리지 않는다.
+        메모리 상의 변경은 이미 반영돼 있으므로 UI 는 정상 동작하고,
+        실패 사유는 `last_save_error` 에 담아 호출부(주로 main_window)가
+        한 번 알려 주고 넘어가게 한다.
+        """
         targets = set(self._dirty)
         if force_all:
             targets = {self.path, self._servers_file, self._defaults_file}
             targets.update(self._task_files.values())
 
         if not targets:
-            return
+            return True
 
-        for path in sorted(targets):
-            self._write_one(path, force_all=force_all)
+        self.last_save_error = None
+        try:
+            for path in sorted(targets):
+                self._write_one(path, force_all=force_all)
+        except OSError as exc:
+            self.last_save_error = str(exc)
+            return False
+
         self._dirty -= targets
+        return True
 
     def _write_one(self, path: str, force_all: bool = False) -> None:
         same = os.path.normpath

@@ -338,3 +338,34 @@ def test_task_file_name_key_wins_over_filename():
     reloaded = OptionsConfig(config.path)
     assert "Detection" in reloaded.task_names
     assert reloaded.options_for("Detection", "model") == ["YOLO"]
+
+
+# --- Missing YAML backend: save must degrade gracefully, not crash --------
+def test_save_without_backend_does_not_raise(monkeypatch):
+    """Deleting/editing something with no YAML lib installed must not crash the app.
+
+    Regression test: previously `_write` raised a bare OSError that propagated
+    out of `save()` (and out of things like ServerStatusPanel.remove_server),
+    surfacing as an unhandled Korean error instead of a clean message.
+    """
+    import dl_exp_manager.config_store as config_store
+
+    config = make_config()  # created normally, with a real backend
+    assert config.remove_server("Server 1")  # in-memory change succeeds
+
+    # Now simulate the environment having no usable YAML library at all.
+    monkeypatch.setattr(config_store, "_BACKEND", "none")
+    monkeypatch.setattr(config, "_yaml", None)
+
+    ok = config.add_option("SR", "model", "WontPersist")
+    assert ok is True  # the in-memory list is still updated...
+    assert "WontPersist" in config.options_for("SR", "model")
+    assert config.last_save_error is not None  # ...but the failure is recorded
+    assert "YAML" in config.last_save_error or "yaml" in config.last_save_error
+
+
+def test_save_return_value_reflects_success():
+    config = make_config()
+    assert config.save() is True  # nothing dirty -> trivially true
+    assert config.add_option("SR", "model", "X") is True
+    assert config.last_save_error is None
