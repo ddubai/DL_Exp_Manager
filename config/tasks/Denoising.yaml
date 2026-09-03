@@ -1,0 +1,10 @@
+# Task: Denoising
+# options = combo-box choices · metrics = table metric columns · columns = table layout
+# See the header of options.yaml for the full syntax.
+
+name: Denoising
+label: Denoising
+options:
+  server: [Server 1]
+metrics: []
+columns: {}
