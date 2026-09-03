@@ -449,6 +449,139 @@ def test_column_preset_full_clears_hidden_set(qapp, config):
     db.close()
 
 
+# --- Nav panel: Task ▸ Work drill-down (Option A) -----------------------------
+def _nav_env(config):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.nav_panel import NavigationPanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"), seed=False)
+    sr = db.add_task("SR")
+    dn = db.add_task("DN")
+    ssl2sl = db.add_work(sr, "SSL2SL", "transfer experiment")
+    bsr = db.add_work(sr, "BSR-x4")
+    n2n = db.add_work(dn, "N2N-Base")
+    db.insert_run("train", {"work_id": ssl2sl, "model": "Restormer"})
+    nav = NavigationPanel(db, config)
+    return db, nav, sr, dn, ssl2sl, bsr, n2n
+
+
+def test_nav_auto_drills_into_first_task_and_work_on_first_load(qapp, config):
+    # list_tasks()/list_works() sort by name, so "DN" < "SR" alphabetically -
+    # the first Task/Work is DN / N2N-Base, not insertion order.
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    assert nav.current_task_id() == dn
+    assert nav.current_work_id() == n2n
+    db.close()
+
+
+def test_nav_go_root_then_enter_task_shows_works_only(qapp, config):
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    received = []
+    nav.selectionChanged.connect(lambda t, w: received.append((t, w)))
+
+    nav._go_root()
+    assert nav.current_task_id() is None and nav.current_work_id() is None
+    assert received[-1] == (-1, -1)
+
+    nav._enter_task(sr)
+    assert nav.current_task_id() == sr and nav.current_work_id() is None
+    assert received[-1] == (sr, -1)
+
+    nav._enter_work(bsr)
+    assert nav.current_work_id() == bsr
+    assert received[-1] == (sr, bsr)
+    db.close()
+
+
+def test_nav_refresh_with_explicit_ids_jumps_directly(qapp, config):
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    nav.refresh(select_task_id=dn)
+    assert nav.current_task_id() == dn and nav.current_work_id() is None
+
+    nav.refresh(select_work_id=bsr)
+    assert nav.current_task_id() == sr and nav.current_work_id() == bsr
+    db.close()
+
+
+def test_nav_bare_refresh_preserves_current_position(qapp, config):
+    """A no-arg refresh() (called after every save/config change) must not
+    yank the user back to the first Task/Work - only the very first load does that."""
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    nav._go_root()
+    nav.refresh()
+    assert nav.current_task_id() is None and nav.current_work_id() is None
+
+    nav._enter_task(dn)
+    nav.refresh()
+    assert nav.current_task_id() == dn and nav.current_work_id() is None
+    db.close()
+
+
+def test_nav_refresh_falls_back_when_current_work_deleted(qapp, config):
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    nav.refresh(select_work_id=ssl2sl)
+    db.delete_work(ssl2sl)
+    nav.refresh()
+    assert nav.current_task_id() == sr
+    assert nav.current_work_id() is None  # dropped back to the Works list, not left dangling
+    db.close()
+
+
+def test_nav_shows_registered_datasets_for_selected_work(qapp, config):
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    db.add_dataset(ssl2sl, "DIV2K", "Full Pair", "/mnt/data/DIV2K/train")
+    db.add_dataset(ssl2sl, "DF2K")
+    nav.refresh(select_work_id=ssl2sl)
+
+    text_blob = " ".join(
+        label.text()
+        for label in nav.list_host.findChildren(QtWidgets.QLabel)
+    )
+    assert "DIV2K" in text_blob and "Full Pair" in text_blob and "DF2K" in text_blob
+    db.close()
+
+
+def test_nav_add_dataset_via_inline_dialog(qapp, config, monkeypatch):
+    from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
+
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    nav.refresh(select_work_id=ssl2sl)
+
+    monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(
+        DatasetEditDialog, "result_values", lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "")
+    )
+    nav._add_dataset()
+
+    datasets = db.list_datasets(ssl2sl)
+    assert len(datasets) == 1 and datasets[0]["name"] == "DIV2K"
+    db.close()
+
+
+def test_nav_add_task_and_work_drill_into_the_new_one(qapp, config, monkeypatch):
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    nav.refresh(select_work_id=ssl2sl)
+
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog, "getText",
+        staticmethod(lambda *a, **k: ("NewTask", True)),
+    )
+    nav.add_task()
+    assert nav.current_work_id() is None
+    new_task_id = nav.current_task_id()
+    assert new_task_id != sr
+
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog, "getText",
+        staticmethod(lambda *a, **k: ("NewWork", True)),
+    )
+    nav.add_work()
+    assert nav.current_task_id() == new_task_id
+    work = db.get_work(nav.current_work_id())
+    assert work is not None and work["name"] == "NewWork"
+    db.close()
+
+
 # --- #6 Global search dialog --------------------------------------------------
 def _search_env(config):
     from dl_exp_manager.db import Database
