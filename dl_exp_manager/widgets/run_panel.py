@@ -56,6 +56,7 @@ from .common import (
     table_selection_to_tsv,
     toast,
 )
+from .log_viewer import LogViewerDialog
 
 
 class AddColumnDialog(QtWidgets.QDialog):
@@ -362,12 +363,17 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_favorite_btn = QtWidgets.QPushButton("☆ Favorite", container)
         self.detail_favorite_btn.clicked.connect(lambda: self.toggle_favorite())
 
+        log_btn = QtWidgets.QPushButton("📄 View Log", container)
+        log_btn.setToolTip("Show the last lines of this run's log file (from its result folder).")
+        log_btn.clicked.connect(self.view_log)
+
         edit_btn = QtWidgets.QPushButton("✎ Edit This Run", container)
         edit_btn.clicked.connect(self.open_edit_dialog)
 
         action_row = QtWidgets.QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.addWidget(self.detail_favorite_btn)
+        action_row.addWidget(log_btn)
         action_row.addWidget(edit_btn, 1)
 
         layout = QtWidgets.QVBoxLayout(container)
@@ -398,6 +404,18 @@ class BaseRunPanel(QtWidgets.QWidget):
     def open_edit_dialog(self) -> None:
         if self.load_selected_into_form():
             self._show_form_dialog()
+
+    def view_log(self) -> None:
+        row = self._current_row()
+        if row is None:
+            toast(self, False, "Select a run first.", "View Log")
+            return
+        dialog = LogViewerDialog(
+            str(row.get("result_path") or ""),
+            self,
+            title=f"Log · Run #{row.get('id')}",
+        )
+        dialog.exec()
 
     def _show_form_dialog(self) -> None:
         self.form_dialog.show()
@@ -900,6 +918,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             menu.addAction("Copy Command", lambda: copy_to_clipboard(row.get("exec_command") or "", self, "Execution Command"))
             menu.addAction("Copy config.yml", lambda: copy_to_clipboard(row.get("config_yaml") or "", self, "config.yml"))
             menu.addSeparator()
+            menu.addAction("📄 View Log", self.view_log)
             menu.addAction("✎ Edit This Run", self.open_edit_dialog)
             menu.addAction("⎘ Duplicate", self.duplicate_selected)
             menu.addSeparator()

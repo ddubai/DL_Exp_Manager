@@ -516,3 +516,89 @@ def test_result_folder_drop_does_not_overwrite_existing_config(qapp, config):
     panel._on_result_folder_dropped(folder)
     assert panel.config_input.text() == "# my own content"
     db.close()
+
+
+# --- #11 Log tail viewer -----------------------------------------------------
+def test_log_viewer_auto_detects_and_tails_log(qapp):
+    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
+
+    folder = tempfile.mkdtemp()
+    with open(os.path.join(folder, "train.log"), "w") as fp:
+        fp.write("\n".join(f"line {i}" for i in range(1000)))
+
+    dialog = LogViewerDialog(folder, title="Test Log")
+    assert "line 999" in dialog.text.toPlainText()
+    assert "line 0" not in dialog.text.toPlainText()
+
+
+def test_log_viewer_reports_missing_log_without_crashing(qapp):
+    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
+
+    dialog = LogViewerDialog(tempfile.mkdtemp(), title="Empty")
+    assert "No log file found" in dialog.path_label.text()
+    assert dialog.text.toPlainText() == ""
+
+
+def test_log_viewer_handles_blank_result_path(qapp):
+    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
+
+    dialog = LogViewerDialog("", title="No Path")
+    assert "no result folder set" in dialog.path_label.text()
+    assert not dialog.open_folder_btn.isEnabled()
+
+
+def test_log_viewer_browse_switches_to_chosen_file(qapp, monkeypatch):
+    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
+
+    folder = tempfile.mkdtemp()
+    other = os.path.join(folder, "custom.txt")
+    with open(other, "w") as fp:
+        fp.write("hello from custom file")
+
+    dialog = LogViewerDialog(folder, title="Browse Test")
+    assert dialog._log_path is None
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (other, "")),
+    )
+    dialog._browse()
+    assert dialog._log_path == other
+    assert "hello from custom file" in dialog.text.toPlainText()
+
+
+def test_view_log_requires_selection(qapp, config, monkeypatch):
+    from dl_exp_manager.qt import QtCore
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.view.clearSelection()
+    panel.view.setCurrentIndex(QtCore.QModelIndex())
+    panel.view_log()  # must not raise even with nothing selected
+    db.close()
+
+
+def test_view_log_opens_dialog_for_selected_run(qapp, config, monkeypatch):
+    db, panel, run_id = _panel_with_one_run(config)
+    folder = tempfile.mkdtemp()
+    with open(os.path.join(folder, "train.log"), "w") as fp:
+        fp.write("run log content\n")
+    db.update_run("train", run_id, {**db.get_run("train", run_id), "result_path": folder})
+    panel.reload()
+    panel.view.selectRow(0)
+
+    opened = {}
+
+    def fake_exec(self):
+        opened["path_label"] = self.path_label.text()
+        opened["content"] = self.text.toPlainText()
+        return 0
+
+    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
+
+    monkeypatch.setattr(LogViewerDialog, "exec", fake_exec)
+    panel.view_log()
+    assert "run log content" in opened["content"]
+    db.close()
