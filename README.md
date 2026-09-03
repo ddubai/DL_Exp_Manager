@@ -4,8 +4,9 @@
 모든 기록은 로컬 SQLite 파일(`experiments.db`) 하나에 저장되므로 별도 서버나 계정이 필요 없습니다.
 
 ```
-DL Task (SR / DN / Clustering / Classification)   ← Level 1 : 좌측 트리
-   └─ Work ID (SSL2SL, BSR-x4, ...)               ← Level 2 : 좌측 트리 하위
+DL Task (SR / DN / Clustering / Classification)   ← Level 1 : 좌측 드릴다운
+   └─ Work ID (SSL2SL, BSR-x4, ...)               ← Level 2 : 좌측 드릴다운
+        ├─ Dataset (이름 + 위치, Work 별 등록)      ← Level 2 화면에 인라인으로
         ├─ Train      탭                          ← Level 3 : 상단 탭 (아이콘 없이 텍스트만)
         └─ Inference  탭
 ```
@@ -33,11 +34,11 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 
 | 영역 | 설명 |
 |---|---|
-| 상단 서버 상태 바 | 서버 이름 + 사용 중 GPU 비율만 보이는 **한 줄** 표시. 클릭하면 실행 중인 학습(GPU·모델·경과시간·명령어)이 메뉴로, 우클릭하면 서버/GPU 편집 메뉴. 15초마다 자동 갱신 |
-| 좌측 네비게이션 | DL Task ▸ Work ID 드릴다운 트리. Work 별 Train/Inference 건수 표시, 검색·추가·수정·삭제 |
-| 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
-| 중앙 하단 상세 | 선택한 실행의 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes. 각 항목에 복사 버튼. "Edit This Run" 으로 수정 |
-| 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** 평소엔 화면을 차지하지 않는다. 모델·데이터셋·서버 등은 **드롭다운 맨 아래 `＋` 로 항목 추가 / 우클릭 삭제**가 되는 콤보박스. GPU는 서버 인벤토리에서 체크박스로 선택 |
+| 상단 서버 상태 바 | 서버 이름 + 사용 중 GPU 비율만 보이는 **한 줄** 표시. 클릭하면 실행 중인 학습(GPU 개수·모델·경과시간·명령어)이 메뉴로, 우클릭하면 서버/GPU 편집 메뉴. 15초마다 자동 갱신 |
+| 좌측 네비게이션 | **All Tasks ▸ Task ▸ Work 드릴다운**(트리 아님, 브레드크럼으로 한 번에 한 단계만). Work 까지 들어가면 그 Work 에 등록된 **Dataset(이름 + 위치)** 이 그 자리에 바로 나와 추가/수정/삭제할 수 있습니다. 검색·Task/Work 추가·이름변경·삭제는 그대로 지원 |
+| 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 2~3개 실행을 지표·config.yaml diff 로 나란히 비교. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
+| 중앙 하단 상세 | **행을 선택했을 때만 나타남.** 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes, 그리고 그 실행이 **생성/수정/복제될 때마다 기록되는 History** 탭. **🖼 View Image**(결과 폴더의 대표 이미지 한 장) / **📈 Training Curve**(Train 전용, 로그를 파싱해 iteration 별 지표를 그린 라인 차트) 버튼도 여기에 |
+| 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Registered Dataset** 콤보로 그 Work 에 등록된 데이터셋을 고르면 Dataset/경로가 자동으로 채워집니다. **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Inference 폼은 Server/GPU 대신 **같은 Work 의 Train 실행 + Model Epoch/Checkpoint** 를 고르는 형태 |
 
 ### 주요 기능
 
@@ -47,22 +48,36 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
   앱에서 바꾼 값은 **그 값이 있던 파일에만** 저장되고, 외부 편집기로 저장하면 앱이 즉시 반영합니다.
 - **Task 별 구성** — SR 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
   Task 마다 선택지·지표·컬럼이 다릅니다. 좌측에서 Task 를 바꾸면 표 컬럼과 폼 필드가 함께 바뀝니다.
+  평가 지표는 **같은 Task 안에서 공유**됩니다 — 어느 Run 에서든 새 지표 값을 입력하면 그 Task 의 지표로
+  등록되고, 다음 New Run 부터 값 빈 상태로 미리 채워집니다. 지표마다 `higher_is_better`(높을수록/낮을수록
+  좋음)를 지정할 수 있고, 같은 Work 안 최고값은 표에서 강조됩니다.
+- **Work 별 데이터셋 레지스트리** — 데이터셋을 이름 + (선택) Variant + 경로로 등록해 둡니다.
+  같은 이름이라도 Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개 항목으로 관리할 수 있습니다
+  (예: `DIV2K · Full Pair`, `DIV2K · Subset A`). 좌측 네비게이션에서 바로 추가/수정/삭제하고,
+  등록/수정 폼의 Registered Dataset 콤보로 불러와 씁니다.
+- **train.py 결과에서 자동 채우기** — 결과 폴더의 `config.yaml`(BasicSR 류 스키마 우선 시도)과
+  학습 로그(`loss.log` 등)를 파싱해 Model/Dataset/Batch/LR/Optimizer/Epoch, 최근 검증 지표,
+  소요 시간을 자동으로 채웁니다. 형식을 못 알아봐도 예외 없이 빈 결과만 돌려주고, 채운 값은 저장 전에
+  폼에서 그대로 확인·수정할 수 있습니다.
+- **Run 히스토리** — 각 Run 이 언제 생성됐는지, 무엇이 바뀌었는지(필드별 변경 diff), 어느 Run 에서
+  복제됐는지를 시각과 함께 기록합니다. 상세 패널의 History 탭에서 확인합니다.
 - **드롭다운 인라인 항목 관리** — 콤보박스를 펼치면 맨 아래 `＋ 새 항목 추가…` 가 있고,
   기존 항목은 우클릭(또는 `F2`/`Del`)으로 이름 변경·삭제할 수 있습니다.
   추가할 때 *이 Task 전용* / *전체 공통* 을 고를 수 있고, 이름을 바꾸면 기존 기록도 함께 갱신할지 물어봅니다.
-- **GPU 단위 서버 상태, 한 줄로** — 상단 바는 서버 이름과 사용 중 GPU 비율(`● Server 3 (4/4)`)만 보여
-  화면을 적게 차지합니다. 클릭하면 각 학습의 GPU 번호·모델·경과 시간·실행 명령어가 메뉴로 나오고,
-  서로 다른 학습이 같은 GPU 를 잡고 있으면 그 사실이 표시됩니다.
+  드롭다운 화살표는 테마 강조색으로 항상 눈에 띄게 그립니다.
+- **GPU 단위 서버 상태, 한 줄로** — 상단 바는 서버 이름과 사용 중 GPU **개수**(`● Server 3 (4/4)`)만 보여
+  화면을 적게 차지합니다. 클릭하면 각 학습의 GPU 개수·모델·경과 시간·실행 명령어가 메뉴로 나오고,
+  한 서버가 가진 GPU 수보다 더 많이 잡혀 있으면(개수 초과) 그 사실이 표시됩니다.
 - **다크 테마 + 영문 UI** — 색·폰트·간격은 `dl_exp_manager/theme/tokens.py` 한 곳에서 관리합니다
   (규격은 [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)). 앱 화면의 문구는 모두 영어입니다.
-
 - **OS 탐색기 연동** — 경로 옆 `📁 폴더 열기` 버튼이 macOS Finder(`open`), Windows 탐색기(`os.startfile`), Linux(`xdg-open`)를 각각 호출합니다.
   경로가 존재하지 않으면 가장 가까운 상위 폴더를 대신 열고 그 사실을 알려 줍니다. 경로 셀을 더블클릭해도 열립니다.
 - **정렬** — 실행 시간·PSNR·Latency 같은 숫자 컬럼은 문자열이 아니라 **실제 크기 순**으로 정렬됩니다(내부적으로 별도의 정렬 Role 사용).
 - **동적 메트릭 컬럼** — 평가 지표는 JSON 으로 저장되며, 표에 등장한 지표(PSNR, SSIM, LPIPS, NIQE …)가 자동으로 컬럼이 됩니다. 새 지표를 추가해도 스키마 변경이 필요 없습니다.
-- **내보내기** — 현재 필터·정렬이 적용된 표를 CSV(`utf-8-sig`, Excel 한글 안전)로 저장하거나, 선택 행 / 표 전체를 TSV로 클립보드에 복사(엑셀 바로 붙여넣기).
+- **내보내기** — 현재 필터·정렬이 적용된 표를 CSV(`utf-8-sig`, Excel 한글 안전)로 저장하거나, 선택 행 / 표 전체를 TSV로 클립보드에 복사(엑셀 바로 붙여넣기). Markdown/HTML 리포트 내보내기도 지원합니다.
 - **실행 시간 입력** — `3h 20m`, `01:30:00`, `5400`(초) 어떤 형식으로 넣어도 파싱됩니다.
 - **복제** — 기존 실행을 같은 설정으로 복제(상태는 `queued`)해서 다음 실험 등록을 빠르게.
+- **즐겨찾기 / 태그 / 실패 사유** — 실패한 실험도 자산입니다. 상태가 `failed` 일 때만 실패 사유 입력란이 나타납니다.
 
 ### 단축키
 
@@ -76,7 +91,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 | `Ctrl+O` | 다른 `experiments.db` 열기 |
 | `Ctrl+R` | 설정 파일 다시 읽기 |
 | `Ctrl+Shift+O` | 지금 보고 있는 Task 의 설정 파일 열기 |
-| `F2` | 선택 항목 이름 변경 (트리 / 콤보 항목 / 컬럼 헤더 / 지표 행) |
+| `F2` | 선택 항목 이름 변경 (좌측 Task/Work / 콤보 항목 / 컬럼 헤더 / 지표 행) |
 | `Del` | 선택 항목 삭제 |
 | `Ins` | 항목 추가 |
 
@@ -99,7 +114,8 @@ dl_exp_manager/
   db.py                        SQLite 스키마, 마이그레이션, CRUD
   models.py                    Task 별 컬럼 구성 + 정렬/필터 프록시
   editing.py                   F2 / Del / 우클릭 편집의 공통 규약
-  utils.py                     탐색기 열기, 시간/숫자 포맷, CSV·TSV 직렬화
+  utils.py                     탐색기 열기, 시간/숫자 포맷, CSV·TSV 직렬화, 대표 이미지 탐색
+  log_parser.py                train.py 의 config.yaml / 학습 로그(loss.log 등) 파서
   sample_data.py               예시 실험 데이터
   main_window.py               메인 윈도우, 메뉴, 설정 파일 감시
   theme/
@@ -107,13 +123,19 @@ dl_exp_manager/
     dark.qss.tpl               토큰을 치환해 만드는 QSS 템플릿
     fonts.py                   폰트 스택 해석 / 번들 폰트 로드
   widgets/
-    common.py                  PathEdit, ManagedCombo, GpuSelector, MetricsEditor
-    nav_panel.py               Level 1 / Level 2 드릴다운 트리
+    common.py                  PathEdit, ManagedCombo, ServerCombo, GpuSelector, MetricsEditor
+    nav_panel.py               Task ▸ Work 드릴다운 + Work 별 Dataset 인라인 표시
     run_panel.py               Train / Inference 대시보드 (표 + 상세 + 입력 폼)
-    server_panel.py            GPU 슬롯 기반 서버 상태 패널
+    server_panel.py            GPU 개수 기반 서버 상태 패널
+    dataset_dialog.py          Work 별 데이터셋 등록 (이름 + Variant + 경로)
+    compare_dialog.py          Run 2~3개 비교 (지표/파라미터 표 + config.yaml diff)
+    curve_chart.py             학습 곡선 (커스텀 QPainter 라인 차트, 외부 의존성 없음)
+    image_viewer.py            결과 폴더의 대표 이미지 뷰어
+    log_viewer.py              로그 tail 뷰어
+    search_dialog.py           전역 검색 (Ctrl+K)
 tests/                         GUI 없이 도는 것 + offscreen 위젯 테스트
 docs/STYLE_GUIDE.md            디자인 토큰과 컴포넌트 규격
-docs/ROADMAP.md                설계 배경과 남은 계획
+docs/ROADMAP.md                설계 배경과 진행 기록
 ```
 
 ## 설정 파일
@@ -165,19 +187,22 @@ columns:
 | `servers` | name, host, gpu, note |
 | `tasks` | name(UNIQUE), description — **Level 1** |
 | `works` | task_id→tasks, name, description, UNIQUE(task_id, name) — **Level 2** |
-| `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes |
-| `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes |
+| `datasets` | work_id→works, name, variant, path, notes, UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
+| `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
+| `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
+| `run_history` | run_kind, run_id, action(created/updated/duplicated), detail, created_at — Run 별 변경 이력 |
 
-두 run 테이블은 `gpu_indices`(예: `"0,1"`)와 `extra_json`(Task 별 사용자 정의 필드)도 가집니다.
+두 run 테이블은 `gpu_indices`(GPU **개수**, 예: `"2"`. 예전 콤마 인덱스 목록 `"0,1"`도 개수로 읽힙니다)와
+`extra_json`(Task 별 사용자 정의 필드)도 가집니다.
 
-`ON DELETE CASCADE` + `PRAGMA foreign_keys = ON` 이므로 Task 를 지우면 하위 Work 와 모든 실행 기록이 함께 정리됩니다.
-스키마 버전은 `PRAGMA user_version` 으로 관리하며, v1 DB 는 앱 실행 시 자동으로 v2 로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
+`ON DELETE CASCADE` + `PRAGMA foreign_keys = ON` 이므로 Task 를 지우면 하위 Work·Dataset·실행 기록이 함께 정리됩니다.
+스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v4), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
 
 ## 테스트
 
 ```bash
 pip install pytest
-pytest -q          # 70 passed
+pytest -q
 ```
 
 GUI 위젯은 헤드리스에서 `QT_QPA_PLATFORM=offscreen` 으로 구동해 확인했습니다.

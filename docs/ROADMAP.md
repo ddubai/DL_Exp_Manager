@@ -1,8 +1,11 @@
 # 개발 계획 (v2)
 
 이 문서는 v2 의 설계안이자 진행 기록입니다.
-**R1~R7 은 구현 완료**(§9 참고), **R8(시각화 패널)은 계획만** 있습니다.
-**§7 의 추가 제안은 아직 구현하지 않았습니다** — 확인 후 채택할 항목만 진행합니다.
+**R1~R7 은 구현 완료**(§9 참고). **R8(시각화 패널)은 학습 곡선·대표 이미지 뷰어를 축소된 형태로 구현**했고
+(§10.4 참고), 나머지(지표 비교 막대/산점도, 성능-속도 산점도, Work 요약 대시보드)는 아직 계획만입니다.
+**§7 의 추가 제안 중 2(설정 자동 채우기)·3(Run 비교 뷰)은 구현 완료**, 나머지는 미채택.
+§11 에 2026-09 세션에서 새로 추가된 기능(등록 폼 개편, 자동 로깅, Run 히스토리, Work 별 데이터셋 레지스트리,
+좌측 네비게이션 드릴다운 개편)을 정리해 뒀습니다.
 
 ---
 
@@ -135,8 +138,8 @@ dl_exp_manager/config_store.py
 
 | 표면 | 추가 | 삭제 | 이름변경(F2) | 저장 위치 |
 |---|---|---|---|---|
-| 좌측 트리 — DL Task | ✅ | ✅ | ✅ | DB `tasks` |
-| 좌측 트리 — Work ID | ✅ | ✅ | ✅ | DB `works` |
+| 좌측 네비게이션 — DL Task (2026-09 부터 드릴다운, §11.6) | ✅ | ✅ | ✅ | DB `tasks` |
+| 좌측 네비게이션 — Work ID | ✅ | ✅ | ✅ | DB `works` |
 | 콤보박스 항목 (model/dataset/server/optimizer/device/커스텀) | ✅ 드롭다운 `＋` | ✅ 우클릭 | ✅ | `options.yaml` |
 | 테이블 컬럼 (헤더 우클릭) | ✅ | ✅ | ✅ (표시명) | `options.yaml` `columns` |
 | 지표 정의 | ✅ | ✅ | ✅ | `options.yaml` `metrics` |
@@ -273,8 +276,8 @@ assets/fonts/                      # (선택) Pretendard, JetBrains Mono — 둘
 | # | 제안 | 왜 유용한가 | 비용 | 추천 |
 |---|---|---|---|---|
 | 1 | **최고 성능 자동 하이라이트** | 같은 Work 안에서 최고 PSNR 행/셀을 강조. `higher_is_better` 를 이미 정의하므로 거의 공짜. 표를 눈으로 훑는 시간이 확 준다 | XS | ★★★ |
-| 2 | **config.yml 붙여넣기 → 폼 자동 채우기** | YAML을 파싱해 model/dataset/batch/lr/optimizer/경로를 자동 추출. 등록 노동이 대부분 사라진다 | S | ★★★ |
-| 3 | **Run 비교 뷰 (2~3개 선택)** | 지표 나란히 + config diff. 실험 관리에서 가장 자주 하는 행동인데 지금은 불가능 | M | ★★★ |
+| 2 | **config.yml 붙여넣기 → 폼 자동 채우기** ✅ | YAML을 파싱해 model/dataset/batch/lr/optimizer/경로를 자동 추출. 등록 노동이 대부분 사라진다. → `log_parser.py` + 학습 로그의 최근 검증 지표·소요 시간까지 확장 구현(§11) | S | ★★★ |
+| 3 | **Run 비교 뷰 (2~3개 선택)** ✅ | 지표 나란히 + config diff. 실험 관리에서 가장 자주 하는 행동인데 지금은 불가능. → `widgets/compare_dialog.py` (§11) | M | ★★★ |
 | 4 | **경로 존재 여부 배지** | 결과 폴더가 아직 마운트 안 됐는지 / 서버에서 지워졌는지 표시. 오래된 아카이브일수록 값어치가 커진다 | S | ★★☆ |
 | 5 | **DB 자동 백업 (종료 시 N개 순환)** | SQLite 단일 파일이라 실수 한 번에 전부 날아간다. 보험 | XS | ★★★ |
 | 6 | **전역 검색 `Ctrl+K`** | Task/Work/run을 가로질러 모델명·경로로 즉시 점프 | S | ★★☆ |
@@ -341,18 +344,19 @@ assets/fonts/                      # (선택) Pretendard, JetBrains Mono — 둘
 
 ---
 
-## 10. R8 — 시각화 패널 (계획만)
-
-이번 구현 범위 밖이지만, 위 설계가 이걸 막지 않도록 미리 적어 둡니다.
+## 10. R8 — 시각화 패널 (일부 구현)
 
 ### 10.1 넣을 뷰
 
-1. **지표 비교 막대/산점도** — 선택한 run들의 PSNR/SSIM 비교. Task의 `metrics` 정의를 그대로 축으로.
-2. **성능-속도 산점도 (Pareto)** — x=Latency, y=PSNR. 배포 모델 고를 때 쓰는 그림. Inference 탭 데이터로 바로 그려집니다.
-3. **학습 곡선** — `result_path` 의 로그/CSV를 파싱해 iteration별 지표. 로그 포맷이 프로젝트마다 달라 **파서를 플러그인화**해야 합니다(`options.yaml` 에 정규식 지정).
-4. **이미지 결과 뷰어** — SR/DN이므로 이게 실제로 제일 자주 볼 화면입니다.
-   GT / Input / 여러 모델 출력을 **동기화된 확대·이동 + 좌우 슬라이더**로 비교, 크롭 확대(zoom-in box) 지원.
-5. **Work 요약 대시보드** — 실험 수, 성공/실패 비율, 서버별 GPU 시간 누적.
+1. **지표 비교 막대/산점도** — 선택한 run들의 PSNR/SSIM 비교. Task의 `metrics` 정의를 그대로 축으로. (계획만)
+2. **성능-속도 산점도 (Pareto)** — x=Latency, y=PSNR. 배포 모델 고를 때 쓰는 그림. Inference 탭 데이터로 바로 그려집니다. (계획만)
+3. **학습 곡선** ✅(축소 구현, §11) — `result_path` 의 로그를 파싱해 iteration별 지표를 하나 골라 라인 차트로.
+   `log_parser.py` 가 BasicSR류 로그 포맷을 관대하게 파싱하고, `widgets/curve_chart.py` 가 pyqtgraph 없이
+   QPainter로 직접 그립니다. **정규식 플러그인화는 아직입니다** — 지금은 흔한 로그 관례 하나만 지원합니다.
+4. **이미지 결과 뷰어** ✅(대폭 축소, §11) — GT/Input/여러 모델 출력을 동기화 비교하는 화면 대신,
+   결과 폴더에서 **대표 이미지 한 장만** 자동으로 찾아 보여주는 `widgets/image_viewer.py` 로 범위를 줄여 구현했습니다.
+   여러 장 동기화 비교·크롭 확대는 아직 계획만입니다.
+5. **Work 요약 대시보드** — 실험 수, 성공/실패 비율, 서버별 GPU 시간 누적. (계획만)
 
 ### 10.2 기술 선택
 
@@ -366,3 +370,76 @@ assets/fonts/                      # (선택) Pretendard, JetBrains Mono — 둘
 - 이미지 비교를 하려면 run마다 **출력 이미지 폴더**를 알아야 합니다 → `result_path` 외에
   `image_dir` 같은 커스텀 필드를 `extra_json` 으로 붙일 수 있게 P3에서 열어 둡니다.
 - 학습 곡선용 로그 경로도 같은 방식으로 확장합니다.
+
+---
+
+## 11. 2026-09 세션 — 등록 폼 개편 + 실험 관리 기능 확장
+
+사용자 피드백을 받아 진행한 작업 묶음입니다. 각 항목은 별도 커밋으로 쌓았습니다.
+
+### 11.1 New Run 폼 개편
+
+- **Server** — 자유 입력/추가가 가능한 콤보 대신, 상단 서버 바(`config.servers`)에 등록된 목록에서만
+  고르는 `ServerCombo` 로 교체했습니다. 서버 추가/삭제는 상단 서버 바에서만 합니다.
+- **GPU** — 슬롯 체크박스 대신 **개수** 스핀박스로 단순화했습니다. `gpu_indices` 컬럼은 이제 개수
+  문자열(`"2"`)을 저장하며, 예전 콤마 인덱스 목록(`"0,1"`)도 개수로 읽어 하위 호환됩니다
+  (`utils.parse_gpu_count`). 서버 상태 바의 충돌 표시도 "정확한 슬롯 충돌" 대신 "개수 초과"로 바뀌었습니다.
+- **Status** 기본값을 `queued` 로 바꿨습니다.
+- 콤보박스 드롭다운 화살표가 플랫폼에 따라 안 보이던 문제를 QSS 에서 강조색 삼각형으로 직접 그려 고쳤습니다.
+- **평가 지표를 Task 안에서 공유**합니다 — 어느 Run 에서든 새 지표 값을 입력해 저장하면 그 Task 의 지표로
+  자동 등록되고, 다음 New Run 부터 값 빈 상태로 미리 채워집니다(`MetricsEditor.set_value`).
+- **Inference 폼**은 Server/GPU 를 없애고, 같은 Work 의 Train 실행 중 하나(**Source Train Run**)와
+  **Model Epoch / Checkpoint** 를 고르는 형태로 바꿨습니다. Source Train Run 을 고르면 Model 이 자동
+  채워집니다. `inference_runs` 에 `source_train_run_id`, `checkpoint_epoch` 컬럼을 추가했습니다(스키마 v4).
+
+### 11.2 Run 히스토리
+
+`run_history` 테이블(run_kind, run_id, action, detail, created_at)에 생성/수정(필드별 변경 diff)/복제를
+기록합니다. 상세 패널의 새 **History** 탭에서 시각·내용을 확인합니다. Paths 와 Command/config.yml/Metrics/
+History 탭은 이제 **행을 선택했을 때만** 나타납니다(선택 전엔 보여줄 내용이 없으므로).
+
+### 11.3 자동 로깅 — train.py 결과에서 폼 채우기
+
+`log_parser.py` 가 두 가지를 관대하게 파싱합니다.
+
+- `parse_train_config(path)` — config.yaml(BasicSR류 스키마를 우선 시도: `network_g.type`,
+  `datasets.train.name/dataroot_gt/batch_size_per_gpu`, `train.total_iter`, `train.optim_g.type/lr`, `scale`)
+  에서 Model/Dataset/Dataset Path/Batch/LR/Optimizer/Epoch 를 추출합니다.
+- `parse_loss_log(path)` — `iter: N` 학습 로그 줄과 `# key: value` 검증 로그 줄(BasicSR 관례)에서
+  iteration별 지표(학습 곡선용)와 가장 최근 검증 지표, 첫/마지막 타임스탬프로 추정한 소요 시간을 뽑습니다.
+
+형식을 못 알아봐도 예외 없이 빈 결과만 돌려주며, 채운 값은 저장 전에 폼에서 그대로 확인·수정할 수 있습니다.
+폼의 **⇪ Parse** 버튼, 또는 결과 폴더를 Result Folder Path 에 드래그&드롭하면 자동으로 실행됩니다.
+
+### 11.4 대표 이미지 뷰어 / Run 비교 / 학습 곡선
+
+§7-#3, §10.1-#3/#4 참고 — `widgets/image_viewer.py`(대표 이미지 한 장), `widgets/compare_dialog.py`
+(2~3개 Run 비교), `widgets/curve_chart.py`(pyqtgraph 없이 QPainter 로 직접 그리는 라인 차트)로 구현했습니다.
+
+### 11.5 Work 별 데이터셋 레지스트리
+
+데이터셋을 **Work 단위**로 등록합니다(Task 단위 옵션 목록과는 별개). `datasets` 테이블
+(work_id, name, variant, path, notes)에 이름 + 선택적 Variant + 경로를 저장합니다. 같은 이름이라도
+Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개 항목으로 등록할 수 있습니다
+(예: `DIV2K · Full Pair` / `DIV2K · Subset A`). 등록/수정 폼의 **Registered Dataset** 콤보로 고르면
+Dataset 필드와 Dataset Path 가 함께 채워집니다. 좌측 네비게이션(§11.6)에서도 인라인으로 관리합니다.
+
+### 11.6 좌측 네비게이션 드릴다운 개편 (Option A)
+
+`QTreeWidget` 기반 Task ▸ Work 트리를, 한 번에 한 단계만 보여주는 **드릴다운 + 브레드크럼**으로
+바꿨습니다(`nav_panel.py` 전면 재작성). `All Tasks ▸ Task ▸ Work` 브레드크럼으로 언제든 위 단계로
+돌아가고, Work 까지 들어가면 그 Work 의 Dataset(§11.5)이 그 자리에 바로 나와 추가/수정/삭제할 수
+있습니다. 좌클릭 = 드릴다운, 우클릭 = 이름변경/삭제 메뉴, F2/Del/Ins 는 현재 단계의 "활성 대상"에
+적용됩니다. 세부 구현 노트:
+
+- **공개 API 는 그대로 유지**했습니다(`selectionChanged`, `current_task_id`/`current_work_id`,
+  `refresh(select_work_id=, select_task_id=)`, `add_task`/`add_work`) — `main_window.py` 는 무변경입니다.
+- **`refresh()` 인자 없이 호출될 때(매 저장마다)는 현재 드릴다운 위치를 그대로 유지**합니다. 트리였을 때는
+  선택이 항상 남아 있어 문제가 안 됐지만, 드릴다운 구조에서는 "저장할 때마다 처음 화면으로 튕겨나가는" 버그가
+  되기 쉬워 `_initialized` 플래그로 "최초 진입"과 "사용자가 위 단계로 나간 상태"를 구분했습니다.
+- **최초 진입 시엔 실제 Run 이 있는 Task 로 자동으로 들어갑니다**(예전 트리의 `_first_selectable` 과 동일한
+  규칙). 그냥 알파벳순 첫 Task 로 들어가면 신규 설치 시 항상 비어 있는 Task(예: Classification)에서
+  시작하는 문제가 있었습니다.
+
+레이아웃 시안은 사용자에게 A(드릴다운) / B(트리 유지 + 요약 줄) / C(평평한 아코디언) 3가지를 스크린샷으로
+제시했고, A 로 확정했습니다. B/C 는 채택하지 않았지만 나중에 다시 참고할 수 있도록 시안만 남겨 둡니다.
