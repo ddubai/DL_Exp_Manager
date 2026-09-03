@@ -452,3 +452,67 @@ def test_main_window_navigates_to_run_from_search(qapp, config):
     current = window.train_panel._current_row()
     assert current is not None and current["id"] == run_id
     window.close()
+
+
+# --- #9 Drag-and-drop folder registration ------------------------------------
+def _drop_folder(edit, path):
+    from dl_exp_manager.qt import Qt, QtCore, QtGui
+
+    mime = QtCore.QMimeData()
+    mime.setUrls([QtCore.QUrl.fromLocalFile(path)])
+    event = QtGui.QDropEvent(
+        QtCore.QPointF(5, 5), Qt.DropAction.CopyAction, mime,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+    edit.dropEvent(event)
+
+
+def test_path_edit_accepts_dropped_folder(qapp):
+    from dl_exp_manager.widgets.common import PathEdit
+
+    folder = tempfile.mkdtemp()
+    edit = PathEdit(None, directory=True)
+    received = []
+    edit.folderDropped.connect(received.append)
+
+    _drop_folder(edit, folder)
+    assert edit.path() == folder
+    assert received == [folder]
+
+
+def test_path_edit_dropped_file_uses_parent_dir(qapp):
+    from dl_exp_manager.widgets.common import PathEdit
+
+    folder = tempfile.mkdtemp()
+    file_path = os.path.join(folder, "config.yml")
+    open(file_path, "w").write("x")
+
+    edit = PathEdit(None, directory=True)
+    _drop_folder(edit, file_path)
+    assert edit.path() == folder
+
+
+def test_result_folder_drop_autofills_empty_config(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+
+    folder = tempfile.mkdtemp()
+    open(os.path.join(folder, "config.yml"), "w").write("model: DroppedNet\n")
+
+    assert panel.config_input.text().strip() == ""
+    panel._on_result_folder_dropped(folder)
+    assert "DroppedNet" in panel.config_input.text()
+    db.close()
+
+
+def test_result_folder_drop_does_not_overwrite_existing_config(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.reset_form()
+    panel.config_input.set_text("# my own content")
+
+    folder = tempfile.mkdtemp()
+    open(os.path.join(folder, "config.yml"), "w").write("model: DroppedNet\n")
+
+    panel._on_result_folder_dropped(folder)
+    assert panel.config_input.text() == "# my own content"
+    db.close()

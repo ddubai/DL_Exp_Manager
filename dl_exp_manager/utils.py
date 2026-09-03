@@ -118,6 +118,54 @@ def open_terminal_here(path: str) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# 결과 폴더 탐지 (드래그&드롭 등록, 로그 tail 뷰어)
+# ---------------------------------------------------------------------------
+_CONFIG_EXTS = (".yml", ".yaml")
+
+
+def scan_result_folder(folder: str) -> dict[str, str | None]:
+    """폴더 바로 아래(하위 폴더 재귀 없이)에서 config 파일과 로그 파일을 추정해 찾는다.
+
+    학습 결과 폴더는 보통 config.yml / train.log 를 최상위에 두는 관례를 따른다고 가정한다.
+    """
+    result: dict[str, str | None] = {"config": None, "log": None}
+    try:
+        entries = sorted(os.listdir(folder))
+    except OSError:
+        return result
+    for name in entries:
+        full = os.path.join(folder, name)
+        if not os.path.isfile(full):
+            continue
+        lower = name.lower()
+        if result["config"] is None and lower.endswith(_CONFIG_EXTS):
+            result["config"] = full
+        if result["log"] is None and (
+            lower.endswith(".log") or ("log" in lower and lower.endswith(".txt"))
+        ):
+            result["log"] = full
+    return result
+
+
+def tail_file(path: str, max_lines: int = 400, max_bytes: int = 512_000) -> str:
+    """파일 끝부분 최대 `max_lines` 줄을 돌려준다.
+
+    큰 로그 파일 전체를 읽지 않도록, 파일 끝에서 `max_bytes` 만 읽어 그 안에서 줄을 센다.
+    """
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fp:
+            if size > max_bytes:
+                fp.seek(size - max_bytes)
+            data = fp.read()
+    except OSError as exc:
+        return f"(could not read file: {exc})"
+    text = data.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+# ---------------------------------------------------------------------------
 # 시간 / 숫자 포맷
 # ---------------------------------------------------------------------------
 _DURATION_RE = re.compile(

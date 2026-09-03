@@ -1,6 +1,7 @@
 """재사용 위젯 모음."""
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable, Sequence
 
 from .. import editing, theme
@@ -64,9 +65,13 @@ class OpenFolderButton(QtWidgets.QToolButton):
 
 
 class PathEdit(QtWidgets.QWidget):
-    """경로 입력란 + [찾아보기] + [📁 폴더 열기]."""
+    """경로 입력란 + [찾아보기] + [📁 폴더 열기].
+
+    탐색기에서 폴더(또는 파일)를 끌어다 놓으면 경로가 자동으로 채워진다.
+    """
 
     pathChanged = Signal(str)
+    folderDropped = Signal(str)  # 드롭으로 채워졌을 때만 (타이핑/찾아보기 구분용)
 
     def __init__(
         self,
@@ -78,6 +83,7 @@ class PathEdit(QtWidgets.QWidget):
         """compact=True 면 좁은 폼에서 입력란이 눌리지 않도록 버튼을 아이콘만 남긴다."""
         super().__init__(parent)
         self._directory = directory
+        self.setAcceptDrops(True)
 
         self.edit = QtWidgets.QLineEdit(self)
         self.edit.setPlaceholderText(placeholder)
@@ -85,6 +91,7 @@ class PathEdit(QtWidgets.QWidget):
         self.edit.setFont(monospace_font())
         self.edit.setMinimumWidth(80)
         self.edit.textChanged.connect(self.pathChanged.emit)
+        self.edit.setToolTip("You can also drag a folder here from Finder/Explorer.")
 
         self.browse_btn = QtWidgets.QToolButton(self)
         self.browse_btn.setText("…" if compact else "Browse…")
@@ -119,6 +126,26 @@ class PathEdit(QtWidgets.QWidget):
             chosen, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select File", start)
         if chosen:
             self.set_path(chosen)
+
+    # -- drag & drop ----------------------------------------------------------
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:  # noqa: N802
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        local_path = urls[0].toLocalFile()
+        if not local_path:
+            return
+        # 파일이 이 필드에 떨어졌는데 폴더를 기대하는 필드라면, 그 파일이 있는 폴더를 쓴다
+        # (결과 폴더 안의 아무 로그/이미지 파일을 끌어다 놔도 자연스럽게 동작하도록).
+        if self._directory and os.path.isfile(local_path):
+            local_path = os.path.dirname(local_path)
+        self.set_path(local_path)
+        self.folderDropped.emit(local_path)
+        event.acceptProposedAction()
 
 
 class EditableCombo(QtWidgets.QComboBox):

@@ -40,6 +40,7 @@ from ..utils import (
     now_iso,
     open_in_file_manager,
     parse_duration,
+    scan_result_folder,
     write_csv,
 )
 from .common import (
@@ -477,6 +478,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         # -- Paths -------------------------------------------------------------
         self.dataset_path_edit = PathEdit(inner, "/mnt/data/DIV2K/train", compact=True)
         self.result_path_edit = PathEdit(inner, "/mnt/exp/SSL2SL/restormer_x4", compact=True)
+        self.result_path_edit.folderDropped.connect(self._on_result_folder_dropped)
         self.form_layout.addRow(self._section("Paths", inner))
         self.form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
         self.form_layout.addRow("Result Folder Path:", self.result_path_edit)
@@ -636,6 +638,33 @@ class BaseRunPanel(QtWidgets.QWidget):
             toast(self, False, f"Could not read file:\n{exc}", "Load Config")
             return
         toast(self, True, f"Config loaded: {os.path.basename(path)}")
+
+    def _on_result_folder_dropped(self, path: str) -> None:
+        """A folder was dragged onto the Result Folder Path field (#9).
+
+        Fills the path (already done by PathEdit itself) and, as a bonus,
+        looks for a config.yml/log file directly inside it - drop the whole
+        experiment folder and the boring part fills itself in.
+        """
+        found = scan_result_folder(path)
+        notes = [f"Result folder set: {os.path.basename(path) or path}"]
+
+        config_path = found.get("config")
+        if config_path and not self.config_input.text().strip():
+            try:
+                with open(config_path, "r", encoding="utf-8") as fp:
+                    self.config_input.set_text(fp.read())
+                notes.append(f"loaded {os.path.basename(config_path)}")
+            except OSError:
+                pass
+        elif config_path:
+            notes.append(f"found {os.path.basename(config_path)} (config already has content)")
+
+        log_path = found.get("log")
+        if log_path:
+            notes.append(f"found {os.path.basename(log_path)}")
+
+        toast(self, True, " · ".join(notes))
 
     # ==================================================================
     # Scope / loading

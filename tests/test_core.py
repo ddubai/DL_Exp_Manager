@@ -162,3 +162,54 @@ def test_task_scope_lists_runs_of_all_works():
         db.insert_run("train", {"work_id": work_id, "model": name})
     assert len(db.list_train_runs(task_id=task_id)) == 2
     db.close()
+
+
+# --- #9 scan_result_folder / tail_file ---------------------------------------
+def test_scan_result_folder_finds_config_and_log():
+    from dl_exp_manager.utils import scan_result_folder
+
+    d = tempfile.mkdtemp()
+    open(os.path.join(d, "config.yml"), "w").write("model: X\n")
+    open(os.path.join(d, "train.log"), "w").write("line\n")
+    open(os.path.join(d, "checkpoint.pth"), "wb").write(b"x")
+
+    found = scan_result_folder(d)
+    assert os.path.basename(found["config"]) == "config.yml"
+    assert os.path.basename(found["log"]) == "train.log"
+
+
+def test_scan_result_folder_does_not_recurse():
+    from dl_exp_manager.utils import scan_result_folder
+
+    d = tempfile.mkdtemp()
+    sub = os.path.join(d, "sub")
+    os.makedirs(sub)
+    open(os.path.join(sub, "config.yml"), "w").write("x")
+
+    found = scan_result_folder(d)
+    assert found["config"] is None
+
+
+def test_scan_result_folder_missing_dir_is_safe():
+    from dl_exp_manager.utils import scan_result_folder
+
+    assert scan_result_folder("/does/not/exist") == {"config": None, "log": None}
+
+
+def test_tail_file_returns_last_n_lines():
+    from dl_exp_manager.utils import tail_file
+
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "big.log")
+    with open(path, "w") as fp:
+        fp.write("\n".join(f"line {i}" for i in range(1000)))
+
+    tail = tail_file(path, max_lines=3)
+    assert tail == "line 997\nline 998\nline 999"
+
+
+def test_tail_file_missing_file_reports_error_not_exception():
+    from dl_exp_manager.utils import tail_file
+
+    result = tail_file("/does/not/exist.log")
+    assert "could not read file" in result
