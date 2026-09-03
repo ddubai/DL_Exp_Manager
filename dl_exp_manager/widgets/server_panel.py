@@ -81,13 +81,30 @@ class ServerEditDialog(QtWidgets.QDialog):
         layout.addWidget(buttons)
 
     def _append(self, gpu: GpuDef | None) -> None:
+        # "+ Add GPU" (gpu=None) 은 Index 0 행의 Type/Memory 를 그대로 기본값으로 쓴다 -
+        # 서버 한 대는 보통 GPU 가 다 같은 사양이라, Index 0 만 채워 두면 나머지는
+        # 인덱스만 바뀌며 같은 내용으로 늘어난다.
+        gpu_type = gpu.type if gpu else self._index0_value(1, "H100")
+        memory = (
+            ("" if gpu.memory_gb is None else f"{gpu.memory_gb:g}")
+            if gpu
+            else self._index0_value(2, "")
+        )
         row = self.table.rowCount()
         self.table.insertRow(row)
         index = gpu.index if gpu else row
         self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(index)))
-        self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(gpu.type if gpu else "H100"))
-        memory = "" if not gpu or gpu.memory_gb is None else f"{gpu.memory_gb:g}"
+        self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(gpu_type))
         self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(memory))
+
+    def _index0_value(self, col: int, fallback: str) -> str:
+        for row in range(self.table.rowCount()):
+            index_item = self.table.item(row, 0)
+            if index_item and index_item.text().strip() == "0":
+                item = self.table.item(row, col)
+                text = item.text().strip() if item else ""
+                return text or fallback
+        return fallback
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)

@@ -197,6 +197,37 @@ def test_server_panel_shows_unknown_server_from_db(qapp, config):
     db.close()
 
 
+# --- ServerEditDialog: "+ Add GPU" defaults to Index 0's Type/Memory ----------
+def test_add_gpu_defaults_to_index0_content(qapp):
+    from dl_exp_manager.widgets.server_panel import ServerEditDialog
+
+    dialog = ServerEditDialog(None, None)  # "Add Server" - starts empty
+    dialog._append(None)  # first row -> Index 0, falls back to H100/blank
+    dialog.table.item(0, 1).setText("A100")
+    dialog.table.item(0, 2).setText("40")
+
+    dialog._append(None)  # second row should copy Index 0's Type/Memory
+    assert dialog.table.item(1, 0).text() == "1"
+    assert dialog.table.item(1, 1).text() == "A100"
+    assert dialog.table.item(1, 2).text() == "40"
+
+    dialog._append(None)  # a third row keeps following Index 0, not row 1
+    assert dialog.table.item(2, 1).text() == "A100"
+    assert dialog.table.item(2, 2).text() == "40"
+
+
+def test_add_gpu_falls_back_when_no_index0_row(qapp):
+    from dl_exp_manager.widgets.server_panel import ServerEditDialog
+
+    dialog = ServerEditDialog(None, None)
+    dialog._append(None)
+    dialog.table.item(0, 0).setText("5")  # no row is literally Index 0
+
+    dialog._append(None)
+    assert dialog.table.item(1, 1).text() == "H100"
+    assert dialog.table.item(1, 2).text() == ""
+
+
 def test_gpu_count_parsing():
     from dl_exp_manager.widgets.server_panel import ServerStatusPanel
 
