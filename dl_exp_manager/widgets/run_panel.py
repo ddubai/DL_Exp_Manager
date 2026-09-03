@@ -485,6 +485,11 @@ class BaseRunPanel(QtWidgets.QWidget):
         if self.SHOW_SERVER_GPU:
             self.form_layout.addRow("Server:", self.server_combo)
             self.form_layout.addRow("GPU:", self.gpu_selector)
+        else:
+            # 레이아웃에 올리지 않은 위젯은 부모 위 (0,0) 에 떠 있는 채로 계속
+            # 보이므로, 아예 숨겨야 한다 (그냥 자식으로만 두면 안 됨).
+            self.server_combo.setVisible(False)
+            self.gpu_selector.setVisible(False)
         self.form_layout.addRow("Model:", self.model_combo)
         self.form_layout.addRow("Dataset:", self.dataset_combo)
         self.form_layout.addRow("Status:", self.status_combo)

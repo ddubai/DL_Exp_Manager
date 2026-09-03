@@ -383,6 +383,10 @@ def test_inference_hides_server_and_gpu_rows(qapp, config):
 
     assert panel.form_layout.getWidgetPosition(panel.server_combo)[0] == -1
     assert panel.form_layout.getWidgetPosition(panel.gpu_selector)[0] == -1
+    # Not just absent from the layout - actually hidden, or they float unpositioned
+    # at (0,0) on top of the form instead of taking no space.
+    assert panel.server_combo.isVisibleTo(panel) is False
+    assert panel.gpu_selector.isVisibleTo(panel) is False
     db.close()
 
 
