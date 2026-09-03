@@ -25,23 +25,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--db",
         default=default_db_path(),
-        help=f"SQLite DB 경로 (기본: {default_db_path()})",
+        help=f"SQLite DB path (default: {default_db_path()})",
     )
     parser.add_argument(
         "--config",
         default=default_config_path(),
-        help=f"선택지/컬럼 설정 YAML 경로 (기본: {default_config_path()})",
+        help=f"Options/columns config YAML path (default: {default_config_path()})",
     )
     parser.add_argument(
         "--theme",
         default="dark",
         choices=["dark", "light"],
-        help="UI 테마 (기본: dark)",
+        help="UI theme (default: dark)",
     )
     parser.add_argument(
         "--sample",
         action="store_true",
-        help="실행 기록이 하나도 없을 때 예시 데이터를 채워 넣는다.",
+        help="Populate example data if there are no runs yet.",
     )
     return parser.parse_args(argv)
 

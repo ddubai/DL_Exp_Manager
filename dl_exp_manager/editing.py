@@ -41,13 +41,13 @@ def confirm_delete(
     parent: QtWidgets.QWidget | None,
     what: str,
     usage_count: int = 0,
-    usage_note: str = "이 값을 사용하는 실행 기록 {n} 건이 있습니다.\n기록은 지워지지 않고 선택지에서만 빠집니다.",
+    usage_note: str = "{n} existing run(s) use this value.\nRecords are kept; it just leaves the option list.",
 ) -> bool:
-    lines = [f"'{what}' 을(를) 삭제할까요?"]
+    lines = [f"Delete '{what}'?"]
     if usage_count:
         lines.append("")
         lines.append(usage_note.format(n=usage_count))
-    return confirm(parent, "삭제 확인", "\n".join(lines))
+    return confirm(parent, "Confirm Delete", "\n".join(lines))
 
 
 def install_shortcuts(
@@ -71,9 +71,9 @@ def build_item_menu(
     *,
     add_label: str | None = None,
     on_add: Callable[[], None] | None = None,
-    rename_label: str = "이름 변경",
+    rename_label: str = "Rename",
     on_rename: Callable[[], None] | None = None,
-    delete_label: str = "삭제",
+    delete_label: str = "Delete",
     on_delete: Callable[[], None] | None = None,
     extra_top: list[tuple[str, Callable[[], None]]] | None = None,
 ) -> QtWidgets.QMenu:
@@ -84,7 +84,7 @@ def build_item_menu(
     if extra_top and (on_add or on_rename or on_delete):
         menu.addSeparator()
     if on_add is not None:
-        menu.addAction(f"＋ {add_label or '추가'}\t{ADD_KEY}", on_add)
+        menu.addAction(f"+ {add_label or 'Add'}\t{ADD_KEY}", on_add)
     if on_rename is not None:
         menu.addAction(f"{rename_label}\t{RENAME_KEY}", on_rename)
     if on_delete is not None:
@@ -105,21 +105,21 @@ class AddOptionDialog(QtWidgets.QDialog):
         initial: str = "",
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"{field_label} 항목 추가")
+        self.setWindowTitle(f"Add {field_label}")
         self.setMinimumWidth(340)
 
         self.value_edit = QtWidgets.QLineEdit(initial, self)
-        self.value_edit.setPlaceholderText(f"새 {field_label} 값")
+        self.value_edit.setPlaceholderText(f"New {field_label} value")
 
         self.task_radio = QtWidgets.QRadioButton(
-            f"이 Task 전용  ({task})" if task else "이 Task 전용", self
+            f"This Task only  ({task})" if task else "This Task only", self
         )
-        self.global_radio = QtWidgets.QRadioButton("전체 공통 (defaults)", self)
+        self.global_radio = QtWidgets.QRadioButton("Shared across all Tasks (defaults)", self)
         self.task_radio.setChecked(bool(task))
         self.global_radio.setChecked(not task)
         self.task_radio.setEnabled(bool(task))
 
-        scope_box = QtWidgets.QGroupBox("적용 범위", self)
+        scope_box = QtWidgets.QGroupBox("Scope", self)
         scope_layout = QtWidgets.QVBoxLayout(scope_box)
         scope_layout.addWidget(self.task_radio)
         scope_layout.addWidget(self.global_radio)
@@ -133,12 +133,12 @@ class AddOptionDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel(f"<b>{field_label}</b> 선택지에 추가합니다.", self))
+        layout.addWidget(QtWidgets.QLabel(f"Add to the <b>{field_label}</b> option list.", self))
         layout.addWidget(self.value_edit)
         layout.addWidget(scope_box)
         layout.addWidget(
             QtWidgets.QLabel(
-                "<span style='color:#9BA3B4'>config/options.yaml 에 저장됩니다.</span>", self
+                "<span style='color:#9BA3B4'>Saved to this Task's config file.</span>", self
             )
         )
         layout.addWidget(buttons)

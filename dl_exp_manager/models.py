@@ -69,13 +69,13 @@ FIELD_SPECS: dict[str, ColumnSpec] = {
         ColumnSpec("task_name", "Task", "text", 84),
         ColumnSpec("work_name", "Work ID", "text", 110),
         ColumnSpec("dataset", "Dataset", "text", 124),
-        ColumnSpec("dataset_path", "Dataset 경로", "path", 230),
-        ColumnSpec("checkpoint_path", "체크포인트 경로", "path", 250),
-        ColumnSpec("result_path", "결과 폴더 경로", "path", 230),
+        ColumnSpec("dataset_path", "Dataset Path", "path", 230),
+        ColumnSpec("checkpoint_path", "Checkpoint Path", "path", 250),
+        ColumnSpec("result_path", "Result Folder Path", "path", 230),
         ColumnSpec("device", "Device", "text", 88),
         ColumnSpec("input_size", "Input Size", "text", 100),
-        ColumnSpec("started_at", "시작 시각", "datetime", 140),
-        ColumnSpec("duration", "실행 시간", "duration", 116),
+        ColumnSpec("started_at", "Started At", "datetime", 140),
+        ColumnSpec("duration", "Duration", "duration", 116),
         ColumnSpec("latency_ms", "Latency (ms)", "number", 108),
         ColumnSpec("throughput_fps", "Throughput (FPS)", "number", 126),
         ColumnSpec("epochs", "Epochs/Iter", "text", 96),
@@ -256,11 +256,11 @@ class RunTableModel(QtCore.QAbstractTableModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             lines = [self.header_text(spec)]
             if spec.metric is not None:
-                direction = "높을수록 좋음" if spec.metric.higher_is_better else "낮을수록 좋음"
-                lines.append(f"지표 · {direction} · 소수 {spec.metric.digits}자리")
+                direction = "higher is better" if spec.metric.higher_is_better else "lower is better"
+                lines.append(f"Metric · {direction} · {spec.metric.digits} decimal digits")
             elif spec.is_extra:
-                lines.append("사용자 정의 필드 (options.yaml)")
-            lines.append("헤더 클릭 = 정렬 · 우클릭 = 컬럼 관리 · F2 = 이름 변경")
+                lines.append("Custom field (from Task config)")
+            lines.append("Click header = sort · right-click = manage columns · F2 = rename")
             return "\n".join(lines)
         if role == COLUMN_ROLE:
             return spec
@@ -351,10 +351,10 @@ class RunTableModel(QtCore.QAbstractTableModel):
     def _tooltip(self, row: dict[str, Any], spec: ColumnSpec) -> str:
         value = self._display(row, spec)
         if spec.kind == "path":
-            return f"{value}\n\n더블클릭 또는 우클릭 → 폴더 열기" if value else "(경로 미지정)"
+            return f"{value}\n\nDouble-click or right-click → Open Folder" if value else "(no path set)"
         if spec.kind == "gpus":
             server = row.get("server") or "-"
-            return f"{server} 의 {value or 'GPU 미지정'}"
+            return f"{server} · {value or 'no GPU set'}"
         if spec.key == "notes":
             return str(row.get("notes") or "")
         return value

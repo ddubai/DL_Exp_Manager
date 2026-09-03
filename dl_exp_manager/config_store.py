@@ -121,7 +121,7 @@ class ServerDef:
     @property
     def gpu_summary(self) -> str:
         if not self.gpus:
-            return "GPU 정보 없음"
+            return "No GPU info"
         kinds: dict[str, int] = {}
         for gpu in self.gpus:
             kinds[gpu.type] = kinds.get(gpu.type, 0) + 1
@@ -254,47 +254,51 @@ BUILTIN: dict[str, Any] = {
 
 # --- 파일별 머리말 주석 --------------------------------------------------------
 ROOT_HEADER = """\
-# DL Experiment Manager - 설정 진입점
+# DL Experiment Manager - config entry point
 #
-# 설정은 기능별로 나뉘어 있습니다. 고치고 싶은 파일만 열면 됩니다.
+# Settings are split by function. Open only the file you want to change.
 #
-#   servers.yaml        서버와 GPU 인벤토리 (종류 / 개수 / 메모리)
-#   defaults.yaml       모든 Task 가 공유하는 기본 선택지
-#   tasks/<이름>.yaml   Task 별 선택지 · 평가 지표 · 표 컬럼
+#   servers.yaml        Servers and GPU inventory (type / count / memory)
+#   defaults.yaml       Options shared by every Task
+#   tasks/<name>.yaml   Per-Task options, metrics, and table columns
 #
-# 손으로 편집해도 되고 앱 UI 에서 바꿔도 됩니다(같은 파일을 씁니다).
-# 저장하면 앱이 바로 반영하고, 앱에서 바꾼 값은 그 값이 있던 파일에만 저장됩니다.
+# Edit by hand or through the app UI - both write to the same files.
+# Saving is picked up by the app immediately, and a UI edit only touches
+# the file the value already lived in.
 #
-# ── tasks/<이름>.yaml 작성법 ────────────────────────────────────────────────
-#   options : 그 Task 의 콤보박스 선택지. defaults.yaml 의 같은 이름을 '대체'합니다.
-#             model / dataset / optimizer 외의 이름을 만들면 사용자 정의 필드가 되어
-#             폼에 콤보박스가 생기고 값은 DB 의 extra_json 에 저장됩니다.
-#   metrics : 표의 지표 컬럼. digits 는 표시 소수 자릿수,
-#             higher_is_better 는 높을수록 좋은 지표인지.
-#   columns : Train / Inference 표에 보일 컬럼과 순서. 쓸 수 있는 값은
-#     내장 필드  status, server, gpus, model, dataset, dataset_path, result_path,
-#                checkpoint_path, device, input_size, duration, started_at,
-#                latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
-#     지표      metrics 에 정의한 key
-#     사용자 필드 options 에 직접 만든 이름
+# ── How to write tasks/<name>.yaml ──────────────────────────────────────────
+#   options : That Task's combo-box choices. A name here 'replaces' the same
+#             name in defaults.yaml. Any name other than model / dataset /
+#             optimizer becomes a custom field with its own combo box in the
+#             form, stored in the DB's extra_json.
+#   metrics : The table's metric columns. digits sets decimal places shown,
+#             higher_is_better marks whether a bigger value is better.
+#   columns : Which columns appear (and in what order) in the Train /
+#             Inference tables. Allowed values:
+#     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
+#                 checkpoint_path, device, input_size, duration, started_at,
+#                 latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
+#     metric      any key defined under metrics
+#     custom field  any name defined under options
 """
 
 SERVERS_HEADER = """\
-# 서버 & GPU 인벤토리
-# 여기 적은 GPU 가 등록 폼의 체크박스이자 상단 서버 상태 패널의 슬롯이 됩니다.
-#   index = CUDA_VISIBLE_DEVICES 번호 · type = V100 / H100 / A100 … · memory_gb = 참고용
+# Servers & GPU inventory
+# The GPUs listed here become the checkboxes in the run form and the slots
+# in the server status bar.
+#   index = CUDA_VISIBLE_DEVICES number · type = V100 / H100 / A100 ... · memory_gb = informational
 """
 
 DEFAULTS_HEADER = """\
-# 모든 Task 가 공유하는 기본 선택지
-# tasks/<이름>.yaml 의 options 에 같은 이름이 있으면 그쪽이 이 값을 '대체'합니다.
-# (합쳐지지 않습니다 - 어떤 항목이 왜 목록에 있는지 헷갈리지 않도록 정한 규칙입니다.)
+# Options shared by every Task
+# If tasks/<name>.yaml defines the same name under options, that 'replaces'
+# this value. (Never merged - so it's always clear why an item is in the list.)
 """
 
 TASK_HEADER_TEMPLATE = """\
 # Task: {name}
-# options = 콤보박스 선택지 · metrics = 표의 지표 컬럼 · columns = 표에 보일 컬럼과 순서
-# 자세한 작성법은 options.yaml 의 머리말 참고.
+# options = combo-box choices · metrics = table metric columns · columns = table layout
+# See the header of options.yaml for the full syntax.
 """
 
 
@@ -383,15 +387,15 @@ class OptionsConfig:
                 else:
                     loaded = _pyyaml.safe_load(fp)
         except OSError as exc:
-            self.errors.append(f"{os.path.basename(path)} 을(를) 읽지 못했습니다: {exc}")
+            self.errors.append(f"Could not read {os.path.basename(path)}: {exc}")
             return None
         except Exception as exc:  # 손으로 고치는 파일이라 문법 오류는 상시 발생한다
-            self.errors.append(f"{os.path.basename(path)} 문법 오류: {exc}")
+            self.errors.append(f"Syntax error in {os.path.basename(path)}: {exc}")
             return None
         if loaded is None:
             return {}
         if not isinstance(loaded, dict):
-            self.errors.append(f"{os.path.basename(path)} 의 최상위가 매핑이 아닙니다.")
+            self.errors.append(f"The top level of {os.path.basename(path)} is not a mapping.")
             return None
         return loaded
 
@@ -410,14 +414,14 @@ class OptionsConfig:
                 try:
                     self.save(force_all=True)
                 except OSError as exc:
-                    self.errors.append(f"기본 설정 파일을 만들지 못했습니다: {exc}")
+                    self.errors.append(f"Could not create the default config files: {exc}")
             else:
                 self._assign_default_origins()
             return
 
         if _BACKEND == "none":
             self.errors.append(
-                "PyYAML 또는 ruamel.yaml 이 없어 내장 기본값으로 실행합니다. "
+                "PyYAML or ruamel.yaml is missing, so built-in defaults are used. "
                 "`pip install -r requirements.txt` 로 설치하세요."
             )
             self._assign_default_origins()
@@ -436,7 +440,7 @@ class OptionsConfig:
             self._servers_file = self.path
         else:
             merged["servers"] = copy.deepcopy(BUILTIN["servers"])
-            self.errors.append("서버 정의를 찾지 못해 기본 서버를 넣었습니다.")
+            self.errors.append("No server definitions found; added the default servers.")
 
         # 2) 공통 선택지
         defaults_doc = self._read(self.defaults_path)
@@ -462,11 +466,11 @@ class OptionsConfig:
             for name, body in inline.items():
                 if name in tasks:
                     self.errors.append(
-                        f"Task '{name}' 이 options.yaml 과 tasks/ 양쪽에 있어 tasks/ 쪽을 씁니다."
+                        f"Task '{name}' is defined in both options.yaml and tasks/; using tasks/."
                     )
                     continue
                 if not isinstance(body, dict):
-                    self.errors.append(f"Task '{name}' 정의가 매핑이 아니라 무시했습니다.")
+                    self.errors.append(f"Task '{name}' definition is not a mapping; ignored it.")
                     continue
                 tasks[name] = body
                 self._task_files[name] = self.path
@@ -478,10 +482,10 @@ class OptionsConfig:
             tasks = copy.deepcopy(BUILTIN["tasks"])
             for name in tasks:
                 self._task_files[name] = os.path.join(self.tasks_dir, _safe_filename(name))
-            self.errors.append("Task 정의를 찾지 못해 기본 Task 를 넣었습니다.")
+            self.errors.append("No Task definitions found; added the default Tasks.")
         elif not tasks:
             self.errors.append(
-                "Task 정의를 하나도 읽지 못했습니다. 표는 기본 컬럼으로 동작합니다."
+                "Could not read any Task definitions. Tables will use default columns."
             )
 
         merged["tasks"] = tasks
@@ -508,7 +512,7 @@ class OptionsConfig:
                 continue  # 깨진 파일 - 이유는 이미 errors 에 있다
             name = str(body.get("name") or os.path.splitext(filename)[0]).strip()
             if not name:
-                self.errors.append(f"{filename} 의 Task 이름이 비어 있어 건너뛰었습니다.")
+                self.errors.append(f"{filename} has an empty Task name; skipped it.")
                 continue
             body.pop("name", None)  # 이름은 파일명/키로 관리한다
             out.append((name, body, full))
@@ -525,7 +529,7 @@ class OptionsConfig:
     def _normalize_tasks(self) -> None:
         for name, raw in list(self._data["tasks"].items()):
             if not isinstance(raw, dict):
-                self.errors.append(f"Task '{name}' 정의가 매핑이 아니라 무시했습니다.")
+                self.errors.append(f"Task '{name}' definition is not a mapping; ignored it.")
                 self._data["tasks"].pop(name)
                 self._task_files.pop(name, None)
                 continue
@@ -534,10 +538,10 @@ class OptionsConfig:
             raw.setdefault("columns", {})
             if not isinstance(raw["options"], dict):
                 raw["options"] = {}
-                self.errors.append(f"Task '{name}' 의 options 가 매핑이 아니라 비웠습니다.")
+                self.errors.append(f"Task '{name}' options is not a mapping; cleared it.")
             if not isinstance(raw["metrics"], list):
                 raw["metrics"] = []
-                self.errors.append(f"Task '{name}' 의 metrics 가 리스트가 아니라 비웠습니다.")
+                self.errors.append(f"Task '{name}' metrics is not a list; cleared it.")
             if not isinstance(raw["columns"], dict):
                 raw["columns"] = {}
 
@@ -555,10 +559,11 @@ class OptionsConfig:
         try:
             self.save(force_all=True)
         except OSError as exc:
-            self.errors.append(f"설정 파일을 나누지 못했습니다: {exc}")
+            self.errors.append(f"Could not split the config file: {exc}")
             return
         self.errors.append(
-            "options.yaml 에 몰려 있던 설정을 servers.yaml / defaults.yaml / tasks/ 로 나눴습니다."
+            "Split the settings that used to live in options.yaml into "
+            "servers.yaml / defaults.yaml / tasks/."
         )
 
     # -- 쓰기 ----------------------------------------------------------------

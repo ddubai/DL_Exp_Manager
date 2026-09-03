@@ -30,7 +30,7 @@ def open_in_file_manager(path: str, reveal: bool = False) -> tuple[bool, str]:
         (성공 여부, 사용자에게 보여줄 메시지)
     """
     if not path or not path.strip():
-        return False, "경로가 비어 있습니다."
+        return False, "Path is empty."
 
     target = os.path.expanduser(os.path.expandvars(path.strip()))
 
@@ -38,12 +38,12 @@ def open_in_file_manager(path: str, reveal: bool = False) -> tuple[bool, str]:
         # 존재하지 않으면 가장 가까운 상위 폴더라도 열어 준다.
         parent = _nearest_existing_parent(target)
         if parent is None:
-            return False, f"경로를 찾을 수 없습니다:\n{target}"
+            return False, f"Path not found:\n{target}"
         ok, msg = _launch_file_manager(parent, reveal=False)
         if ok:
             return False, (
-                f"경로가 존재하지 않아 상위 폴더를 열었습니다.\n"
-                f"요청: {target}\n열림: {parent}"
+                f"The path does not exist, so its parent folder was opened instead.\n"
+                f"Requested: {target}\nOpened: {parent}"
             )
         return False, msg
 
@@ -86,17 +86,17 @@ def _launch_file_manager(target: str, reveal: bool) -> tuple[bool, str]:
                 stderr=subprocess.DEVNULL,
             )
     except FileNotFoundError:
-        return False, f"이 플랫폼({system})에서 파일 탐색기 명령을 찾을 수 없습니다."
+        return False, f"Could not find a file manager command on this platform ({system})."
     except OSError as exc:
-        return False, f"폴더를 열지 못했습니다:\n{target}\n\n{exc}"
-    return True, f"열었습니다: {target}"
+        return False, f"Could not open folder:\n{target}\n\n{exc}"
+    return True, f"Opened: {target}"
 
 
 def open_terminal_here(path: str) -> tuple[bool, str]:
     """해당 경로에서 터미널을 연다(가능한 플랫폼에 한해)."""
     target = os.path.expanduser(path.strip()) if path else ""
     if not os.path.isdir(target):
-        return False, "폴더 경로가 아닙니다."
+        return False, "Not a folder path."
     system = platform.system()
     try:
         if system == "Darwin":
@@ -111,10 +111,10 @@ def open_terminal_here(path: str) -> tuple[bool, str]:
                 except FileNotFoundError:
                     continue
             else:
-                return False, "터미널 에뮬레이터를 찾을 수 없습니다."
+                return False, "Could not find a terminal emulator."
     except OSError as exc:
         return False, str(exc)
-    return True, f"터미널을 열었습니다: {target}"
+    return True, f"Opened terminal: {target}"
 
 
 # ---------------------------------------------------------------------------

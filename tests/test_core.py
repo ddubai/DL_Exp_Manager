@@ -61,7 +61,7 @@ def test_metrics_json_roundtrip():
 
 def test_open_in_file_manager_rejects_missing_path():
     ok, message = open_in_file_manager("")
-    assert not ok and "비어" in message
+    assert not ok and "empty" in message
     ok, _ = open_in_file_manager("/definitely/does/not/exist/xyz")
     assert not ok
 

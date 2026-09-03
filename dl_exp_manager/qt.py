@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
         from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "PyQt6 또는 PySide6 가 필요합니다.  `pip install -r requirements.txt` 를 실행하세요."
+            "PyQt6 or PySide6 is required.  Run `pip install -r requirements.txt`."
         ) from exc
 
     QT_BINDING = "PySide6"

@@ -33,8 +33,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.inference_panel = InferencePanel(self.db, self.config, self)
 
         self.tabs = QtWidgets.QTabWidget(self)
-        self.tabs.addTab(self.train_panel, "🏋  Train")
-        self.tabs.addTab(self.inference_panel, "🔎  Inference")
+        self.tabs.addTab(self.train_panel, "Train")
+        self.tabs.addTab(self.inference_panel, "Inference")
         self.tabs.setDocumentMode(True)
 
         self.scope_label = QtWidgets.QLabel("", self)
@@ -96,42 +96,42 @@ class MainWindow(QtWidgets.QMainWindow):
     # 메뉴
     # ==================================================================
     def _build_menu(self) -> None:
-        file_menu = self.menuBar().addMenu("파일(&F)")
-        file_menu.addAction(self._action("DB 열기…", self.open_database, "Ctrl+O"))
-        file_menu.addAction(self._action("DB 폴더 열기", self.open_db_folder))
+        file_menu = self.menuBar().addMenu("&File")
+        file_menu.addAction(self._action("Open DB…", self.open_database, "Ctrl+O"))
+        file_menu.addAction(self._action("Open DB Folder", self.open_db_folder))
         file_menu.addSeparator()
-        file_menu.addAction(self._action("현재 탭 CSV 내보내기", self.export_current, "Ctrl+E"))
+        file_menu.addAction(self._action("Export Current Tab to CSV", self.export_current, "Ctrl+E"))
         file_menu.addSeparator()
-        file_menu.addAction(self._action("종료", self.close, "Ctrl+Q"))
+        file_menu.addAction(self._action("Quit", self.close, "Ctrl+Q"))
 
-        edit_menu = self.menuBar().addMenu("편집(&E)")
-        edit_menu.addAction(self._action("DL Task 추가", self.nav.add_task, "Ctrl+Shift+T"))
-        edit_menu.addAction(self._action("Work ID 추가", self.nav.add_work, "Ctrl+Shift+W"))
+        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu.addAction(self._action("Add DL Task", self.nav.add_task, "Ctrl+Shift+T"))
+        edit_menu.addAction(self._action("Add Work ID", self.nav.add_work, "Ctrl+Shift+W"))
         edit_menu.addSeparator()
-        edit_menu.addAction(self._action("선택 행 복사", self.copy_current_selection, "Ctrl+C"))
-        edit_menu.addAction(self._action("표 전체 복사", self.copy_current_all, "Ctrl+Shift+C"))
+        edit_menu.addAction(self._action("Copy Selected Rows", self.copy_current_selection, "Ctrl+C"))
+        edit_menu.addAction(self._action("Copy Entire Table", self.copy_current_all, "Ctrl+Shift+C"))
         edit_menu.addSeparator()
-        edit_menu.addAction(self._action("선택 실행 삭제", self.delete_current, "Del"))
+        edit_menu.addAction(self._action("Delete Selected Run", self.delete_current, "Del"))
 
-        view_menu = self.menuBar().addMenu("보기(&V)")
-        view_menu.addAction(self._action("새로고침", self.refresh_all, "F5"))
-        view_menu.addAction(self._action("Train 탭", lambda: self.tabs.setCurrentIndex(0), "Ctrl+1"))
-        view_menu.addAction(self._action("Inference 탭", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2"))
+        view_menu = self.menuBar().addMenu("&View")
+        view_menu.addAction(self._action("Refresh", self.refresh_all, "F5"))
+        view_menu.addAction(self._action("Train Tab", lambda: self.tabs.setCurrentIndex(0), "Ctrl+1"))
+        view_menu.addAction(self._action("Inference Tab", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2"))
 
-        tools_menu = self.menuBar().addMenu("도구(&T)")
-        tools_menu.addAction(self._action("서버 / GPU 추가…", self.server_bar.add_server))
+        tools_menu = self.menuBar().addMenu("&Tools")
+        tools_menu.addAction(self._action("Add Server / GPUs…", self.server_bar.add_server))
         tools_menu.addSeparator()
-        tools_menu.addAction(self._action("설정 폴더 열기", self.open_config_file))
+        tools_menu.addAction(self._action("Open Config Folder", self.open_config_file))
         tools_menu.addAction(
-            self._action("현재 Task 설정 파일 열기", self.open_task_config, "Ctrl+Shift+O")
+            self._action("Open Current Task Config File", self.open_task_config, "Ctrl+Shift+O")
         )
-        tools_menu.addAction(self._action("설정 다시 읽기", self.reload_config, "Ctrl+R"))
-        tools_menu.addAction(self._action("설정 상태 보기", self.show_config_status))
+        tools_menu.addAction(self._action("Reload Config", self.reload_config, "Ctrl+R"))
+        tools_menu.addAction(self._action("Show Config Status", self.show_config_status))
         tools_menu.addSeparator()
-        tools_menu.addAction(self._action("샘플 데이터 넣기", self.insert_sample_data))
+        tools_menu.addAction(self._action("Insert Sample Data", self.insert_sample_data))
 
-        help_menu = self.menuBar().addMenu("도움말(&H)")
-        help_menu.addAction(self._action("정보", self.show_about))
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self._action("About", self.show_about))
 
     def _action(self, text: str, slot, shortcut: str = "") -> QtGui.QAction:
         action = QtGui.QAction(text, self)
@@ -159,9 +159,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if task_id > 0:
             task = next((t for t in self.db.list_tasks() if t["id"] == task_id), None)
             if task:
-                self.scope_label.setText(f"{task['name']}  (Task 전체 보기)")
+                self.scope_label.setText(f"{task['name']}  (All)")
                 return
-        self.scope_label.setText("좌측에서 Task / Work 를 선택하세요.")
+        self.scope_label.setText("Select a Task / Work on the left.")
 
     def _on_runs_changed(self) -> None:
         self.server_bar.refresh()
@@ -173,7 +173,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.train_panel.reload()
         self.inference_panel.reload()
         self.server_bar.refresh()
-        self.statusBar().showMessage("새로고침했습니다.", 2000)
+        self.statusBar().showMessage("Refreshed.", 2000)
 
     def export_current(self) -> None:
         self._current_panel().export_csv()
@@ -189,22 +189,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_db_folder(self) -> None:
         ok, message = open_in_file_manager(self.db.path, reveal=True)
-        toast(self, ok, message, "DB 폴더 열기")
+        toast(self, ok, message, "Open DB Folder")
 
     def open_database(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
-            "experiments.db 선택 또는 새로 만들기",
+            "Select or Create experiments.db",
             os.path.dirname(self.db.path),
-            "SQLite DB (*.db *.sqlite);;모든 파일 (*)",
+            "SQLite DB (*.db *.sqlite);;All Files (*)",
             options=QtWidgets.QFileDialog.Option.DontConfirmOverwrite,
         )
         if not path:
             return
         try:
             new_db = Database(path)
-        except Exception as exc:  # noqa: BLE001 - 사용자에게 그대로 보여 준다
-            toast(self, False, f"DB 를 열지 못했습니다:\n{exc}", "DB 열기")
+        except Exception as exc:  # noqa: BLE001 - shown to the user verbatim
+            toast(self, False, f"Could not open DB:\n{exc}", "Open DB")
             return
 
         old = self.db
@@ -219,13 +219,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.server_bar.refresh()
 
     def insert_sample_data(self) -> None:
-        """빈 상태에서 UI 를 둘러볼 수 있도록 예시 실행 몇 건을 넣는다."""
+        """Add a few example runs so an empty install has something to look at."""
         from .sample_data import populate
 
         answer = QtWidgets.QMessageBox.question(
             self,
-            "샘플 데이터",
-            "SR/SSL2SL 등에 예시 Train·Inference 기록을 추가합니다. 계속할까요?",
+            "Sample Data",
+            "This adds example Train/Inference records under SR/SSL2SL etc. Continue?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )
@@ -234,19 +234,19 @@ class MainWindow(QtWidgets.QMainWindow):
         added = populate(self.db)
         self.nav.refresh()
         self.refresh_all()
-        toast(self, True, f"샘플 {added} 건을 추가했습니다.")
+        toast(self, True, f"Added {added} sample record(s).")
 
     def show_about(self) -> None:
         QtWidgets.QMessageBox.about(
             self,
-            f"{APP_NAME} 정보",
+            f"About {APP_NAME}",
             f"<h3>{APP_NAME} v{__version__}</h3>"
-            "<p>4대 학습 서버의 실험을 로컬에서 아카이빙·관리하는 데스크톱 앱.</p>"
-            "<p><b>계층</b>: DL Task ▸ Work ID ▸ Train / Inference</p>"
+            "<p>Desktop app for archiving and managing experiments from 4 training servers, locally.</p>"
+            "<p><b>Hierarchy</b>: DL Task ▸ Work ID ▸ Train / Inference</p>"
             f"<p><b>DB</b>: {self.db.path}<br>"
-            f"<b>설정</b>: {self.config.config_dir}<br>"
-            f"<b>Qt</b>: {QT_BINDING} · 테마: {theme.current_theme()}<br>"
-            f"<b>환경</b>: {platform_label()}</p>",
+            f"<b>Config</b>: {self.config.config_dir}<br>"
+            f"<b>Qt</b>: {QT_BINDING} · theme: {theme.current_theme()}<br>"
+            f"<b>Environment</b>: {platform_label()}</p>",
         )
 
 
@@ -271,10 +271,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._watch_config()
         self._apply_config_everywhere()
         if self.config.errors:
-            self.statusBar().showMessage("설정: " + self.config.errors[0], 8000)
+            self.statusBar().showMessage("Config: " + self.config.errors[0], 8000)
         else:
             count = len(self.config.watch_paths())
-            self.statusBar().showMessage(f"설정 파일 {count} 개를 다시 읽었습니다.", 3000)
+            self.statusBar().showMessage(f"Reloaded {count} config file(s).", 3000)
 
     def _on_config_changed(self) -> None:
         """UI 에서 설정을 바꾼 직후 - 파일은 이미 저장돼 있다."""
@@ -288,27 +288,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_startup_status(self) -> None:
         if self.config.errors:
-            self.statusBar().showMessage("⚠ 설정: " + self.config.errors[0], 12000)
+            self.statusBar().showMessage("⚠ Config: " + self.config.errors[0], 12000)
             return
-        comment_note = "" if preserves_comments() else " (주석 미보존: ruamel.yaml 미설치)"
+        comment_note = "" if preserves_comments() else " (comments not preserved: ruamel.yaml not installed)"
         self.statusBar().showMessage(
             f"{platform_label()} · {QT_BINDING} · YAML: {backend_name()}{comment_note}"
-            f" · 설정: {self.config.config_dir}"
+            f" · config: {self.config.config_dir}"
             f" · DB: {self.db.path}"
         )
 
     def open_config_file(self) -> None:
         ok, message = open_in_file_manager(self.config.config_dir)
-        toast(self, ok, message, "설정 폴더")
+        toast(self, ok, message, "Config Folder")
 
     def open_task_config(self) -> None:
-        """지금 보고 있는 Task 의 설정 파일을 탐색기에서 선택한 채로 연다."""
+        """Open the current Task's config file, selected in the file manager."""
         task = self._current_panel().current_task_name()
         if not task:
-            toast(self, False, "좌측에서 Task 를 먼저 선택하세요.", "Task 설정")
+            toast(self, False, "Select a Task on the left first.", "Task Config")
             return
         ok, message = open_in_file_manager(self.config.task_path(task), reveal=True)
-        toast(self, ok, message, f"{task} 설정 파일")
+        toast(self, ok, message, f"{task} Config File")
 
     def reload_config(self) -> None:
         self._reload_config_from_disk()
@@ -320,20 +320,20 @@ class MainWindow(QtWidgets.QMainWindow):
             for role, path in self.config.files_summary()
         )
         lines = [
-            f"<b>설정 폴더</b><br>{self.config.config_dir}<br>{files}",
-            f"<b>YAML 백엔드</b>: {backend_name()}"
-            + ("  (주석 보존)" if preserves_comments() else "  (주석 미보존)"),
+            f"<b>Config Folder</b><br>{self.config.config_dir}<br>{files}",
+            f"<b>YAML Backend</b>: {backend_name()}"
+            + ("  (comments preserved)" if preserves_comments() else "  (comments not preserved)"),
         ]
         if task:
             lines.append(
                 f"<b>{task}</b><br>"
-                f"· 지표: {', '.join(self.config.metric_keys(task)) or '(없음)'}<br>"
-                f"· 사용자 필드: {', '.join(self.config.custom_fields(task)) or '(없음)'}<br>"
-                f"· Train 컬럼: {', '.join(self.config.columns_for(task, 'train')) or '(기본값)'}"
+                f"· Metrics: {', '.join(self.config.metric_keys(task)) or '(none)'}<br>"
+                f"· Custom fields: {', '.join(self.config.custom_fields(task)) or '(none)'}<br>"
+                f"· Train columns: {', '.join(self.config.columns_for(task, 'train')) or '(default)'}"
             )
         if self.config.errors:
-            lines.append("<b style='color:#FF6B6B'>문제</b><br>" + "<br>".join(self.config.errors))
-        QtWidgets.QMessageBox.information(self, "설정 상태", "<br><br>".join(lines))
+            lines.append("<b style='color:#FF6B6B'>Issues</b><br>" + "<br>".join(self.config.errors))
+        QtWidgets.QMessageBox.information(self, "Config Status", "<br><br>".join(lines))
 
     # ==================================================================
     # 창 상태 저장/복원

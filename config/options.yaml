@@ -1,25 +1,28 @@
-# DL Experiment Manager - 설정 진입점
+# DL Experiment Manager - config entry point
 #
-# 설정은 기능별로 나뉘어 있습니다. 고치고 싶은 파일만 열면 됩니다.
+# Settings are split by function. Open only the file you want to change.
 #
-#   servers.yaml        서버와 GPU 인벤토리 (종류 / 개수 / 메모리)
-#   defaults.yaml       모든 Task 가 공유하는 기본 선택지
-#   tasks/<이름>.yaml   Task 별 선택지 · 평가 지표 · 표 컬럼
+#   servers.yaml        Servers and GPU inventory (type / count / memory)
+#   defaults.yaml       Options shared by every Task
+#   tasks/<name>.yaml   Per-Task options, metrics, and table columns
 #
-# 손으로 편집해도 되고 앱 UI 에서 바꿔도 됩니다(같은 파일을 씁니다).
-# 저장하면 앱이 바로 반영하고, 앱에서 바꾼 값은 그 값이 있던 파일에만 저장됩니다.
+# Edit by hand or through the app UI - both write to the same files.
+# Saving is picked up by the app immediately, and a UI edit only touches
+# the file the value already lived in.
 #
-# ── tasks/<이름>.yaml 작성법 ────────────────────────────────────────────────
-#   options : 그 Task 의 콤보박스 선택지. defaults.yaml 의 같은 이름을 '대체'합니다.
-#             model / dataset / optimizer 외의 이름을 만들면 사용자 정의 필드가 되어
-#             폼에 콤보박스가 생기고 값은 DB 의 extra_json 에 저장됩니다.
-#   metrics : 표의 지표 컬럼. digits 는 표시 소수 자릿수,
-#             higher_is_better 는 높을수록 좋은 지표인지.
-#   columns : Train / Inference 표에 보일 컬럼과 순서. 쓸 수 있는 값은
-#     내장 필드  status, server, gpus, model, dataset, dataset_path, result_path,
-#                checkpoint_path, device, input_size, duration, started_at,
-#                latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
-#     지표      metrics 에 정의한 key
-#     사용자 필드 options 에 직접 만든 이름
+# ── How to write tasks/<name>.yaml ──────────────────────────────────────────
+#   options : That Task's combo-box choices. A name here 'replaces' the same
+#             name in defaults.yaml. Any name other than model / dataset /
+#             optimizer becomes a custom field with its own combo box in the
+#             form, stored in the DB's extra_json.
+#   metrics : The table's metric columns. digits sets decimal places shown,
+#             higher_is_better marks whether a bigger value is better.
+#   columns : Which columns appear (and in what order) in the Train /
+#             Inference tables. Allowed values:
+#     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
+#                 checkpoint_path, device, input_size, duration, started_at,
+#                 latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
+#     metric      any key defined under metrics
+#     custom field  any name defined under options
 
 version: 2

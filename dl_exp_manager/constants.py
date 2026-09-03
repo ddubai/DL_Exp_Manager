@@ -19,8 +19,8 @@ DEFAULT_TASKS = [
 
 # --- Level 2: Work ID (샘플) ------------------------------------------------
 DEFAULT_WORKS = {
-    "SR": [("SSL2SL", "Self-supervised -> Supervised 전이 실험")],
-    "DN": [("N2N-Base", "Noise2Noise 기반 베이스라인")],
+    "SR": [("SSL2SL", "Self-supervised -> Supervised transfer experiment")],
+    "DN": [("N2N-Base", "Noise2Noise baseline")],
 }
 
 # 참고: 콤보박스 선택지(model / dataset / optimizer / device …)와 Task 별 지표·컬럼은

@@ -15,9 +15,9 @@ def populate(db: Database) -> int:
     """샘플 Train / Inference 기록을 넣고 추가한 건수를 돌려준다."""
     sr = db.add_task("SR", "Super Resolution")
     dn = db.add_task("DN", "Denoising")
-    ssl2sl = db.add_work(sr, "SSL2SL", "Self-supervised -> Supervised 전이 실험")
-    x4 = db.add_work(sr, "BSR-x4", "Blind SR x4 베이스라인")
-    n2n = db.add_work(dn, "N2N-Base", "Noise2Noise 기반 베이스라인")
+    ssl2sl = db.add_work(sr, "SSL2SL", "Self-supervised -> Supervised transfer experiment")
+    x4 = db.add_work(sr, "BSR-x4", "Blind SR x4 baseline")
+    n2n = db.add_work(dn, "N2N-Base", "Noise2Noise baseline")
 
     train_rows = [
         {
@@ -28,7 +28,7 @@ def populate(db: Database) -> int:
             "epochs": "300000 iter", "batch_size": "8", "lr": "3e-4", "optimizer": "AdamW",
             "metrics_json": {"PSNR": 32.41, "SSIM": 0.8993, "LPIPS": 0.121},
             "exec_command": C.SAMPLE_TRAIN_CMD, "config_yaml": C.SAMPLE_CONFIG_YML,
-            "notes": "베이스라인. val_freq 5000 기준 최고 성능 iter 285000.",
+            "notes": "Baseline. Best result at iter 285000 (val_freq 5000).",
         },
         {
             "work_id": ssl2sl, "server": "Server 2", "model": "SwinIR", "dataset": "DIV2K+Flickr2K",
@@ -39,7 +39,7 @@ def populate(db: Database) -> int:
             "metrics_json": {"PSNR": 32.72, "SSIM": 0.9031, "LPIPS": 0.118},
             "exec_command": C.SAMPLE_TRAIN_CMD.replace("restormer_x4", "swinir_x4"),
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "SwinIR"),
-            "notes": "DF2K 로 데이터 확장. Restormer 대비 +0.31dB.",
+            "notes": "Expanded to DF2K data. +0.31dB over Restormer.",
         },
         {
             "work_id": ssl2sl, "server": "Server 3", "model": "MambaIR", "dataset": "DF2K",
@@ -50,7 +50,7 @@ def populate(db: Database) -> int:
             "metrics_json": {"PSNR": 32.55, "SSIM": 0.9012},
             "exec_command": C.SAMPLE_TRAIN_CMD.replace("restormer_x4", "mambair_x4"),
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "MambaIR"),
-            "notes": "진행 중. 220k iter 시점 중간 지표.",
+            "notes": "In progress. Intermediate metrics at 220k iter.",
         },
         {
             "work_id": x4, "server": "Server 4", "model": "HAT", "dataset": "DF2K",
@@ -61,7 +61,7 @@ def populate(db: Database) -> int:
             "metrics_json": {},
             "exec_command": C.SAMPLE_TRAIN_CMD.replace("restormer_x4", "hat_x4"),
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "HAT"),
-            "notes": "CUDA OOM (batch 32). batch 16 으로 재시도 필요.",
+            "notes": "CUDA OOM (batch 32). Needs retry with batch 16.",
         },
         {
             "work_id": n2n, "server": "Server 1", "model": "NAFNet", "dataset": "SIDD",
@@ -71,7 +71,7 @@ def populate(db: Database) -> int:
             "epochs": "200000 iter", "batch_size": "16", "lr": "1e-3", "optimizer": "AdamW",
             "metrics_json": {},
             "exec_command": "python train.py -opt options/train/DN/nafnet_sidd.yml",
-            "config_yaml": "", "notes": "Server 1 대기열.",
+            "config_yaml": "", "notes": "Queued on Server 1.",
         },
     ]
 
@@ -85,7 +85,7 @@ def populate(db: Database) -> int:
             "metrics_json": {"PSNR": 34.02},
             "exec_command": "CUDA_VISIBLE_DEVICES=2,3 python train.py -opt options/train/BSR/edsr_x2.yml",
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "EDSR"),
-            "notes": "Server 3 에서 MambaIR 과 동시 진행 (GPU 2,3).",
+            "notes": "Running alongside MambaIR on Server 3 (GPU 2,3).",
         }
     )
 
@@ -100,7 +100,7 @@ def populate(db: Database) -> int:
             "throughput_fps": 23.98, "status": C.STATUS_DONE, "started_at": _ts(3),
             "duration_sec": 96, "metrics_json": {"PSNR": 32.41, "SSIM": 0.8993, "LPIPS": 0.121},
             "exec_command": C.SAMPLE_INFER_CMD, "config_yaml": "",
-            "notes": "Set5 벤치마크.",
+            "notes": "Set5 benchmark.",
         },
         {
             "work_id": ssl2sl, "server": "Server 2", "model": "SwinIR",
@@ -112,7 +112,7 @@ def populate(db: Database) -> int:
             "throughput_fps": 11.34, "status": C.STATUS_DONE, "started_at": _ts(2),
             "duration_sec": 640, "metrics_json": {"PSNR": 27.05, "SSIM": 0.8142, "LPIPS": 0.163},
             "exec_command": C.SAMPLE_INFER_CMD.replace("restormer_x4", "swinir_x4").replace("Set5", "Urban100"),
-            "config_yaml": "", "notes": "속도는 Restormer 대비 2배 느림.",
+            "config_yaml": "", "notes": "2x slower than Restormer.",
         },
         {
             "work_id": n2n, "server": "Server 4", "model": "NAFNet",
@@ -125,7 +125,7 @@ def populate(db: Database) -> int:
             "duration_sec": 45, "metrics_json": {"PSNR": 31.08, "SSIM": 0.8812},
             "exec_command": "python inference.py --ckpt /mnt/exp/N2N-Base/nafnet/models/net_g_latest.pth "
                             "--input /mnt/data/benchmark/BSD68 --output /mnt/exp/N2N-Base/nafnet/results/BSD68",
-            "config_yaml": "", "notes": "sigma=25 설정.",
+            "config_yaml": "", "notes": "sigma=25 setting.",
         },
     ]
 

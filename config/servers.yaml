@@ -1,6 +1,7 @@
-# 서버 & GPU 인벤토리
-# 여기 적은 GPU 가 등록 폼의 체크박스이자 상단 서버 상태 패널의 슬롯이 됩니다.
-#   index = CUDA_VISIBLE_DEVICES 번호 · type = V100 / H100 / A100 … · memory_gb = 참고용
+# Servers & GPU inventory
+# The GPUs listed here become the checkboxes in the run form and the slots
+# in the server status bar.
+#   index = CUDA_VISIBLE_DEVICES number · type = V100 / H100 / A100 ... · memory_gb = informational
 
 servers:
 - name: Server 1

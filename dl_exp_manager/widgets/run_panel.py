@@ -1,13 +1,16 @@
-"""Train / Inference 대시보드 패널.
+"""Train / Inference dashboard panel.
 
-레이아웃::
+Layout::
 
-    ┌ 필터 · 정렬 · CSV/클립보드 툴바 ───────────────────────────┐
-    │ QTableView (헤더 클릭 정렬)                                │
-    ├──────────────────────────────┬─────────────────────────────┤
-    │ 선택한 Run 상세 (경로 + 폴더  │  입력 폼                     │
-    │ 열기 / 실행 코드 / config.yml)│  (Editable QComboBox 등)     │
-    └──────────────────────────────┴─────────────────────────────┘
+    ┌ Filter · sort · CSV/clipboard toolbar ─────────────────────┐
+    │ QTableView (click header to sort)                          │
+    ├──────────────────────────────────────────────────────────── ┤
+    │ Selected run detail (paths + open folder / command / config)│
+    └───────────────────────────────────────────────────────────── ┘
+
+The "register / edit run" form used to sit permanently in a third pane.
+It is now a popup dialog (`self.form_dialog`) shown only when adding or
+editing a run, so the table gets the full width the rest of the time.
 """
 from __future__ import annotations
 
@@ -55,11 +58,11 @@ from .common import (
 
 
 class AddColumnDialog(QtWidgets.QDialog):
-    """표에 컬럼 추가 - 기존 필드에서 고르거나 새 이름을 직접 입력."""
+    """Add a table column - pick an existing field or type a new name."""
 
     def __init__(self, parent: QtWidgets.QWidget | None, candidates: Sequence[str]) -> None:
         super().__init__(parent)
-        self.setWindowTitle("컬럼 추가")
+        self.setWindowTitle("Add Column")
         self.setMinimumWidth(340)
 
         self.combo = QtWidgets.QComboBox(self)
@@ -67,9 +70,9 @@ class AddColumnDialog(QtWidgets.QDialog):
         self.combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
         self.combo.addItems(list(candidates))
         self.combo.setCurrentIndex(-1)
-        self.combo.lineEdit().setPlaceholderText("기존 필드를 고르거나 새 이름 입력")
+        self.combo.lineEdit().setPlaceholderText("Pick an existing field or type a new name")
 
-        self.metric_check = QtWidgets.QCheckBox("새 이름이면 이 Task 의 평가 지표로 등록", self)
+        self.metric_check = QtWidgets.QCheckBox("If new, register it as a metric for this Task", self)
         self.metric_check.setChecked(True)
 
         buttons = QtWidgets.QDialogButtonBox(
@@ -81,13 +84,13 @@ class AddColumnDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel("표에 추가할 컬럼", self))
+        layout.addWidget(QtWidgets.QLabel("Column to add to the table", self))
         layout.addWidget(self.combo)
         layout.addWidget(self.metric_check)
         layout.addWidget(
             QtWidgets.QLabel(
                 f"<span style='color:{theme.color('text.muted')}'>"
-                "config/options.yaml 의 columns 에 저장됩니다.</span>",
+                "Saved to this Task's columns file.</span>",
                 self,
             )
         )
@@ -101,21 +104,21 @@ class AddColumnDialog(QtWidgets.QDialog):
 
 
 class MetricSettingsDialog(QtWidgets.QDialog):
-    """지표 표시 설정 - 단위 / 자릿수 / 방향."""
+    """Metric display settings - unit / decimal digits / direction."""
 
     def __init__(self, parent: QtWidgets.QWidget | None, metric: MetricDef) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"지표 설정 · {metric.key}")
+        self.setWindowTitle(f"Metric Settings · {metric.key}")
         self._key = metric.key
 
         self.unit_edit = QtWidgets.QLineEdit(metric.unit, self)
-        self.unit_edit.setPlaceholderText("예: dB, % (비워도 됨)")
+        self.unit_edit.setPlaceholderText("e.g. dB, % (optional)")
         self.digits_spin = QtWidgets.QSpinBox(self)
         self.digits_spin.setRange(0, 8)
         self.digits_spin.setValue(metric.digits)
         self.direction = QtWidgets.QComboBox(self)
-        self.direction.addItem("높을수록 좋음", True)
-        self.direction.addItem("낮을수록 좋음", False)
+        self.direction.addItem("Higher is better", True)
+        self.direction.addItem("Lower is better", False)
         self.direction.setCurrentIndex(0 if metric.higher_is_better else 1)
 
         buttons = QtWidgets.QDialogButtonBox(
@@ -127,9 +130,9 @@ class MetricSettingsDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
 
         form = QtWidgets.QFormLayout()
-        form.addRow("단위:", self.unit_edit)
-        form.addRow("소수 자릿수:", self.digits_spin)
-        form.addRow("방향:", self.direction)
+        form.addRow("Unit:", self.unit_edit)
+        form.addRow("Decimal digits:", self.digits_spin)
+        form.addRow("Direction:", self.direction)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(form)
@@ -145,7 +148,7 @@ class MetricSettingsDialog(QtWidgets.QDialog):
 
 
 class BaseRunPanel(QtWidgets.QWidget):
-    """Train / Inference 공통 대시보드."""
+    """Shared Train / Inference dashboard."""
 
     KIND: str = "train"
     METRIC_PRESETS: Sequence[str] = ()
@@ -175,39 +178,39 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.proxy = RunFilterProxy(self)
         self.proxy.setSourceModel(self.model)
 
-        splitter = QtWidgets.QSplitter(Qt.Orientation.Horizontal, self)
-        left = QtWidgets.QSplitter(Qt.Orientation.Vertical, splitter)
-        left.addWidget(self._build_table_area())
-        left.addWidget(self._build_detail_area())
-        left.setStretchFactor(0, 3)
-        left.setStretchFactor(1, 2)
-        left.setSizes([560, 340])
-        splitter.addWidget(left)
-        splitter.addWidget(self._build_form_area())
+        splitter = QtWidgets.QSplitter(Qt.Orientation.Vertical, self)
+        splitter.addWidget(self._build_table_area())
+        splitter.addWidget(self._build_detail_area())
         splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([860, 430])
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([560, 340])
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(splitter)
 
+        self._build_form_dialog()
         self._clear_detail()
         self._update_form_buttons()
 
     # ==================================================================
-    # 1) 테이블 영역
+    # 1) Table area
     # ==================================================================
     def _build_table_area(self) -> QtWidgets.QWidget:
         container = QtWidgets.QWidget(self)
 
+        new_run_btn = QtWidgets.QPushButton("+ New Run", container)
+        new_run_btn.setProperty("variant", "primary")
+        new_run_btn.setToolTip("Open a form to register a new run.")
+        new_run_btn.clicked.connect(self.open_new_run_dialog)
+
         self.filter_edit = QtWidgets.QLineEdit(container)
-        self.filter_edit.setPlaceholderText("모든 컬럼에서 검색 (모델명, 경로, 지표 값…)")
+        self.filter_edit.setPlaceholderText("Search all columns (model, path, metric value...)")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self.proxy.set_text_filter)
 
         self.status_filter = QtWidgets.QComboBox(container)
-        self.status_filter.addItem("전체 상태", "")
+        self.status_filter.addItem("All statuses", "")
         for status in C.STATUS_LIST:
             self.status_filter.addItem(f"●  {status}", status)
         self.status_filter.currentIndexChanged.connect(
@@ -215,34 +218,35 @@ class BaseRunPanel(QtWidgets.QWidget):
         )
 
         refresh_btn = QtWidgets.QToolButton(container)
-        refresh_btn.setText("↻ 새로고침")
+        refresh_btn.setText("↻ Refresh")
         refresh_btn.clicked.connect(self.reload)
 
         export_btn = QtWidgets.QToolButton(container)
-        export_btn.setText("⤓ CSV 내보내기")
-        export_btn.setToolTip("현재 필터/정렬이 적용된 표를 CSV 파일로 저장합니다.")
+        export_btn.setText("⤓ Export CSV")
+        export_btn.setToolTip("Export the currently filtered/sorted table to a CSV file.")
         export_btn.clicked.connect(self.export_csv)
 
         copy_btn = QtWidgets.QToolButton(container)
-        copy_btn.setText("⧉ 클립보드 복사")
+        copy_btn.setText("⧉ Copy")
         copy_btn.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         copy_menu = QtWidgets.QMenu(copy_btn)
-        copy_menu.addAction("선택한 행 복사", lambda: self.copy_table(selected_only=True))
-        copy_menu.addAction("표 전체 복사", lambda: self.copy_table(selected_only=False))
+        copy_menu.addAction("Copy Selected Rows", lambda: self.copy_table(selected_only=True))
+        copy_menu.addAction("Copy Entire Table", lambda: self.copy_table(selected_only=False))
         copy_btn.setMenu(copy_menu)
 
         dup_btn = QtWidgets.QToolButton(container)
-        dup_btn.setText("⎘ 복제")
-        dup_btn.setToolTip("선택한 실행을 같은 설정으로 복제합니다(상태는 queued).")
+        dup_btn.setText("⎘ Duplicate")
+        dup_btn.setToolTip("Duplicate the selected run with the same settings (status becomes queued).")
         dup_btn.clicked.connect(self.duplicate_selected)
 
         del_btn = QtWidgets.QToolButton(container)
-        del_btn.setText("🗑 삭제")
+        del_btn.setText("🗑 Delete")
         del_btn.clicked.connect(self.delete_selected)
 
         toolbar = QtWidgets.QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(4)
+        toolbar.addWidget(new_run_btn)
         toolbar.addWidget(self.filter_edit, 1)
         toolbar.addWidget(self.status_filter)
         toolbar.addWidget(refresh_btn)
@@ -253,7 +257,7 @@ class BaseRunPanel(QtWidgets.QWidget):
 
         self.view = QtWidgets.QTableView(container)
         self.view.setModel(self.proxy)
-        self.view.setSortingEnabled(True)  # 헤더 클릭 정렬
+        self.view.setSortingEnabled(True)  # click header to sort
         self.view.sortByColumn(0, Qt.SortOrder.DescendingOrder)
         self.view.setAlternatingRowColors(True)
         self.view.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -271,7 +275,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         header.setStretchLastSection(True)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._header_context_menu)
-        header.setToolTip("헤더를 클릭하면 정렬, 우클릭하면 컬럼 표시/숨김")
+        header.setToolTip("Click a header to sort, right-click to manage columns")
 
         self.view.selectionModel().selectionChanged.connect(lambda *_: self._on_selection_changed())
         self._context_column: ColumnSpec | None = None
@@ -293,12 +297,12 @@ class BaseRunPanel(QtWidgets.QWidget):
         return container
 
     # ==================================================================
-    # 2) 상세 영역 (실행 코드 / config.yml / 경로)
+    # 2) Detail area (command / config.yml / paths)
     # ==================================================================
     def _build_detail_area(self) -> QtWidgets.QWidget:
         container = QtWidgets.QWidget(self)
 
-        self.detail_title = QtWidgets.QLabel("행을 선택하면 상세 정보가 표시됩니다.", container)
+        self.detail_title = QtWidgets.QLabel("Select a row to see details.", container)
         self.detail_title.setStyleSheet("font-weight: bold;")
         self.detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
@@ -307,7 +311,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_meta.setWordWrap(True)
         self.detail_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-        paths_box = QtWidgets.QGroupBox("경로", container)
+        paths_box = QtWidgets.QGroupBox("Paths", container)
         paths_layout = QtWidgets.QFormLayout(paths_box)
         paths_layout.setContentsMargins(8, 8, 8, 8)
         paths_layout.setSpacing(4)
@@ -317,7 +321,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             edit.setReadOnly(True)
             edit.setFont(monospace_font())
             copy_btn = QtWidgets.QToolButton(paths_box)
-            copy_btn.setText("복사")
+            copy_btn.setText("Copy")
             copy_btn.clicked.connect(
                 lambda _=False, e=edit, l=label: copy_to_clipboard(e.text(), self, l)
             )
@@ -334,18 +338,18 @@ class BaseRunPanel(QtWidgets.QWidget):
             self._detail_path_edits[key] = edit
 
         self.detail_command = LabeledText(
-            "실행 코드 (Execution Command)", container, read_only=True, min_height=90
+            "Execution Command", container, read_only=True, min_height=90
         )
         self.detail_config = LabeledText("config.yml", container, read_only=True, min_height=90)
         self.detail_notes = LabeledText("Metrics & Notes", container, read_only=True, min_height=90)
 
         self.detail_tabs = QtWidgets.QTabWidget(container)
-        self.detail_tabs.addTab(self.detail_command, "실행 코드")
+        self.detail_tabs.addTab(self.detail_command, "Command")
         self.detail_tabs.addTab(self.detail_config, "config.yml")
         self.detail_tabs.addTab(self.detail_notes, "Metrics / Notes")
 
-        edit_btn = QtWidgets.QPushButton("✎ 이 실행을 폼으로 불러와 수정", container)
-        edit_btn.clicked.connect(self.load_selected_into_form)
+        edit_btn = QtWidgets.QPushButton("✎ Edit This Run", container)
+        edit_btn.clicked.connect(self.open_edit_dialog)
 
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 6, 0, 0)
@@ -358,31 +362,48 @@ class BaseRunPanel(QtWidgets.QWidget):
         return container
 
     # ==================================================================
-    # 3) 입력 폼
+    # 3) Register / edit form (popup dialog)
     # ==================================================================
+    def _build_form_dialog(self) -> None:
+        self.form_dialog = QtWidgets.QDialog(self)
+        self.form_dialog.setModal(True)
+        self.form_dialog.setMinimumSize(440, 600)
+        dialog_layout = QtWidgets.QVBoxLayout(self.form_dialog)
+        dialog_layout.setContentsMargins(0, 0, 0, 0)
+        dialog_layout.addWidget(self._build_form_area())
+
+    def open_new_run_dialog(self) -> None:
+        self.reset_form()
+        self._show_form_dialog()
+
+    def open_edit_dialog(self) -> None:
+        if self.load_selected_into_form():
+            self._show_form_dialog()
+
+    def _show_form_dialog(self) -> None:
+        self.form_dialog.show()
+        self.form_dialog.raise_()
+        self.form_dialog.activateWindow()
+
     def _build_form_area(self) -> QtWidgets.QWidget:
-        scroll = QtWidgets.QScrollArea(self)
+        scroll = QtWidgets.QScrollArea(self.form_dialog)
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(360)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         inner = QtWidgets.QWidget(scroll)
         self.form_layout = QtWidgets.QFormLayout(inner)
-        self.form_layout.setContentsMargins(10, 10, 10, 10)
+        self.form_layout.setContentsMargins(12, 12, 12, 12)
         self.form_layout.setSpacing(6)
         self.form_layout.setFieldGrowthPolicy(
             QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
         self.form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        self.form_title = QtWidgets.QLabel("", inner)
-        self.form_title.setStyleSheet("font-weight: bold; font-size: 13px;")
-        self.form_layout.addRow(self.form_title)
-
-        # -- 공통 상단 필드 -------------------------------------------------
-        # Work ID 는 options.yaml 이 아니라 DB(works 테이블)에서 온다.
-        self.work_combo = EditableCombo([], inner, "Work ID (없으면 새로 생성)")
-        self.work_combo.setToolTip("이 실행이 속할 Work ID. 목록에 없는 값을 입력하면 새로 만듭니다.")
+        # -- Common top fields -----------------------------------------------
+        # Work ID comes from the DB (works table), not options config.
+        self.work_combo = EditableCombo([], inner, "Work ID (new if not found)")
+        self.work_combo.setToolTip("The Work ID this run belongs to. Typing a new value creates it.")
 
         self.server_combo = self._make_option_combo("server", "Server", inner)
         self.server_combo.currentTextChanged.connect(self._on_server_changed)
@@ -397,7 +418,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.started_edit = QtWidgets.QLineEdit(inner)
         self.started_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
         now_btn = QtWidgets.QToolButton(inner)
-        now_btn.setText("지금")
+        now_btn.setText("Now")
         now_btn.clicked.connect(lambda: self.started_edit.setText(now_iso()))
         started_row = QtWidgets.QWidget(inner)
         started_layout = QtWidgets.QHBoxLayout(started_row)
@@ -407,7 +428,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         started_layout.addWidget(now_btn)
 
         self.duration_edit = QtWidgets.QLineEdit(inner)
-        self.duration_edit.setPlaceholderText("예: 3h 20m / 01:30:00 / 5400(초)")
+        self.duration_edit.setPlaceholderText("e.g. 3h 20m / 01:30:00 / 5400 (seconds)")
 
         self.gpu_selector = GpuSelector(inner)
 
@@ -417,11 +438,11 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.form_layout.addRow("Model:", self.model_combo)
         self.form_layout.addRow("Dataset:", self.dataset_combo)
         self.form_layout.addRow("Status:", self.status_combo)
-        self.form_layout.addRow("시작 시각:", started_row)
-        self.form_layout.addRow("실행 시간:", self.duration_edit)
+        self.form_layout.addRow("Started At:", started_row)
+        self.form_layout.addRow("Duration:", self.duration_edit)
 
-        # -- Task 별 사용자 정의 필드 (options.yaml) --------------------------
-        self._custom_section = self._section("Task 전용 필드", inner)
+        # -- Task-specific fields (from config) -------------------------------
+        self._custom_section = self._section("Task-Specific Fields", inner)
         self.form_layout.addRow(self._custom_section)
         self._custom_host = QtWidgets.QWidget(inner)
         self._custom_form = QtWidgets.QFormLayout(self._custom_host)
@@ -432,76 +453,81 @@ class BaseRunPanel(QtWidgets.QWidget):
         )
         self.form_layout.addRow(self._custom_host)
 
-        # -- 하위 클래스 전용 필드 ------------------------------------------
+        # -- Subclass-specific fields ------------------------------------------
         self._build_extra_form_rows(inner)
 
-        # -- 경로 -------------------------------------------------------------
+        # -- Paths -------------------------------------------------------------
         self.dataset_path_edit = PathEdit(inner, "/mnt/data/DIV2K/train", compact=True)
         self.result_path_edit = PathEdit(inner, "/mnt/exp/SSL2SL/restormer_x4", compact=True)
-        self.form_layout.addRow(self._section("경로", inner))
+        self.form_layout.addRow(self._section("Paths", inner))
         self.form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
-        self.form_layout.addRow("결과 폴더 경로:", self.result_path_edit)
+        self.form_layout.addRow("Result Folder Path:", self.result_path_edit)
 
-        # -- 메트릭 -----------------------------------------------------------
+        # -- Metrics -----------------------------------------------------------
         self.metrics_editor = MetricsEditor(
             self.METRIC_PRESETS, inner, config=self.config, task_getter=self.current_task_name
         )
         self.metrics_editor.metricsDefined.connect(self._on_metrics_defined)
-        self.form_layout.addRow(self._section("평가 지표", inner))
+        self.form_layout.addRow(self._section("Evaluation Metrics", inner))
         self.form_layout.addRow(self.metrics_editor)
 
-        # -- 실행 코드 / config -------------------------------------------------
+        # -- Execution command / config -------------------------------------------
         self.command_input = LabeledText(
-            "실행 코드 (Execution Command)",
+            "Execution Command",
             inner,
             placeholder=self.SAMPLE_COMMAND,
             min_height=90,
         )
         sample_cmd_btn = QtWidgets.QToolButton(inner)
-        sample_cmd_btn.setText("샘플")
-        sample_cmd_btn.setToolTip("예시 명령어를 채워 넣습니다.")
+        sample_cmd_btn.setText("Sample")
+        sample_cmd_btn.setToolTip("Fill in an example command.")
         sample_cmd_btn.clicked.connect(lambda: self.command_input.set_text(self.SAMPLE_COMMAND))
         self.command_input.add_header_widget(sample_cmd_btn)
 
         self.config_input = LabeledText(
-            "config.yml", inner, placeholder="# YAML 설정 내용을 붙여 넣으세요", min_height=140
+            "config.yml", inner, placeholder="# Paste YAML config content here", min_height=140
         )
         load_cfg_btn = QtWidgets.QToolButton(inner)
-        load_cfg_btn.setText("파일에서 불러오기")
+        load_cfg_btn.setText("Load From File")
         load_cfg_btn.clicked.connect(self._load_config_from_file)
         self.config_input.add_header_widget(load_cfg_btn)
 
         self.notes_input = LabeledText(
-            "Notes", inner, placeholder="자유 메모", mono=False, min_height=70
+            "Notes", inner, placeholder="Free-form notes", mono=False, min_height=70
         )
 
-        self.form_layout.addRow(self._section("실행 코드 / 설정", inner))
+        self.form_layout.addRow(self._section("Execution Code / Config", inner))
         self.form_layout.addRow(self.command_input)
         self.form_layout.addRow(self.config_input)
         self.form_layout.addRow(self.notes_input)
 
-        # -- 버튼 ---------------------------------------------------------------
-        self.save_btn = QtWidgets.QPushButton("＋ 새 실행 등록", inner)
+        # -- Buttons ---------------------------------------------------------------
+        self.save_btn = QtWidgets.QPushButton("+ Register Run", inner)
         self.save_btn.setProperty("variant", "primary")
         self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self.save_form)
 
-        self.new_btn = QtWidgets.QPushButton("폼 비우기 / 새 입력", inner)
+        self.new_btn = QtWidgets.QPushButton("Clear", inner)
+        self.new_btn.setToolTip("Clear the form for a new entry (keeps this dialog open).")
         self.new_btn.clicked.connect(self.reset_form)
+
+        self.cancel_btn = QtWidgets.QPushButton("Cancel", inner)
+        self.cancel_btn.clicked.connect(self.form_dialog.hide)
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setContentsMargins(0, 6, 0, 0)
         buttons.addWidget(self.save_btn, 2)
         buttons.addWidget(self.new_btn, 1)
+        buttons.addWidget(self.cancel_btn, 1)
         self.form_layout.addRow(self._wrap(buttons, inner))
 
         scroll.setWidget(inner)
         return scroll
 
     def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
-        """하위 클래스에서 전용 입력 필드를 추가한다."""
+        """Subclasses add their own input fields here."""
 
-    # -- 옵션 콤보 ------------------------------------------------------------
+    # -- option combos ------------------------------------------------------------
     def current_task_name(self) -> str | None:
         return self._task_name
 
@@ -533,7 +559,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             if changed:
                 self.reload()
                 self.runsChanged.emit()
-                toast(self, True, f"기존 기록 {changed} 건의 {field} 을(를) '{new}' 로 바꿨습니다.")
+                toast(self, True, f"Updated {field} to '{new}' in {changed} existing record(s).")
 
     def _on_options_changed(self) -> None:
         self._rebuild_custom_fields()
@@ -548,7 +574,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.gpu_selector.set_server(self.config.server(name.strip()))
 
     def _dataset_path_label(self) -> str:
-        return "Dataset 경로"
+        return "Dataset Path"
 
     @staticmethod
     def _section(title: str, parent: QtWidgets.QWidget) -> QtWidgets.QLabel:
@@ -564,7 +590,7 @@ class BaseRunPanel(QtWidgets.QWidget):
 
     def _load_config_from_file(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "config 파일 선택", QtCore.QDir.homePath(), "YAML/JSON (*.yml *.yaml *.json);;모든 파일 (*)"
+            self, "Select Config File", QtCore.QDir.homePath(), "YAML/JSON (*.yml *.yaml *.json);;All Files (*)"
         )
         if not path:
             return
@@ -572,12 +598,12 @@ class BaseRunPanel(QtWidgets.QWidget):
             with open(path, "r", encoding="utf-8") as fp:
                 self.config_input.set_text(fp.read())
         except OSError as exc:
-            toast(self, False, f"파일을 읽지 못했습니다:\n{exc}", "config 불러오기")
+            toast(self, False, f"Could not read file:\n{exc}", "Load Config")
             return
-        toast(self, True, f"config 를 불러왔습니다: {os.path.basename(path)}")
+        toast(self, True, f"Config loaded: {os.path.basename(path)}")
 
     # ==================================================================
-    # 스코프 / 로딩
+    # Scope / loading
     # ==================================================================
     def set_scope(self, task_id: int | None, work_id: int | None) -> None:
         self._task_id = task_id if task_id and task_id > 0 else None
@@ -614,7 +640,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._update_form_buttons()
 
     def reload_columns(self) -> None:
-        """행은 그대로 두고 컬럼 구성만 다시 만든다(설정이 바뀐 직후)."""
+        """Keep rows as-is and just rebuild the column layout (config changed)."""
         selected = self._current_row()
         self.reload()
         if selected:
@@ -632,8 +658,8 @@ class BaseRunPanel(QtWidgets.QWidget):
             header.setSectionHidden(index, spec.header in self._hidden_headers)
 
     def _refresh_combo_sources(self) -> None:
-        """설정 목록을 기준으로 하되, DB 에만 남아 있는 옛 값도 보이도록 합친다."""
-        scope = self._task_id  # 다른 Task 의 값이 섞이지 않도록 범위를 건다
+        """Base the list on config, but merge in legacy values only found in the DB."""
+        scope = self._task_id  # keep values scoped so other Tasks' data doesn't leak in
         self.server_combo.reload()
         self.server_combo.merge_items(self.db.distinct_values(self.KIND, "server", scope))
         self.model_combo.reload()
@@ -645,9 +671,9 @@ class BaseRunPanel(QtWidgets.QWidget):
             combo.reload()
         self._refresh_extra_combo_sources()
 
-    # -- Task 전용 사용자 정의 필드 --------------------------------------------
+    # -- Task-specific custom fields --------------------------------------------
     def _rebuild_custom_fields(self) -> None:
-        """options.yaml 의 사용자 정의 필드(scale, noise_sigma …)를 폼에 만든다."""
+        """Build combo rows for this Task's custom fields (scale, noise_sigma, ...)."""
         fields = self.config.custom_fields(self._task_name) if self.config else []
         current = {name: combo.current_text() for name, combo in self._custom_widgets.items()}
 
@@ -655,7 +681,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             item = self._custom_form.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)   # deleteLater 만으로는 다음 이벤트 루프까지 화면에 남는다
+                widget.setParent(None)   # deleteLater alone leaves it on screen until next tick
                 widget.deleteLater()
         self._custom_widgets = {}
 
@@ -670,7 +696,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._custom_host.setVisible(has_fields)
 
     def _refresh_extra_combo_sources(self) -> None:
-        """하위 클래스 전용 콤보 값 갱신."""
+        """Subclasses refresh their own combo sources here."""
 
     def _refresh_work_combo(self) -> None:
         works = self.db.list_works(self._task_id) if self._task_id else []
@@ -689,7 +715,7 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _update_count_label(self) -> None:
         visible = self.proxy.rowCount()
         total = self.model.rowCount()
-        scope = "전체"
+        scope = "All"
         if self._work_id:
             work = self.db.get_work(self._work_id)
             if work:
@@ -697,11 +723,11 @@ class BaseRunPanel(QtWidgets.QWidget):
         elif self._task_id:
             task = next((t for t in self.db.list_tasks() if t["id"] == self._task_id), None)
             if task:
-                scope = f"{task['name']} (Task 전체)"
-        self.count_label.setText(f"범위: {scope}   ·   표시 {visible} / 전체 {total} 건")
+                scope = f"{task['name']} (All)"
+        self.count_label.setText(f"Scope: {scope}   ·   Showing {visible} / {total}")
 
     # ==================================================================
-    # 선택 / 상세
+    # Selection / detail
     # ==================================================================
     def _selected_rows(self) -> list[dict[str, Any]]:
         selection = self.view.selectionModel()
@@ -733,7 +759,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             self._show_detail(row)
 
     def _clear_detail(self) -> None:
-        self.detail_title.setText("행을 선택하면 상세 정보가 표시됩니다.")
+        self.detail_title.setText("Select a row to see details.")
         self.detail_meta.setText("")
         for edit in self._detail_path_edits.values():
             edit.clear()
@@ -754,10 +780,10 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.detail_config.set_text(row.get("config_yaml") or "")
 
         metrics = loads_metrics(row.get("metrics_json"))
-        notes_text = metrics_to_text(metrics, sep="\n") or "(등록된 지표 없음)"
+        notes_text = metrics_to_text(metrics, sep="\n") or "(no metrics recorded)"
         notes = (row.get("notes") or "").strip()
         self.detail_notes.set_text(
-            f"[Metrics]\n{notes_text}\n\n[Notes]\n{notes or '(없음)'}"
+            f"[Metrics]\n{notes_text}\n\n[Notes]\n{notes or '(none)'}"
         )
 
     def _detail_meta_text(self, row: dict[str, Any]) -> str:
@@ -767,14 +793,14 @@ class BaseRunPanel(QtWidgets.QWidget):
         parts = [
             f"● {status}",
             f"{row.get('server') or '-'} · GPU {gpus or '-'}",
-            f"시작 {row.get('started_at') or '-'}",
-            f"실행 시간 {duration or '-'}",
-            f"등록 {row.get('created_at') or '-'}",
+            f"Started {row.get('started_at') or '-'}",
+            f"Duration {duration or '-'}",
+            f"Logged {row.get('created_at') or '-'}",
         ]
         return "   |   ".join(p for p in parts if p.strip())
 
     # ==================================================================
-    # 컨텍스트 메뉴
+    # Context menus
     # ==================================================================
     def _table_context_menu(self, pos) -> None:
         index = self.view.indexAt(pos)
@@ -786,22 +812,22 @@ class BaseRunPanel(QtWidgets.QWidget):
         if row is not None:
             for key, label in self.DETAIL_PATHS:
                 path = str(row.get(key) or "")
-                action = menu.addAction(f"📁 {label} 열기")
+                action = menu.addAction(f"📁 Open {label}")
                 action.setEnabled(bool(path))
                 action.triggered.connect(lambda _=False, p=path: self._open_path(p))
             menu.addSeparator()
-            menu.addAction("실행 코드 복사", lambda: copy_to_clipboard(row.get("exec_command") or "", self, "실행 코드"))
-            menu.addAction("config.yml 복사", lambda: copy_to_clipboard(row.get("config_yaml") or "", self, "config.yml"))
+            menu.addAction("Copy Command", lambda: copy_to_clipboard(row.get("exec_command") or "", self, "Execution Command"))
+            menu.addAction("Copy config.yml", lambda: copy_to_clipboard(row.get("config_yaml") or "", self, "config.yml"))
             menu.addSeparator()
-            menu.addAction("✎ 폼으로 불러와 수정", self.load_selected_into_form)
-            menu.addAction("⎘ 복제", self.duplicate_selected)
+            menu.addAction("✎ Edit This Run", self.open_edit_dialog)
+            menu.addAction("⎘ Duplicate", self.duplicate_selected)
             menu.addSeparator()
 
-        menu.addAction("선택한 행 복사 (TSV)", lambda: self.copy_table(selected_only=True))
-        menu.addAction("표 전체 CSV 내보내기", self.export_csv)
+        menu.addAction("Copy Selected Rows (TSV)", lambda: self.copy_table(selected_only=True))
+        menu.addAction("Export Entire Table to CSV", self.export_csv)
         if row is not None:
             menu.addSeparator()
-            menu.addAction("🗑 선택 삭제", self.delete_selected)
+            menu.addAction("🗑 Delete Selected", self.delete_selected)
         menu.exec(self.view.viewport().mapToGlobal(pos))
 
     def _header_context_menu(self, pos) -> None:
@@ -812,26 +838,26 @@ class BaseRunPanel(QtWidgets.QWidget):
 
         menu = QtWidgets.QMenu(self)
         if spec is not None:
-            menu.addAction(f"＋ 컬럼 추가…\t{editing.ADD_KEY}", self.add_column)
+            menu.addAction(f"+ Add Column...\t{editing.ADD_KEY}", self.add_column)
             if spec.editable_label:
                 menu.addAction(
-                    f"'{self.model.header_text(spec)}' 이름 변경\t{editing.RENAME_KEY}",
+                    f"Rename '{self.model.header_text(spec)}'\t{editing.RENAME_KEY}",
                     lambda: self.rename_column(spec),
                 )
             if self._can_remove_column(spec):
                 menu.addAction(
-                    f"'{self.model.header_text(spec)}' 컬럼 제거", lambda: self.remove_column(spec)
+                    f"Remove Column '{self.model.header_text(spec)}'", lambda: self.remove_column(spec)
                 )
             if spec.is_metric:
                 menu.addAction(
-                    f"'{spec.source_name}' 지표 설정…", lambda: self.edit_metric(spec)
+                    f"Metric Settings for '{spec.source_name}'...", lambda: self.edit_metric(spec)
                 )
             menu.addSeparator()
-        menu.addAction("이 컬럼 숨기기", lambda: self._hide_column(section))
-        menu.addAction("기본 컬럼 구성으로 복원", self.reset_columns)
+        menu.addAction("Hide This Column", lambda: self._hide_column(section))
+        menu.addAction("Restore Default Columns", self.reset_columns)
         menu.addSeparator()
 
-        visibility = menu.addMenu("표시할 컬럼")
+        visibility = menu.addMenu("Visible Columns")
         for index, column in enumerate(self.model.columns()):
             label = self.model.header_text(column)
             action = visibility.addAction(label)
@@ -854,10 +880,10 @@ class BaseRunPanel(QtWidgets.QWidget):
         if spec is not None:
             self._toggle_column(self.model.header_text(spec), section, False)
 
-    # -- 컬럼 관리 (options.yaml 에 저장) ---------------------------------------
+    # -- Column management (saved to config) ---------------------------------
     def _require_task(self) -> str | None:
         if not self._task_name:
-            toast(self, False, "좌측에서 Task 를 먼저 선택하세요.", "컬럼 관리")
+            toast(self, False, "Select a Task on the left first.", "Manage Columns")
             return None
         return self._task_name
 
@@ -891,7 +917,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             return
         columns = list(self._current_column_ids())
         if name in columns:
-            toast(self, False, f"'{name}' 컬럼은 이미 있습니다.", "컬럼 추가")
+            toast(self, False, f"'{name}' column already exists.", "Add Column")
             return
         columns.append(name)
         self.config.set_columns(task, self.KIND, columns)
@@ -905,14 +931,14 @@ class BaseRunPanel(QtWidgets.QWidget):
         if task is None:
             return
         old_label = self.model.header_text(spec)
-        new = editing.prompt_text(self, "컬럼 이름 변경", "새 표시 이름:", old_label)
+        new = editing.prompt_text(self, "Rename Column", "New display name:", old_label)
         if not new or new == old_label:
             return
         if spec.is_metric:
-            # 지표는 설정의 key 자체를 바꾼다 (컬럼 목록도 함께 갱신됨).
+            # For a metric, rename the config key itself (columns update along with it).
             self.config.rename_metric(task, spec.source_name, new)
         else:
-            # 내장/사용자 필드는 표시명만 바꾼다 (데이터 키는 유지).
+            # Built-in/custom fields only get a display-name change; the data key stays.
             self.model.set_header_label(spec.key, new)
         self.reload_columns()
         self.configChanged.emit()
@@ -924,9 +950,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         label = self.model.header_text(spec)
         if not editing.confirm(
             self,
-            "컬럼 제거",
-            f"'{label}' 컬럼을 {task} 의 {self.KIND} 표에서 뺄까요?\n"
-            "데이터는 지워지지 않고 표에서만 사라집니다.",
+            "Remove Column",
+            f"Remove '{label}' from the {task} {self.KIND} table?\n"
+            "Data is kept; it just won't be shown.",
         ):
             return
         columns = [c for c in self._current_column_ids() if c != spec.source_name]
@@ -957,7 +983,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         task = self._require_task()
         if task is None:
             return
-        if not editing.confirm(self, "컬럼 복원", f"{task} 의 {self.KIND} 컬럼 구성을 초기화할까요?"):
+        if not editing.confirm(self, "Restore Columns", f"Reset the {task} {self.KIND} column layout to defaults?"):
             return
         from ..config_store import BUILTIN
 
@@ -983,7 +1009,7 @@ class BaseRunPanel(QtWidgets.QWidget):
 
     def _open_path(self, path: str) -> None:
         ok, message = open_in_file_manager(path)
-        toast(self, ok, message, "폴더 열기")
+        toast(self, ok, message, "Open Folder")
 
     def _on_double_click(self, index) -> None:
         spec = self.model.column_spec(self.proxy.mapToSource(index).column())
@@ -991,21 +1017,21 @@ class BaseRunPanel(QtWidgets.QWidget):
         if spec is not None and spec.key in PATH_KEYS and row is not None:
             self._open_path(str(row.get(spec.key) or ""))
             return
-        self.load_selected_into_form()
+        self.open_edit_dialog()
 
     # ==================================================================
-    # 내보내기 / 클립보드
+    # Export / clipboard
     # ==================================================================
     def export_csv(self) -> None:
         if self.proxy.rowCount() == 0:
-            toast(self, False, "내보낼 행이 없습니다.", "CSV 내보내기")
+            toast(self, False, "No rows to export.", "Export CSV")
             return
         default_name = f"{self.KIND}_runs_{QtCore.QDate.currentDate().toString('yyyyMMdd')}.csv"
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
-            "CSV 로 내보내기",
+            "Export to CSV",
             os.path.join(QtCore.QDir.homePath(), default_name),
-            "CSV 파일 (*.csv)",
+            "CSV Files (*.csv)",
         )
         if not path:
             return
@@ -1023,13 +1049,13 @@ class BaseRunPanel(QtWidgets.QWidget):
         try:
             count = write_csv(path, headers, rows)
         except OSError as exc:
-            toast(self, False, f"CSV 저장 실패:\n{exc}", "CSV 내보내기")
+            toast(self, False, f"Failed to save CSV:\n{exc}", "Export CSV")
             return
 
         answer = QtWidgets.QMessageBox.question(
             self,
-            "CSV 내보내기 완료",
-            f"{count} 행을 저장했습니다.\n{path}\n\n저장 폴더를 열까요?",
+            "Export Complete",
+            f"Saved {count} row(s).\n{path}\n\nOpen the folder?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )
@@ -1039,14 +1065,14 @@ class BaseRunPanel(QtWidgets.QWidget):
     def copy_table(self, selected_only: bool) -> None:
         text = table_selection_to_tsv(self.view, self.model.headers(), selected_only)
         if not text:
-            toast(self, False, "복사할 행이 없습니다.", "클립보드 복사")
+            toast(self, False, "No rows to copy.", "Copy to Clipboard")
             return
         line_count = max(0, len(text.splitlines()) - 1)
         QtWidgets.QApplication.clipboard().setText(text)
-        toast(self, True, f"{line_count} 행을 클립보드에 복사했습니다. (엑셀에 바로 붙여넣기 가능)")
+        toast(self, True, f"Copied {line_count} row(s) to the clipboard. (Paste directly into Excel.)")
 
     # ==================================================================
-    # 폼 <-> DB
+    # Form <-> DB
     # ==================================================================
     def reset_form(self) -> None:
         self._editing_id = None
@@ -1070,13 +1096,13 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._update_form_buttons()
 
     def _reset_extra_fields(self) -> None:
-        """하위 클래스 전용 필드 초기화."""
+        """Subclasses reset their own fields here."""
 
-    def load_selected_into_form(self) -> None:
+    def load_selected_into_form(self) -> bool:
         row = self._current_row()
         if row is None:
-            toast(self, False, "먼저 표에서 실행을 선택하세요.", "불러오기")
-            return
+            toast(self, False, "Select a run in the table first.", "Load Run")
+            return False
         self._editing_id = int(row["id"])
         work = self.db.get_work(int(row["work_id"]))
         self.work_combo.set_text(work["name"] if work else "")
@@ -1101,6 +1127,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             combo.set_text(str(extra.get(name, "")))
         self._load_extra_fields(row)
         self._update_form_buttons()
+        return True
 
     @staticmethod
     def _row_extra(row: dict[str, Any]) -> dict[str, Any]:
@@ -1114,38 +1141,38 @@ class BaseRunPanel(QtWidgets.QWidget):
         return data if isinstance(data, dict) else {}
 
     def _load_extra_fields(self, row: dict[str, Any]) -> None:
-        """하위 클래스 전용 필드 로드."""
+        """Subclasses load their own fields here."""
 
     def _collect_extra_fields(self) -> dict[str, Any]:
-        """하위 클래스 전용 필드 수집."""
+        """Subclasses collect their own fields here."""
         return {}
 
     def _update_form_buttons(self) -> None:
         if self._editing_id is None:
-            self.form_title.setText("새 실행 등록")
-            self.save_btn.setText("＋ 새 실행 등록")
+            self.form_dialog.setWindowTitle("New Run")
+            self.save_btn.setText("+ Register Run")
         else:
-            self.form_title.setText(f"실행 #{self._editing_id} 수정 중")
-            self.save_btn.setText(f"💾 #{self._editing_id} 저장")
+            self.form_dialog.setWindowTitle(f"Editing Run #{self._editing_id}")
+            self.save_btn.setText(f"💾 Save #{self._editing_id}")
 
     def _resolve_work_id(self) -> int | None:
-        """폼의 Work ID 텍스트를 실제 work row 로 해석(없으면 생성)."""
+        """Resolve the form's Work ID text to a real work row (create if missing)."""
         name = self.work_combo.current_text()
         if self._task_id is None:
             QtWidgets.QMessageBox.warning(
-                self, "저장 불가", "좌측에서 DL Task 를 먼저 선택하세요."
+                self, "Cannot Save", "Select a DL Task on the left first."
             )
             return None
         if not name:
-            QtWidgets.QMessageBox.warning(self, "저장 불가", "Work ID 를 입력하거나 선택하세요.")
+            QtWidgets.QMessageBox.warning(self, "Cannot Save", "Enter or select a Work ID.")
             return None
         for work in self.db.list_works(self._task_id):
             if work["name"].lower() == name.lower():
                 return int(work["id"])
         answer = QtWidgets.QMessageBox.question(
             self,
-            "새 Work ID",
-            f"'{name}' Work 가 없습니다. 새로 만들까요?",
+            "New Work ID",
+            f"Work '{name}' does not exist. Create it?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )
@@ -1158,7 +1185,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         if work_id is None:
             return None
         if not self.model_combo.current_text():
-            QtWidgets.QMessageBox.warning(self, "저장 불가", "Model 을 입력하세요.")
+            QtWidgets.QMessageBox.warning(self, "Cannot Save", "Enter a Model.")
             self.model_combo.setFocus()
             return None
 
@@ -1167,8 +1194,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         if duration_text and duration is None:
             QtWidgets.QMessageBox.warning(
                 self,
-                "저장 불가",
-                "실행 시간 형식을 해석할 수 없습니다.\n예: 3h 20m · 01:30:00 · 5400",
+                "Cannot Save",
+                "Could not parse the duration.\nExamples: 3h 20m · 01:30:00 · 5400",
             )
             self.duration_edit.setFocus()
             return None
@@ -1203,41 +1230,42 @@ class BaseRunPanel(QtWidgets.QWidget):
             return
         if self._editing_id is None:
             run_id = self.db.insert_run(self.KIND, data)
-            message = f"새 실행 #{run_id} 을(를) 등록했습니다."
+            message = f"Registered new run #{run_id}."
         else:
             run_id = self._editing_id
             self.db.update_run(self.KIND, run_id, data)
-            message = f"실행 #{run_id} 을(를) 저장했습니다."
+            message = f"Saved run #{run_id}."
 
         self._work_id = int(data["work_id"]) if self._work_id is not None else self._work_id
-        # 트리/서버 인디케이터를 먼저 갱신한 뒤 표를 다시 그려야 선택이 유지된다.
+        # Refresh the tree/server indicator first, then the table, so the selection sticks.
         self.runsChanged.emit()
         self.reload()
         self._select_run(run_id)
-        toast(self, True, message, "저장")
+        self.form_dialog.hide()
+        toast(self, True, message, "Saved")
 
     def duplicate_selected(self) -> None:
         row = self._current_row()
         if row is None:
-            toast(self, False, "복제할 실행을 선택하세요.", "복제")
+            toast(self, False, "Select a run to duplicate.", "Duplicate")
             return
         new_id = self.db.duplicate_run(self.KIND, int(row["id"]))
         self.runsChanged.emit()
         self.reload()
         if new_id:
             self._select_run(new_id)
-        toast(self, True, f"실행 #{row['id']} → #{new_id} 로 복제했습니다.")
+        toast(self, True, f"Duplicated run #{row['id']} → #{new_id}.")
 
     def delete_selected(self) -> None:
         rows = self._selected_rows()
         if not rows:
-            toast(self, False, "삭제할 실행을 선택하세요.", "삭제")
+            toast(self, False, "Select runs to delete.", "Delete")
             return
         ids = [int(r["id"]) for r in rows]
         answer = QtWidgets.QMessageBox.question(
             self,
-            "삭제 확인",
-            f"선택한 {len(ids)} 건의 실행 기록을 삭제할까요?\n(#{', #'.join(map(str, ids))})",
+            "Confirm Delete",
+            f"Delete {len(ids)} selected run(s)?\n(#{', #'.join(map(str, ids))})",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,
         )
@@ -1248,7 +1276,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             self._editing_id = None
         self.runsChanged.emit()
         self.reload()
-        toast(self, True, f"{deleted} 건을 삭제했습니다.")
+        toast(self, True, f"Deleted {deleted} run(s).")
 
     def _select_run(self, run_id: int) -> None:
         for row in range(self.proxy.rowCount()):
@@ -1261,26 +1289,26 @@ class BaseRunPanel(QtWidgets.QWidget):
 
 
 class TrainPanel(BaseRunPanel):
-    """Train 대시보드."""
+    """Train dashboard."""
 
     KIND = "train"
     SAMPLE_COMMAND = C.SAMPLE_TRAIN_CMD
     METRIC_PRESETS = C.TRAIN_METRIC_PRESETS
     DETAIL_PATHS = (
-        ("dataset_path", "Dataset 경로"),
-        ("result_path", "결과 폴더 경로"),
+        ("dataset_path", "Dataset Path"),
+        ("result_path", "Result Folder Path"),
     )
 
     def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
         self.epochs_edit = QtWidgets.QLineEdit(parent)
-        self.epochs_edit.setPlaceholderText("예: 300000 iter / 200 epoch")
+        self.epochs_edit.setPlaceholderText("e.g. 300000 iter / 200 epoch")
         self.batch_edit = QtWidgets.QLineEdit(parent)
-        self.batch_edit.setPlaceholderText("예: 8")
+        self.batch_edit.setPlaceholderText("e.g. 8")
         self.lr_edit = QtWidgets.QLineEdit(parent)
-        self.lr_edit.setPlaceholderText("예: 3e-4")
+        self.lr_edit.setPlaceholderText("e.g. 3e-4")
         self.optimizer_combo = self._make_option_combo("optimizer", "Optimizer", parent)
 
-        self.form_layout.addRow(self._section("학습 하이퍼파라미터", parent))
+        self.form_layout.addRow(self._section("Training Hyperparameters", parent))
         self.form_layout.addRow("Epochs / Iter:", self.epochs_edit)
         self.form_layout.addRow("Batch size:", self.batch_edit)
         self.form_layout.addRow("Learning rate:", self.lr_edit)
@@ -1312,19 +1340,19 @@ class TrainPanel(BaseRunPanel):
 
 
 class InferencePanel(BaseRunPanel):
-    """Inference 대시보드."""
+    """Inference dashboard."""
 
     KIND = "inference"
     SAMPLE_COMMAND = C.SAMPLE_INFER_CMD
     METRIC_PRESETS = C.INFER_METRIC_PRESETS
     DETAIL_PATHS = (
-        ("checkpoint_path", "체크포인트 경로"),
-        ("dataset_path", "테스트 데이터셋 경로"),
-        ("result_path", "결과 폴더 경로"),
+        ("checkpoint_path", "Checkpoint Path"),
+        ("dataset_path", "Test Dataset Path"),
+        ("result_path", "Result Folder Path"),
     )
 
     def _dataset_path_label(self) -> str:
-        return "테스트 데이터셋 경로"
+        return "Test Dataset Path"
 
     def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
         self.checkpoint_edit = PathEdit(
@@ -1335,14 +1363,14 @@ class InferencePanel(BaseRunPanel):
         )
         self.device_combo = self._make_option_combo("device", "Device", parent)
         self.input_size_edit = QtWidgets.QLineEdit(parent)
-        self.input_size_edit.setPlaceholderText("예: 3x256x256")
+        self.input_size_edit.setPlaceholderText("e.g. 3x256x256")
         self.latency_edit = QtWidgets.QLineEdit(parent)
-        self.latency_edit.setPlaceholderText("이미지 1장당 ms")
+        self.latency_edit.setPlaceholderText("ms per image")
         self.throughput_edit = QtWidgets.QLineEdit(parent)
         self.throughput_edit.setPlaceholderText("images/sec (FPS)")
 
-        self.form_layout.addRow(self._section("추론 설정 / 속도", parent))
-        self.form_layout.addRow("체크포인트 경로:", self.checkpoint_edit)
+        self.form_layout.addRow(self._section("Inference Settings / Speed", parent))
+        self.form_layout.addRow("Checkpoint Path:", self.checkpoint_edit)
         self.form_layout.addRow("Device:", self.device_combo)
         self.form_layout.addRow("Input size:", self.input_size_edit)
         self.form_layout.addRow("Latency (ms):", self.latency_edit)

@@ -21,7 +21,7 @@ def monospace_font(point_delta: int = 0) -> QtGui.QFont:
     return mono_font(theme.FONT_SIZES["mono"] + point_delta)
 
 
-def toast(parent: QtWidgets.QWidget | None, ok: bool, message: str, title: str = "알림") -> None:
+def toast(parent: QtWidgets.QWidget | None, ok: bool, message: str, title: str = "Notice") -> None:
     """상태바가 있으면 상태바에, 없으면 메시지 박스로 알린다."""
     window = parent.window() if parent is not None else None
     bar = getattr(window, "statusBar", None)
@@ -37,19 +37,19 @@ def toast(parent: QtWidgets.QWidget | None, ok: bool, message: str, title: str =
         QtWidgets.QMessageBox.warning(parent, title, message)
 
 
-def copy_to_clipboard(text: str, parent: QtWidgets.QWidget | None = None, label: str = "내용") -> None:
+def copy_to_clipboard(text: str, parent: QtWidgets.QWidget | None = None, label: str = "content") -> None:
     QtWidgets.QApplication.clipboard().setText(text or "")
-    toast(parent, True, f"{label}을(를) 클립보드에 복사했습니다. ({len(text or '')} 자)")
+    toast(parent, True, f"Copied {label} to the clipboard. ({len(text or '')} chars)")
 
 
 class OpenFolderButton(QtWidgets.QToolButton):
     """OS 탐색기(Finder/탐색기)에서 경로를 여는 버튼."""
 
-    def __init__(self, parent: QtWidgets.QWidget | None = None, text: str = f"{FOLDER_ICON} 폴더 열기"):
+    def __init__(self, parent: QtWidgets.QWidget | None = None, text: str = f"{FOLDER_ICON} Open Folder"):
         super().__init__(parent)
         self.setText(text)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.setToolTip("이 경로를 OS 파일 탐색기(macOS Finder / Windows 탐색기)에서 엽니다.")
+        self.setToolTip("Open this path in the OS file manager (Finder on macOS / Explorer on Windows).")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._provider = lambda: ""
         self.clicked.connect(self._on_click)
@@ -60,7 +60,7 @@ class OpenFolderButton(QtWidgets.QToolButton):
     def _on_click(self) -> None:
         path = self._provider() or ""
         ok, message = open_in_file_manager(path)
-        toast(self, ok, message, "폴더 열기")
+        toast(self, ok, message, "Open Folder")
 
 
 class PathEdit(QtWidgets.QWidget):
@@ -87,11 +87,11 @@ class PathEdit(QtWidgets.QWidget):
         self.edit.textChanged.connect(self.pathChanged.emit)
 
         self.browse_btn = QtWidgets.QToolButton(self)
-        self.browse_btn.setText("…" if compact else "찾아보기…")
-        self.browse_btn.setToolTip("파일 선택 대화상자로 경로를 고릅니다.")
+        self.browse_btn.setText("…" if compact else "Browse…")
+        self.browse_btn.setToolTip("Pick a path with a file dialog.")
         self.browse_btn.clicked.connect(self._browse)
 
-        self.open_btn = OpenFolderButton(self, FOLDER_ICON if compact else f"{FOLDER_ICON} 폴더 열기")
+        self.open_btn = OpenFolderButton(self, FOLDER_ICON if compact else f"{FOLDER_ICON} Open Folder")
         self.open_btn.set_path_provider(self.path)
 
         layout = QtWidgets.QHBoxLayout(self)
@@ -114,9 +114,9 @@ class PathEdit(QtWidgets.QWidget):
     def _browse(self) -> None:
         start = self.path() or QtCore.QDir.homePath()
         if self._directory:
-            chosen = QtWidgets.QFileDialog.getExistingDirectory(self, "폴더 선택", start)
+            chosen = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Folder", start)
         else:
-            chosen, _ = QtWidgets.QFileDialog.getOpenFileName(self, "파일 선택", start)
+            chosen, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select File", start)
         if chosen:
             self.set_path(chosen)
 
@@ -128,7 +128,7 @@ class EditableCombo(QtWidgets.QComboBox):
         self,
         items: Sequence[str] = (),
         parent: QtWidgets.QWidget | None = None,
-        placeholder: str = "선택하거나 직접 입력",
+        placeholder: str = "Select or type",
     ) -> None:
         super().__init__(parent)
         self.setEditable(True)
@@ -175,7 +175,7 @@ class EditableCombo(QtWidgets.QComboBox):
 
 
 SENTINEL_ROLE = int(Qt.ItemDataRole.UserRole) + 11
-SENTINEL_TEXT = "＋  새 항목 추가…"
+SENTINEL_TEXT = "+  Add new item…"
 
 
 class _SentinelDelegate(QtWidgets.QStyledItemDelegate):
@@ -232,7 +232,7 @@ class ManagedCombo(QtWidgets.QComboBox):
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
-        self.lineEdit().setPlaceholderText(placeholder or f"{self.field_label} 선택 또는 직접 입력")
+        self.lineEdit().setPlaceholderText(placeholder or f"Select {self.field_label} or type")
         self.lineEdit().setClearButtonEnabled(True)
 
         view = QtWidgets.QListView(self)
@@ -292,7 +292,7 @@ class ManagedCombo(QtWidgets.QComboBox):
         model.setData(item_index, True, SENTINEL_ROLE)
         model.setData(item_index, QtGui.QBrush(QtGui.QColor(theme.color("accent"))),
                       Qt.ItemDataRole.ForegroundRole)
-        model.setData(item_index, "새 항목을 만들어 options.yaml 에 저장합니다.",
+        model.setData(item_index, "Creates a new item and saves it to this Task's config.",
                       Qt.ItemDataRole.ToolTipRole)
 
     def _is_sentinel(self, index: int) -> bool:
@@ -367,16 +367,16 @@ class ManagedCombo(QtWidgets.QComboBox):
 
         if row < 0 or is_sentinel:
             menu = editing.build_item_menu(
-                self, add_label=f"{self.field_label} 항목 추가", on_add=self.add_item
+                self, add_label=f"Add {self.field_label}", on_add=self.add_item
             )
         else:
             menu = editing.build_item_menu(
                 self,
-                add_label=f"{self.field_label} 항목 추가",
+                add_label=f"Add {self.field_label}",
                 on_add=self.add_item,
-                rename_label=f"'{value}' 이름 변경",
+                rename_label=f"Rename '{value}'",
                 on_rename=lambda: self._rename_value(value),
-                delete_label=f"'{value}' 삭제",
+                delete_label=f"Delete '{value}'",
                 on_delete=lambda: self._delete_value(value),
             )
         menu.exec(global_pos)
@@ -407,7 +407,7 @@ class ManagedCombo(QtWidgets.QComboBox):
         scope = task if task_scope else None
         if not self._config.add_option(scope, self.field, value):
             QtWidgets.QMessageBox.information(
-                self, "항목 추가", f"'{value}' 은(는) 이미 목록에 있습니다."
+                self, "Add Item", f"'{value}' is already in the list."
             )
         self.reload(keep_text=False)
         self.set_text(value)
@@ -416,20 +416,20 @@ class ManagedCombo(QtWidgets.QComboBox):
     def _rename_value(self, old: str) -> None:
         if self._config is None or not old:
             return
-        new = editing.prompt_text(self, "이름 변경", f"{self.field_label} 새 이름:", old)
+        new = editing.prompt_text(self, "Rename", f"New {self.field_label} name:", old)
         if new is None or new == old:
             return
         task = self.current_task()
         scope = task if self._is_task_scoped(task) else None
         if not self._config.rename_option(scope, self.field, old, new):
-            QtWidgets.QMessageBox.warning(self, "이름 변경", "설정에서 항목을 찾지 못했습니다.")
+            QtWidgets.QMessageBox.warning(self, "Rename", "Could not find that item in the config.")
             return
         used = self._usage_counter(old)
         if used and editing.confirm(
             self,
-            "기존 기록도 변경",
-            f"'{old}' 을(를) 쓰는 실행 기록이 {used} 건 있습니다.\n"
-            f"그 기록들도 '{new}' 로 바꿀까요?",
+            "Update Existing Records",
+            f"{used} existing run(s) use '{old}'.\n"
+            f"Update those records to '{new}' as well?",
         ):
             self.renameRequested.emit(old, new)
         self.reload(keep_text=False)
@@ -444,7 +444,7 @@ class ManagedCombo(QtWidgets.QComboBox):
         task = self.current_task()
         scope = task if self._is_task_scoped(task) else None
         if not self._config.remove_option(scope, self.field, value):
-            QtWidgets.QMessageBox.warning(self, "삭제", "설정에서 항목을 찾지 못했습니다.")
+            QtWidgets.QMessageBox.warning(self, "Delete", "Could not find that item in the config.")
             return
         if self.current_text() == value:
             self.set_text("")
@@ -479,8 +479,8 @@ class LabeledText(QtWidgets.QWidget):
 
         self.label = QtWidgets.QLabel(f"<b>{title}</b>", self)
         self.copy_btn = QtWidgets.QToolButton(self)
-        self.copy_btn.setText("복사")
-        self.copy_btn.setToolTip(f"{title} 내용을 클립보드로 복사")
+        self.copy_btn.setText("Copy")
+        self.copy_btn.setToolTip(f"Copy {title} to the clipboard")
         self.copy_btn.clicked.connect(self._copy)
 
         self.editor = QtWidgets.QPlainTextEdit(self)
@@ -554,12 +554,12 @@ class MetricsEditor(QtWidgets.QWidget):
         self.table.setMinimumHeight(110)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
 
-        self.preset_combo = EditableCombo(self._presets, self, "지표명 (예: PSNR)")
+        self.preset_combo = EditableCombo(self._presets, self, "Metric name (e.g. PSNR)")
         add_btn = QtWidgets.QToolButton(self)
-        add_btn.setText("+ 추가")
+        add_btn.setText("+ Add")
         add_btn.clicked.connect(self._add_from_combo)
         remove_btn = QtWidgets.QToolButton(self)
-        remove_btn.setText("− 삭제")
+        remove_btn.setText("- Remove")
         remove_btn.clicked.connect(self._remove_selected)
 
         controls = QtWidgets.QHBoxLayout()
@@ -605,7 +605,7 @@ class MetricsEditor(QtWidgets.QWidget):
         old = self._selected_key()
         if not old:
             return
-        new = editing.prompt_text(self, "지표 이름 변경", "새 이름:", old)
+        new = editing.prompt_text(self, "Rename Metric", "New name:", old)
         if new and new != old:
             self.table.item(self.table.currentRow(), 0).setText(new)
 
@@ -620,7 +620,7 @@ class MetricsEditor(QtWidgets.QWidget):
             self.metricsDefined.emit()
         else:
             QtWidgets.QMessageBox.information(
-                self, "지표 정의", f"'{key}' 은(는) 이미 {task} 의 지표로 정의돼 있습니다."
+                self, "Metric Definition", f"'{key}' is already defined as a metric for {task}."
             )
 
     def _context_menu(self, pos) -> None:
@@ -631,14 +631,14 @@ class MetricsEditor(QtWidgets.QWidget):
         task = self._task_getter()
         extra: list = []
         if key and task and self._config is not None and key not in self._config.metric_keys(task):
-            extra.append((f"'{key}' 을(를) {task} 지표 정의에 추가", lambda: self._register_in_config(key)))
+            extra.append((f"Add '{key}' to {task} metric definitions", lambda: self._register_in_config(key)))
         menu = editing.build_item_menu(
             self,
-            add_label="지표 추가",
+            add_label="Add Metric",
             on_add=self._add_from_combo,
-            rename_label=f"'{key}' 이름 변경" if key else "이름 변경",
+            rename_label=f"Rename '{key}'" if key else "Rename",
             on_rename=self._rename_selected if key else None,
-            delete_label=f"'{key}' 삭제" if key else "삭제",
+            delete_label=f"Delete '{key}'" if key else "Delete",
             on_delete=self._remove_selected if key else None,
             extra_top=extra,
         )
@@ -675,7 +675,7 @@ class MetricsEditor(QtWidgets.QWidget):
     def _add_from_combo(self) -> None:
         key = self.preset_combo.current_text()
         if not key:
-            QtWidgets.QMessageBox.information(self, "지표 추가", "지표 이름을 입력하세요.")
+            QtWidgets.QMessageBox.information(self, "Add Metric", "Enter a metric name.")
             return
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 0)
@@ -709,7 +709,7 @@ class GpuSelector(QtWidgets.QWidget):
         super().__init__(parent)
         self._boxes: list[tuple[int, QtWidgets.QCheckBox]] = []
 
-        self._empty = QtWidgets.QLabel("서버를 먼저 선택하세요.", self)
+        self._empty = QtWidgets.QLabel("Select a server first.", self)
         self._empty.setStyleSheet(f"color: {theme.color('text.muted')};")
 
         self._grid_host = QtWidgets.QWidget(self)
@@ -746,8 +746,8 @@ class GpuSelector(QtWidgets.QWidget):
         self._grid_host.setVisible(bool(gpus))
         if not gpus:
             self._empty.setText(
-                "이 서버의 GPU 정보가 없습니다.\nconfig/options.yaml 의 servers 에 추가하세요."
-                if server is not None else "서버를 먼저 선택하세요."
+                "This server has no GPU info.\nAdd it under servers in config/servers.yaml."
+                if server is not None else "Select a server first."
             )
             self._update_hint()
             return

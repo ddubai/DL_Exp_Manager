@@ -99,12 +99,12 @@ METRICS: dict[str, int] = {
 
 # -- 폰트 크기 (pt) -----------------------------------------------------------
 FONT_SIZES: dict[str, float] = {
-    "title": 15.0,
-    "section": 11.0,
-    "header": 11.5,
-    "body": 12.0,
-    "mono": 11.0,
-    "caption": 11.0,
+    "title": 12.5,
+    "section": 9.0,
+    "header": 9.0,
+    "body": 9.5,
+    "mono": 9.0,
+    "caption": 8.5,
 }
 
 THEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}

@@ -1,6 +1,6 @@
 # Task: SR
-# options = 콤보박스 선택지 · metrics = 표의 지표 컬럼 · columns = 표에 보일 컬럼과 순서
-# 자세한 작성법은 options.yaml 의 머리말 참고.
+# options = combo-box choices · metrics = table metric columns · columns = table layout
+# See the header of options.yaml for the full syntax.
 
 name: SR
 label: Super Resolution

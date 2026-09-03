@@ -153,11 +153,13 @@ def _panel_with_runs(config):
 
 def test_server_panel_shows_multiple_jobs_per_server(qapp, config):
     db, panel = _panel_with_runs(config)
-    row = panel._rows["Server 3"]
-    assert len(row._jobs) == 2
-    assert row._jobs[0]["color"] != row._jobs[1]["color"]
-    assert "4/4" in row.usage_label.text()
-    assert "4/16 GPU" in panel.summary.text()
+    state = panel._state["Server 3"]
+    assert len(state["jobs"]) == 2
+    assert state["jobs"][0]["color"] != state["jobs"][1]["color"]
+    assert len(state["assign"]) == 4  # GPU 0,1,2,3 all claimed
+    chip = panel._chips["Server 3"]
+    assert "Server 3" in chip.text()
+    assert "4/4" in chip.text()
     db.close()
 
 
@@ -171,12 +173,13 @@ def test_server_panel_flags_gpu_conflict(qapp, config):
         db.insert_run("train", {"work_id": work_id, "server": "Server 1", "model": model,
                                 "gpu_indices": "0", "status": "running"})
     panel = ServerStatusPanel(db, config)
-    assert panel._rows["Server 1"].strip._conflicts == {0}
+    assert panel._state["Server 1"]["conflicts"] == {0}
+    assert "⚠" in panel._tooltip_text("Server 1")
     db.close()
 
 
 def test_server_panel_shows_unknown_server_from_db(qapp, config):
-    """설정에 없는 서버 이름이 기록에 있어도 표시는 된다."""
+    """A server name that only exists in DB records still gets a chip."""
     from dl_exp_manager.db import Database
     from dl_exp_manager.widgets.server_panel import ServerStatusPanel
 
@@ -185,7 +188,7 @@ def test_server_panel_shows_unknown_server_from_db(qapp, config):
     db.insert_run("train", {"work_id": work_id, "server": "Ghost", "model": "M",
                             "status": "running"})
     panel = ServerStatusPanel(db, config)
-    assert "Ghost" in panel._rows
+    assert "Ghost" in panel._chips
     db.close()
 
 

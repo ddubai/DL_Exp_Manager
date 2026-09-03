@@ -1,6 +1,6 @@
-# 모든 Task 가 공유하는 기본 선택지
-# tasks/<이름>.yaml 의 options 에 같은 이름이 있으면 그쪽이 이 값을 '대체'합니다.
-# (합쳐지지 않습니다 - 어떤 항목이 왜 목록에 있는지 헷갈리지 않도록 정한 규칙입니다.)
+# Options shared by every Task
+# If tasks/<name>.yaml defines the same name under options, that 'replaces'
+# this value. (Never merged - so it's always clear why an item is in the list.)
 
 defaults:
   model: [Restormer, SwinIR, MambaIR, NAFNet]

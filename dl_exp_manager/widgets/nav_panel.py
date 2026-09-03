@@ -34,12 +34,12 @@ class NavigationPanel(QtWidgets.QWidget):
         title = QtWidgets.QLabel("<b>DL Task ▸ Work ID</b>", self)
 
         self.filter_edit = QtWidgets.QLineEdit(self)
-        self.filter_edit.setPlaceholderText("Task / Work 검색…")
+        self.filter_edit.setPlaceholderText("Search Task / Work…")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._apply_filter)
 
         self.tree = QtWidgets.QTreeWidget(self)
-        self.tree.setHeaderLabels(["이름", "Train", "Infer"])
+        self.tree.setHeaderLabels(["Name", "Train", "Infer"])
         self.tree.setColumnWidth(0, 190)
         self.tree.setColumnWidth(1, 52)
         self.tree.setColumnWidth(2, 52)
@@ -51,22 +51,22 @@ class NavigationPanel(QtWidgets.QWidget):
 
         self.add_task_btn = QtWidgets.QToolButton(self)
         self.add_task_btn.setText("＋Task")
-        self.add_task_btn.setToolTip("새 DL Task 추가 (Level 1)")
+        self.add_task_btn.setToolTip("Add a new DL Task (Level 1)")
         self.add_task_btn.clicked.connect(self.add_task)
 
         self.add_work_btn = QtWidgets.QToolButton(self)
         self.add_work_btn.setText("＋Work")
-        self.add_work_btn.setToolTip("선택한 Task 안에 Work ID 추가 (Level 2)")
+        self.add_work_btn.setToolTip("Add a Work ID under the selected Task (Level 2)")
         self.add_work_btn.clicked.connect(self.add_work)
 
         self.edit_btn = QtWidgets.QToolButton(self)
-        self.edit_btn.setText("✎ 이름")
-        self.edit_btn.setToolTip(f"선택 항목 이름/설명 수정  ({editing.RENAME_KEY})")
+        self.edit_btn.setText("✎ Rename")
+        self.edit_btn.setToolTip(f"Rename/describe the selected item  ({editing.RENAME_KEY})")
         self.edit_btn.clicked.connect(self.edit_current)
 
         self.del_btn = QtWidgets.QToolButton(self)
         self.del_btn.setText("🗑")
-        self.del_btn.setToolTip(f"선택 항목 삭제  ({editing.DELETE_KEY})")
+        self.del_btn.setToolTip(f"Delete the selected item  ({editing.DELETE_KEY})")
         self.del_btn.clicked.connect(self.delete_current)
 
         buttons = QtWidgets.QHBoxLayout()
@@ -209,11 +209,11 @@ class NavigationPanel(QtWidgets.QWidget):
     # -- CRUD ----------------------------------------------------------------
     def add_task(self) -> None:
         name, ok = QtWidgets.QInputDialog.getText(
-            self, "DL Task 추가", "Task 이름 (예: SR, DN, Clustering, Classification):"
+            self, "Add DL Task", "Task name (e.g. SR, DN, Clustering, Classification):"
         )
         if not ok or not name.strip():
             return
-        desc, _ = QtWidgets.QInputDialog.getText(self, "DL Task 추가", "설명(선택):")
+        desc, _ = QtWidgets.QInputDialog.getText(self, "Add DL Task", "Description (optional):")
         task_name = name.strip()
         task_id = self.db.add_task(task_name, desc.strip())
         if self.config is not None:
@@ -224,14 +224,14 @@ class NavigationPanel(QtWidgets.QWidget):
     def add_work(self) -> None:
         task_id = self.current_task_id()
         if task_id is None:
-            QtWidgets.QMessageBox.information(self, "Work 추가", "먼저 Task 를 선택하세요.")
+            QtWidgets.QMessageBox.information(self, "Add Work", "Select a Task first.")
             return
         name, ok = QtWidgets.QInputDialog.getText(
-            self, "Work ID 추가", "Work ID (예: SSL2SL):"
+            self, "Add Work ID", "Work ID (e.g. SSL2SL):"
         )
         if not ok or not name.strip():
             return
-        desc, _ = QtWidgets.QInputDialog.getText(self, "Work ID 추가", "설명(선택):")
+        desc, _ = QtWidgets.QInputDialog.getText(self, "Add Work ID", "Description (optional):")
         work_id = self.db.add_work(task_id, name.strip(), desc.strip())
         self.refresh(select_work_id=work_id)
 
@@ -251,12 +251,12 @@ class NavigationPanel(QtWidgets.QWidget):
         if row is None:
             return
         name, ok = QtWidgets.QInputDialog.getText(
-            self, f"{label} 수정", "이름:", text=row["name"]
+            self, f"Edit {label}", "Name:", text=row["name"]
         )
         if not ok or not name.strip():
             return
         desc, _ = QtWidgets.QInputDialog.getText(
-            self, f"{label} 수정", "설명:", text=row.get("description") or ""
+            self, f"Edit {label}", "Description:", text=row.get("description") or ""
         )
         if kind == "task":
             self.db.update_task(ident, name.strip(), desc.strip())
@@ -273,17 +273,17 @@ class NavigationPanel(QtWidgets.QWidget):
         if kind == "task":
             works = self.db.list_works(ident)
             message = (
-                f"이 Task 와 하위 Work {len(works)}개, 그리고 모든 실행 기록이 삭제됩니다.\n"
-                "계속할까요?"
+                f"This Task, its {len(works)} Work(s), and all their run records will be deleted.\n"
+                "Continue?"
             )
         else:
             n_train, n_infer = self.db.counts_for_work(ident)
             message = (
-                f"이 Work 와 Train {n_train}건 / Inference {n_infer}건이 삭제됩니다.\n계속할까요?"
+                f"This Work and its {n_train} Train / {n_infer} Inference record(s) will be deleted.\nContinue?"
             )
         answer = QtWidgets.QMessageBox.question(
             self,
-            "삭제 확인",
+            "Confirm Delete",
             message,
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,
@@ -304,16 +304,16 @@ class NavigationPanel(QtWidgets.QWidget):
         label = "Task" if kind == "task" else "Work ID"
 
         if item is None:
-            menu = editing.build_item_menu(self, add_label="DL Task 추가", on_add=self.add_task)
+            menu = editing.build_item_menu(self, add_label="Add DL Task", on_add=self.add_task)
         else:
             menu = editing.build_item_menu(
                 self,
-                add_label="Work ID 추가",
+                add_label="Add Work ID",
                 on_add=self.add_work,
-                rename_label=f"{label} 이름/설명 수정",
+                rename_label=f"Edit {label} Name/Description",
                 on_rename=self.edit_current,
-                delete_label=f"{label} 삭제",
+                delete_label=f"Delete {label}",
                 on_delete=self.delete_current,
-                extra_top=[("＋ DL Task 추가", self.add_task)],
+                extra_top=[("+ Add DL Task", self.add_task)],
             )
         menu.exec(self.tree.viewport().mapToGlobal(pos))

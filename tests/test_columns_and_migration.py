@@ -115,7 +115,7 @@ def test_running_row_shows_elapsed_when_duration_missing(qapp, config):
     model = RunTableModel()
     model.set_content([row], build_columns(config, "SR", "train"))
     values = dict(zip(model.headers(), model.row_values(0)))
-    assert values["실행 시간"].startswith("~")
+    assert values["Duration"].startswith("~")
 
 
 def _make_v1_db(path: str) -> None:

@@ -374,7 +374,7 @@ class Database:
             return "train_runs"
         if kind == "inference":
             return "inference_runs"
-        raise ValueError(f"알 수 없는 run 종류: {kind!r}")
+        raise ValueError(f"Unknown run kind: {kind!r}")
 
     @staticmethod
     def _fields(kind: str) -> tuple[str, ...]:
