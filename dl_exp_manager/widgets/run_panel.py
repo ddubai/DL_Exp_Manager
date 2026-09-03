@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from .. import constants as C
 from .. import editing, theme
@@ -909,6 +909,12 @@ class BaseRunPanel(QtWidgets.QWidget):
         menu.addAction("Restore Default Columns", self.reset_columns)
         menu.addSeparator()
 
+        presets = menu.addMenu("Column Presets")
+        presets.addAction("Simple", self.apply_preset_simple)
+        presets.addAction("Paper-ready (metrics only)", self.apply_preset_paper)
+        presets.addAction("Full (show all)", self.apply_preset_full)
+        menu.addSeparator()
+
         visibility = menu.addMenu("Visible Columns")
         for index, column in enumerate(self.model.columns()):
             label = self.model.header_text(column)
@@ -1060,6 +1066,41 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._hidden_headers.clear()
         for index in range(self.model.columnCount()):
             self.view.horizontalHeader().setSectionHidden(index, False)
+
+    # -- Column presets (session-only visibility, not saved to config) ---------
+    # These don't touch the Task's configured column *list* - just which of its
+    # columns are currently hidden. Switching Tasks or reloading keeps the choice
+    # for the session; it isn't written to options.yaml since it's a quick view
+    # toggle, not a Task-level decision.
+    _SIMPLE_HIDE_KINDS = {"path"}
+    _SIMPLE_HIDE_KEYS = {
+        "notes", "tags", "failure_reason", "epochs", "batch_size", "lr",
+        "optimizer", "device", "input_size",
+    }
+    _PAPER_KEEP_KEYS = {"model"}
+
+    def _apply_preset(self, keep: Callable[[ColumnSpec], bool]) -> None:
+        self._hidden_headers = {
+            self.model.header_text(spec) for spec in self.model.columns() if not keep(spec)
+        }
+        self._apply_column_sizing()
+
+    def apply_preset_simple(self) -> None:
+        """Hide paths and rarely-scanned hyperparameters; keep identity + metrics."""
+        self._apply_preset(
+            lambda spec: spec.kind not in self._SIMPLE_HIDE_KINDS
+            and spec.key not in self._SIMPLE_HIDE_KEYS
+        )
+
+    def apply_preset_paper(self) -> None:
+        """Model + metrics + Task-specific settings (scale, noise_sigma, ...) only -
+        the columns you'd actually copy into a paper's results table."""
+        self._apply_preset(
+            lambda spec: spec.is_metric or spec.is_extra or spec.key in self._PAPER_KEEP_KEYS
+        )
+
+    def apply_preset_full(self) -> None:
+        self._show_all_columns()
 
     def _open_path(self, path: str) -> None:
         ok, message = open_in_file_manager(path)

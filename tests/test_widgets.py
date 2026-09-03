@@ -315,3 +315,140 @@ def test_new_run_defaults_to_not_favorite(qapp, config):
     new_row = next(r for r in rows if r["model"] == "NewModel")
     assert new_row["favorite"] == 0
     db.close()
+
+
+# --- #8 Column presets --------------------------------------------------------
+def test_column_preset_simple_hides_paths_and_hyperparams(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.apply_preset_simple()
+    visible = {h for h in panel.model.headers() if h not in panel._hidden_headers}
+    assert "Result Folder Path" not in visible
+    assert "Dataset Path" not in visible
+    assert "Notes" not in visible
+    assert "Model" in visible and "PSNR" in visible and "Status" in visible
+    db.close()
+
+
+def test_column_preset_paper_keeps_only_model_and_metrics(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.apply_preset_paper()
+    visible = {h for h in panel.model.headers() if h not in panel._hidden_headers}
+    assert visible == {"Model", "scale", "PSNR", "SSIM", "LPIPS"}
+    db.close()
+
+
+def test_column_preset_full_clears_hidden_set(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.apply_preset_simple()
+    assert panel._hidden_headers  # sanity: simple actually hid something
+    panel.apply_preset_full()
+    assert panel._hidden_headers == set()
+    db.close()
+
+
+# --- #6 Global search dialog --------------------------------------------------
+def _search_env(config):
+    from dl_exp_manager.db import Database
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    sr = db.add_task("SR")
+    w1 = db.add_work(sr, "SSL2SL")
+    db.add_work(sr, "EmptyWork")  # no runs yet - should still be searchable
+    db.insert_run("train", {"work_id": w1, "model": "Restormer", "notes": "baseline"})
+    db.insert_run("inference", {"work_id": w1, "model": "SwinIR", "checkpoint_path": "/mnt/x/net.pth"})
+    return db, sr, w1
+
+
+def test_search_dialog_empty_query_lists_tasks_and_works(qapp, config):
+    from dl_exp_manager.qt import Qt
+    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
+
+    db, sr, w1 = _search_env(config)
+    dialog = GlobalSearchDialog(db, lambda payload: None)
+    kinds = {
+        dialog.list.item(i).data(Qt.ItemDataRole.UserRole)["kind"]
+        for i in range(dialog.list.count())
+    }
+    assert kinds == {"task", "work"}
+    # the Work with no runs yet must still be findable
+    assert any("EmptyWork" in dialog.list.item(i).text() for i in range(dialog.list.count()))
+    db.close()
+
+
+def test_search_dialog_finds_runs_by_model(qapp, config):
+    from dl_exp_manager.qt import Qt
+    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
+
+    db, sr, w1 = _search_env(config)
+    dialog = GlobalSearchDialog(db, lambda payload: None)
+    dialog.query_edit.setText("SwinIR")
+    payloads = [dialog.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(dialog.list.count())]
+    run_hits = [p for p in payloads if p["kind"] == "run"]
+    assert len(run_hits) == 1
+    assert run_hits[0]["run_kind"] == "inference"
+    db.close()
+
+
+def test_search_dialog_finds_runs_by_path_and_notes(qapp, config):
+    from dl_exp_manager.qt import Qt
+    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
+
+    db, sr, w1 = _search_env(config)
+    dialog = GlobalSearchDialog(db, lambda payload: None)
+
+    dialog.query_edit.setText("net.pth")
+    assert any(
+        dialog.list.item(i).data(Qt.ItemDataRole.UserRole)["kind"] == "run"
+        for i in range(dialog.list.count())
+    )
+
+    dialog.query_edit.setText("baseline")
+    assert any(
+        "Restormer" in dialog.list.item(i).text() for i in range(dialog.list.count())
+    )
+    db.close()
+
+
+def test_search_dialog_activation_calls_back_with_payload(qapp, config):
+    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
+
+    db, sr, w1 = _search_env(config)
+    received = []
+    dialog = GlobalSearchDialog(db, received.append)
+    dialog.query_edit.setText("Restormer")
+    item = dialog.list.item(0)
+    dialog._activate(item)
+    assert len(received) == 1
+    assert received[0]["kind"] == "run"
+    db.close()
+
+
+def test_search_dialog_escape_rejects(qapp, config):
+    from dl_exp_manager.qt import Qt, QtCore, QtGui
+    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
+
+    db, sr, w1 = _search_env(config)
+    dialog = GlobalSearchDialog(db, lambda payload: None)
+    event = QtGui.QKeyEvent(QtCore.QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    dialog.keyPressEvent(event)
+    assert dialog.result() == QtWidgets.QDialog.DialogCode.Rejected
+    db.close()
+
+
+def test_main_window_navigates_to_run_from_search(qapp, config):
+    from dl_exp_manager.main_window import MainWindow
+
+    d = tempfile.mkdtemp()
+    window = MainWindow(os.path.join(d, "e.db"), os.path.join(d, "options.yaml"))
+    sr = window.db.add_task("SR")
+    work_id = window.db.add_work(sr, "SSL2SL")
+    run_id = window.db.insert_run("train", {"work_id": work_id, "model": "FindThisRun"})
+    window.nav.refresh()
+
+    window._navigate_to_search_result(
+        {"kind": "run", "run_kind": "train", "task_id": sr, "work_id": work_id, "run_id": run_id}
+    )
+    assert window.tabs.currentWidget() is window.train_panel
+    current = window.train_panel._current_row()
+    assert current is not None and current["id"] == run_id
+    window.close()

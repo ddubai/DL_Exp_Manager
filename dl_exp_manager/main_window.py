@@ -12,6 +12,7 @@ from .utils import open_in_file_manager, platform_label
 from .widgets.common import toast
 from .widgets.nav_panel import NavigationPanel
 from .widgets.run_panel import InferencePanel, TrainPanel
+from .widgets.search_dialog import GlobalSearchDialog
 from .widgets.server_panel import ServerStatusPanel
 
 STATUS_REFRESH_MS = 15_000
@@ -105,6 +106,8 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu.addAction(self._action("Quit", self.close, "Ctrl+Q"))
 
         edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu.addAction(self._action("Search…", self.open_search, "Ctrl+K"))
+        edit_menu.addSeparator()
         edit_menu.addAction(self._action("Add DL Task", self.nav.add_task, "Ctrl+Shift+T"))
         edit_menu.addAction(self._action("Add Work ID", self.nav.add_work, "Ctrl+Shift+W"))
         edit_menu.addSeparator()
@@ -217,6 +220,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"DB: {new_db.path}")
         self.nav.refresh()
         self.server_bar.refresh()
+
+    # ==================================================================
+    # 전역 검색 (#6)
+    # ==================================================================
+    def open_search(self) -> None:
+        dialog = GlobalSearchDialog(self.db, self._navigate_to_search_result, self)
+        dialog.query_edit.setFocus()
+        dialog.exec()
+
+    def _navigate_to_search_result(self, payload: dict) -> None:
+        kind = payload.get("kind")
+        if kind == "task":
+            self.nav.refresh(select_task_id=payload["task_id"])
+            return
+        if kind == "work":
+            self.nav.refresh(select_work_id=payload["work_id"])
+            return
+        if kind == "run":
+            # nav.refresh 가 setCurrentItem 을 호출하면 currentItemChanged 가 바로 발생해서
+            # _on_scope_changed -> panel.set_scope() 가 이 시점에 이미 끝나 있다.
+            self.nav.refresh(select_work_id=payload["work_id"])
+            panel = self.train_panel if payload["run_kind"] == "train" else self.inference_panel
+            self.tabs.setCurrentWidget(panel)
+            panel._select_run(int(payload["run_id"]))
 
     def insert_sample_data(self) -> None:
         """Add a few example runs so an empty install has something to look at."""
