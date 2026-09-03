@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+.DS_Store
+
+# 로컬 실험 DB / 내보내기 결과
+experiments.db
+experiments.db-journal
+*.sqlite
+exports/
