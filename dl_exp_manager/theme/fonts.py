@@ -10,12 +10,12 @@ import os
 from ..qt import QtGui
 
 UI_FONT_STACK: tuple[str, ...] = (
-    "Apple SD Gothic Neo",  # macOS - 1순위
+    "Pretendard",           # 1순위 — 한글+라틴 한 벌, OFL
+    "Pretendard Variable",
+    "Apple SD Gothic Neo",  # macOS
     "Malgun Gothic",        # Windows
     "Noto Sans KR",
     "Noto Sans CJK KR",
-    "Pretendard",
-    "Pretendard Variable",
     "SUIT",
     "Inter",
     "Segoe UI Variable",

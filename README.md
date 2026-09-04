@@ -26,7 +26,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ```
 
 - Python 3.10+ 권장 (타입 힌트에 `X | None` 문법 사용).
-- 폰트는 시스템에 설치된 것 중 앞 순위를 씁니다(Apple SD Gothic Neo → Malgun Gothic → Noto Sans KR → Pretendard → OS 기본).
+- 폰트는 시스템에 설치된 것 중 앞 순위를 씁니다(Pretendard → Apple SD Gothic Neo/Malgun Gothic → Noto Sans KR → OS 기본).
   `assets/fonts/` 에 ttf/otf 를 넣어 두면 자동으로 등록해서 함께 후보로 삼습니다.
 - **PySide6 를 쓰고 싶다면** `requirements.txt` 에서 PyQt6 대신 PySide6 를 설치하기만 하면 됩니다.
   `dl_exp_manager/qt.py` 가 PyQt6 → PySide6 순으로 바인딩을 찾아 API 차이를 흡수합니다.
