@@ -462,3 +462,47 @@ Dataset" 로더 콤보를 추가하는 additive 방식으로 갔습니다. 그�
 없으면 "0개"와 구분하기 위해 `NULL` 로 둡니다(`DatasetEditDialog` 의 스핀박스는 0 을
 "(unspecified)" 로 표시). 좌측 네비게이션의 인라인 Dataset 행과 `DatasetManagerDialog` 의 표에도
 개수를 함께 보여줍니다.
+
+---
+
+## 12. 2026-09 세션 (이어서) — Dataset 이미지 정보, New Run 폼 좌우 분할, PySide6 크래시 수정
+
+### 12.1 Dataset 에 이미지 크기 / 확장자
+
+`datasets` 테이블에 `image_size`(예: `256x256`), `extension`(예: `tiff`) 컬럼을 추가했습니다
+(스키마 v6). `DatasetEditDialog`/`DatasetManagerDialog`/네비게이션 인라인 행에 모두 반영했고,
+Inference 폼에서 Dataset 을 고르면 **Input size 가 이 값으로 자동 채워집니다**(직접 수정도 가능).
+
+### 12.2 New Run 폼을 좌(실행 설정) / 우(경로 + 실행 코드) 로 분할
+
+`BaseRunPanel._build_form_area()` 를 `QSplitter` 기반 2단 구성으로 다시 짰습니다. 각 사이드가
+독립된 스크롤 영역(`QFormLayout` 두 개, `self.form_layout`/`self.right_form_layout`)이고,
+Save/Clear/Cancel 버튼은 스크롤 밖으로 빼서 폼을 아무리 내려도 항상 보이게 했습니다.
+
+Train 은 요청받은 순서가 기존 순서와 그대로 맞아떨어져 필드 재배치가 필요 없었습니다. Inference 는
+순서가 크게 달라(같은 Work 의 Train Run 을 가장 먼저 고르는 흐름) `_build_left_fields` 를 통째로
+오버라이드했습니다 — 공용 위젯 생성 로직(`_make_work_combo`/`_make_server_combo`/
+`_make_dataset_row`/`_make_status_combo`/`_make_started_row`/`_make_duration_edit`)을 따로
+빼 둬서, 순서를 재배치하는 서브클래스도 위젯 생성 코드를 중복하지 않게 했습니다. 요청받은 9개
+필드(Work ID/Train Run/Epoch·Iter/Dataset/Status/Server/Latency/Input size/Started At) 사이에,
+명시되진 않았지만 여전히 필요한 필드(Checkpoint Path·Model 은 Train Run 근처에, Device·Throughput
+은 Latency 근처에)를 의미상 가장 가까운 이웃 옆에 끼워 넣었습니다 — 명시된 필드들의 상대 순서는
+그대로 두고요.
+
+`SHOW_SERVER_GPU` 하나였던 클래스 플래그를 `SHOW_SERVER`/`SHOW_GPU` 로 나눴습니다. Inference 는
+Server 는 다시 보여주되(“어느 서버에서 돌렸는지”는 여전히 유용) GPU 는 계속 뺍니다(Train Run +
+Epoch/Iter 가 이미 실행을 특정하므로).
+
+### 12.3 PySide6 에서 New Run 팝업이 바로 죽던 문제
+
+지난 세션에서 넣은 `editing.disable_wheel_scrolling()` 이 `root.findChildren((QComboBox,
+QAbstractSpinBox))` 처럼 타입을 튜플로 넘겼는데, **PyQt6 는 튜플을 받지만 PySide6 는 한 번에 타입
+하나만 받습니다** — PySide6 사용자는 New Run 팝업을 여는 순간 `TypeError` 로 죽었습니다. 타입별로
+`findChildren` 을 따로 호출하도록 고쳤습니다. 실제로 PySide6 를 설치해 재현 후 수정을 검증했습니다.
+
+**교훈**: `tests/test_widgets.py` 와 `tests/test_columns_and_migration.py` 는
+`pytest.importorskip("PyQt6.QtWidgets", ...)` 로 PyQt6 를 하드코딩하고 있어서, PySide6 전용
+환경에서는 이 두 파일의 테스트가 전부 **건너뛰어질 뿐 실패하지 않습니다** — 이번 버그가 테스트를
+통과하고도 사용자 환경에서 터진 이유입니다. `dl_exp_manager.qt` 를 통해 바인딩을 알아내 그걸로
+`importorskip` 하도록 바꾸면 두 바인딩 모두에서 실제로 돌려볼 수 있는데, 아직 안 했습니다(§7 후속
+후보).
