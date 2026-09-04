@@ -110,11 +110,12 @@ QSS는 이 토큰을 치환해서 생성되므로, 색을 하드코딩한 곳이
 
 ```python
 UI_FONT_STACK = [
-    "Pretendard",        # 1순위 — 한글+라틴 통일감, OFL 라이선스
-    "Inter",             # 라틴 대체
-    "Noto Sans KR",      # 한글 대체
-    "-apple-system",     # macOS
-    "Segoe UI Variable", # Windows 11
+    "Apple SD Gothic Neo",  # 1순위 — macOS 기본 한글 고딕
+    "Malgun Gothic",        # Windows
+    "Noto Sans KR",         # 한글+라틴 통일감, OFL 라이선스
+    "Pretendard",
+    "Inter",                # 라틴 대체
+    "Segoe UI Variable",    # Windows 11
     "sans-serif",
 ]
 
@@ -128,13 +129,17 @@ MONO_FONT_STACK = [
 ]
 ```
 
-**Pretendard를 1순위로 두는 이유:** 경로·모델명(라틴)과 UI 라벨(한글)이 한 줄에 섞이는 화면인데,
-Inter 같은 라틴 전용 폰트를 쓰면 한글이 시스템 폰트로 폴백되면서 baseline과 굵기가 어긋납니다.
-Pretendard는 두 문자셋을 한 벌로 커버합니다.
+**Apple SD Gothic Neo를 1순위로 두는 이유:** macOS 기본 시스템 폰트라 별도 설치 없이 항상 쓸 수
+있고, 경로·모델명(라틴)과 UI 라벨(한글)이 한 줄에 섞이는 화면에서도 baseline·굵기가 잘 맞습니다.
+Windows 에서는 같은 이유로 Malgun Gothic 을, 둘 다 없는 환경(Linux 등)에서는 Noto Sans KR /
+Pretendard 처럼 한글+라틴을 한 벌로 커버하는 폰트로 폴백합니다.
 
 **폰트 확보 방법 (택1):**
-- (권장) `assets/fonts/` 에 Pretendard + JetBrains Mono 를 동봉하고 `QFontDatabase.addApplicationFont()` 로 로드 — 어느 PC에서 열어도 동일한 화면. 둘 다 OFL이라 재배포 가능.
-- 시스템 설치분만 사용하고 위 스택으로 폴백 — 저장소가 가벼움.
+- 시스템 설치분만 사용하고 위 스택으로 폴백(기본값) — 저장소가 가벼움. macOS/Windows 는 기본
+  탑재 폰트라 추가 설치가 필요 없습니다.
+- (선택) `assets/fonts/` 에 Noto Sans KR / Pretendard + JetBrains Mono 를 동봉하고
+  `QFontDatabase.addApplicationFont()` 로 로드 — 어느 PC에서 열어도 동일한 화면을 보장하고
+  싶을 때. 셋 다 OFL이라 재배포 가능.
 
 ### 3.2 크기 체계 (pt)
 
@@ -285,7 +290,7 @@ dl_exp_manager/theme/
   dark.qss.tpl     ← {{token}} 자리표시자를 쓰는 QSS 템플릿
   fonts.py         ← 폰트 스택 해석 및 번들 폰트 로드
   __init__.py      ← apply_theme(app, name="dark")
-assets/fonts/      ← (선택) Pretendard, JetBrains Mono
+assets/fonts/      ← (선택) Noto Sans KR / Pretendard, JetBrains Mono
 ```
 
 라이트 테마가 필요해지면 `tokens.py` 에 `LIGHT` 딕셔너리를 추가하기만 하면 됩니다.

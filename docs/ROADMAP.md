@@ -573,3 +573,19 @@ offscreen 환경에서 모달이 뜬 채 `exec()` 가 영원히 안 끝나 테�
 줄였습니다 - `DatasetManagerDialog` 표의 "Registered" 컬럼 헤더가 이미 라벨 역할을 하고,
 네비게이션 인라인 행은 옆에 image_size/extension 과 나란히 붙어 있어 굳이 문구가 없어도
 날짜라는 게 맥락상 읽힙니다.
+
+### 12.8 UI 폰트 우선순위 조정
+
+"UI 폰트를 Noto Sans KR 로 바꿔줘" 요청으로 시작했는데, 이 개발 환경엔 Noto Sans KR 이
+설치돼 있지 않아 그대로 1순위로 올려도 다음 순위(Apple SD Gothic Neo)로 그대로 폴백돼
+화면상 변화가 없었습니다. 이를 설명하고 "폰트 파일을 assets/fonts/ 에 번들할지 / 시스템에
+직접 설치할지" 물었더니 다른 폰트를 추천해 달라고 해서, Pretendard(기존 1순위)·Noto Sans
+KR·SUIT 중 고르게 했고 최종적으로 **"Apple SD Gothic Neo 를 1순위로"** 로 정리됐습니다.
+
+`UI_FONT_STACK`(`theme/fonts.py`) 을 `Apple SD Gothic Neo → Malgun Gothic → Noto Sans KR →
+Noto Sans CJK KR → Pretendard → Pretendard Variable → SUIT → Inter → Segoe UI Variable →
+Segoe UI` 순으로 재정렬했습니다. macOS/Windows 기본 탑재 고딕 폰트를 최우선으로 둬서 별도
+설치 없이 항상 의도한 폰트로 뜨고, 그 외 환경(Linux 등)에서는 한글+라틴을 한 벌로 커버하는
+폰트들로 순서대로 폴백합니다. 폰트 파일 자체는 (기존 설계 그대로) 번들하지 않았습니다 -
+`assets/fonts/` 에 직접 넣으면 그 폰트가 최우선으로 등록되는 기존 메커니즘은 그대로 살아있어,
+특정 폰트를 무조건 보장하고 싶으면 그 경로를 쓰면 됩니다.
