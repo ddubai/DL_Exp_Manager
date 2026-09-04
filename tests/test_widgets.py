@@ -629,6 +629,34 @@ def test_nav_shows_registered_datasets_for_selected_work(qapp, config):
         for label in nav.list_host.findChildren(QtWidgets.QLabel)
     )
     assert "DIV2K" in text_blob and "Full Pair" in text_blob and "DF2K" in text_blob
+
+    registered = db.list_datasets(ssl2sl)[0]["created_at"][:10]
+    assert f"registered {registered}" in text_blob
+    db.close()
+
+
+def test_nav_dataset_folder_button_opens_its_path(qapp, config, monkeypatch):
+    import dl_exp_manager.widgets.nav_panel as nav_panel_module
+
+    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
+    db.add_dataset(ssl2sl, "DIV2K", "Full Pair", "/mnt/data/DIV2K/train")
+    nav.refresh(select_work_id=ssl2sl)
+    dataset = db.list_datasets(ssl2sl)[0]
+
+    opened = {}
+    toasted = {}
+
+    def fake_open(path):
+        opened["path"] = path
+        return True, "ok"
+
+    monkeypatch.setattr(nav_panel_module, "open_in_file_manager", fake_open)
+    monkeypatch.setattr(
+        nav_panel_module, "toast", lambda *a, **k: toasted.setdefault("called", True)
+    )
+    nav._open_dataset_folder(dataset)
+    assert opened["path"] == "/mnt/data/DIV2K/train"
+    assert toasted["called"]
     db.close()
 
 
@@ -1274,6 +1302,8 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     assert dialog.table.item(0, 3).text() == "900"
     assert dialog.table.item(0, 4).text() == "256x256"
     assert dialog.table.item(0, 5).text() == "tiff"
+    registered = db.list_datasets(work_id)[0]["created_at"]
+    assert dialog.table.item(0, 6).text() == registered[:10]
 
     dialog.table.selectRow(0)
     monkeypatch.setattr(

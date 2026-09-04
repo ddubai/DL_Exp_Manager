@@ -536,3 +536,22 @@ Batch size 바로 아래에 넣었습니다(둘 다 같은 데이터 파이프�
 `crop_size` / `patch_size` 를 관대하게 시도해 자동으로 채웁니다. 값 형식은 자유 텍스트라
 `256x256` 처럼 정사각형이든 `256`처럼 한 변만 적든 그대로 저장됩니다(다른 하이퍼파라미터
 필드들과 동일한 관례).
+
+### 12.6 Dataset 에 등록일 표시 + 폴더 아이콘으로 경로 바로 열기
+
+`datasets` 테이블에는 이미 `created_at` 이 있었지만 화면 어디에도 보여주지 않고 있었습니다 -
+스키마 변경 없이 `DatasetManagerDialog` 표에 "Registered" 컬럼(날짜만, `YYYY-MM-DD`)을,
+좌측 네비게이션의 인라인 Dataset 행에는 `image_size · extension · registered 2026-09-04`
+형태로 메타 줄에 붙였습니다.
+
+인라인 Dataset 행의 ✎(수정)/🗑(삭제) 아이콘 왼쪽에 📁 버튼을 추가해 그 데이터셋의 `path` 를
+바로 OS 파일 탐색기로 열 수 있게 했습니다 - 이미 있던 `utils.open_in_file_manager` +
+`common.toast` 조합을 그대로 재사용했습니다(로그 뷰어/이미지 뷰어의 "Open Folder" 버튼과
+같은 패턴). 경로가 비어 있으면 `open_in_file_manager` 가 "Path is empty." 를 그대로 돌려주고
+toast 로 보여줘서 별도 예외 처리가 필요 없었습니다.
+
+**교훈**: `toast()` 는 부모 윈도우에 `statusBar()` 가 없으면 `QMessageBox` 로 떨어지는데,
+테스트에서 `NavigationPanel` 을 `QMainWindow` 없이 단독으로 띄운 채 이 경로를 그대로 타면
+offscreen 환경에서 모달이 뜬 채 `exec()` 가 영원히 안 끝나 테스트 프로세스 전체가 멈춥니다
+(실제로 처음 테스트를 그렇게 짰다가 pytest 가 걸려서 중간에 죽여야 했음). 이런 위젯을
+단독으로 테스트할 땐 `toast` 자체를 monkeypatch 해서 우회해야 합니다.

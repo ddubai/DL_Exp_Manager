@@ -12,8 +12,15 @@ from .. import editing, theme
 from ..config_store import OptionsConfig
 from ..db import Database
 from ..qt import Qt, QtCore, QtGui, QtWidgets, Signal
-from .common import monospace_font
+from ..utils import open_in_file_manager
+from .common import monospace_font, toast
 from .dataset_dialog import DatasetEditDialog
+
+
+def _registered_bit(created_at: Any) -> str:
+    """등록 시각(created_at)을 날짜만 잘라 메타 줄에 붙일 짧은 표기로."""
+    text = str(created_at or "").strip()
+    return f"registered {text[:10]}" if text else ""
 
 
 class _ClickableRow(QtWidgets.QFrame):
@@ -394,6 +401,13 @@ class NavigationPanel(QtWidgets.QWidget):
             top.addWidget(count_label)
         top.addStretch(1)
 
+        folder_btn = QtWidgets.QToolButton(row)
+        folder_btn.setText("📁")
+        folder_btn.setToolTip("Open dataset path in file manager")
+        folder_btn.setStyleSheet(
+            f"QToolButton {{ border: none; background: transparent; color: {theme.color('text.secondary')}; }}"
+        )
+        folder_btn.clicked.connect(lambda _=False, d=dataset: self._open_dataset_folder(d))
         edit_btn = QtWidgets.QToolButton(row)
         edit_btn.setText("✎")
         edit_btn.setToolTip("Edit dataset")
@@ -408,6 +422,7 @@ class NavigationPanel(QtWidgets.QWidget):
             f"QToolButton {{ border: none; background: transparent; color: {theme.color('text.secondary')}; }}"
         )
         del_btn.clicked.connect(lambda _=False, d=dataset: self._delete_dataset(d))
+        top.addWidget(folder_btn)
         top.addWidget(edit_btn)
         top.addWidget(del_btn)
         outer.addLayout(top)
@@ -418,7 +433,13 @@ class NavigationPanel(QtWidgets.QWidget):
             path_label.setStyleSheet(f"color: {theme.color('text.muted')}; font-size: 10.5px;")
             outer.addWidget(path_label)
 
-        meta_bits = [b for b in (dataset.get("image_size"), dataset.get("extension")) if b]
+        meta_bits = [
+            b for b in (
+                dataset.get("image_size"),
+                dataset.get("extension"),
+                _registered_bit(dataset.get("created_at")),
+            ) if b
+        ]
         if meta_bits:
             meta_label = QtWidgets.QLabel(" · ".join(meta_bits), row)
             meta_label.setFont(monospace_font(-1))
@@ -437,6 +458,10 @@ class NavigationPanel(QtWidgets.QWidget):
             return
         self.db.add_dataset(self._work_id, name, variant, path, notes, sample_count, image_size, extension)
         self._render()
+
+    def _open_dataset_folder(self, dataset: dict[str, Any]) -> None:
+        ok, message = open_in_file_manager(dataset.get("path") or "")
+        toast(self, ok, message, "Open Dataset Folder")
 
     def _edit_dataset(self, dataset: dict[str, Any]) -> None:
         dialog = DatasetEditDialog(self, dataset)

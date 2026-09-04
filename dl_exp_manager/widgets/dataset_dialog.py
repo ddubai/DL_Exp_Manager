@@ -24,6 +24,12 @@ def _format_count(value: Any) -> str:
         return str(value)
 
 
+def _format_registered(value: Any) -> str:
+    """등록 시각(created_at, "YYYY-MM-DD HH:MM:SS")을 날짜만 잘라 보여준다."""
+    text = str(value or "").strip()
+    return text[:10] if text else ""
+
+
 class DatasetEditDialog(QtWidgets.QDialog):
     """데이터셋 한 건 추가/수정 - 이름 + variant + 경로 + 메모."""
 
@@ -119,9 +125,9 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         self.setWindowTitle(f"Manage Datasets · {work_name}")
         self.resize(900, 420)
 
-        self.table = QtWidgets.QTableWidget(0, 7, self)
+        self.table = QtWidgets.QTableWidget(0, 8, self)
         self.table.setHorizontalHeaderLabels(
-            ["Name", "Variant", "Path", "Samples", "Image Size", "Ext", "Notes"]
+            ["Name", "Variant", "Path", "Samples", "Image Size", "Ext", "Registered", "Notes"]
         )
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
@@ -130,7 +136,8 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(220)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -189,7 +196,8 @@ class DatasetManagerDialog(QtWidgets.QDialog):
             self.table.setItem(r, 3, QtWidgets.QTableWidgetItem(_format_count(row.get("sample_count"))))
             self.table.setItem(r, 4, QtWidgets.QTableWidgetItem(row.get("image_size") or ""))
             self.table.setItem(r, 5, QtWidgets.QTableWidgetItem(row.get("extension") or ""))
-            self.table.setItem(r, 6, QtWidgets.QTableWidgetItem(row.get("notes") or ""))
+            self.table.setItem(r, 6, QtWidgets.QTableWidgetItem(_format_registered(row.get("created_at"))))
+            self.table.setItem(r, 7, QtWidgets.QTableWidgetItem(row.get("notes") or ""))
 
     def _selected_row(self) -> dict[str, Any] | None:
         index = self.table.currentRow()

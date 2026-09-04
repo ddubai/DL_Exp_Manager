@@ -207,7 +207,7 @@ columns:
 | `servers` | name, host, gpu, note |
 | `tasks` | name(UNIQUE), description — **Level 1** |
 | `works` | task_id→tasks, name, description, UNIQUE(task_id, name) — **Level 2** |
-| `datasets` | work_id→works, name, variant, path, **sample_count**, **image_size**, **extension**, notes, UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
+| `datasets` | work_id→works, name, variant, path, **sample_count**, **image_size**, **extension**, notes, created_at(등록일 - UI 에 표시), UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
 | `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, crop_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
 | `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
 | `run_history` | run_kind, run_id, action(created/updated/duplicated), detail, created_at — Run 별 변경 이력 |
@@ -216,7 +216,7 @@ columns:
 `extra_json`(Task 별 사용자 정의 필드)도 가집니다.
 
 `ON DELETE CASCADE` + `PRAGMA foreign_keys = ON` 이므로 Task 를 지우면 하위 Work·Dataset·실행 기록이 함께 정리됩니다.
-스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v6), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
+스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v7), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
 
 ## 테스트
 
