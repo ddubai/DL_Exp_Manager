@@ -750,3 +750,75 @@ Panel 인스턴스가 메모리에만 들고 있던 상태는 새 인스턴스�
 - `OptionsConfig.columns_for()` 는 `columns.evaluation` 이 없으면 옛 `columns.inference` 키를
   읽어 준다 - 손으로 쓴 Task 파일이 아직 옛 키를 쓰고 있어도 컬럼이 사라지지 않는다.
   대신 UI 에서 컬럼을 한 번 저장하면(`set_columns`) 새 키로 쓰면서 옛 키를 지워 파일이 수렴한다.
+
+---
+
+## 16. Evaluation 결과 분석 — 단계별 계획 (§10 R8 의 후속·구체화)
+
+§10 의 R8 시각화 계획 중 학습 곡선·대표 이미지만 축소 구현된 상태에서, **Evaluation 쪽 분석**을
+어떻게 채울지 정리한다. 진단 리포트 전문(불편한 점 8가지 + 추천 기능 9가지)은 별도 아티팩트로
+남겼고, 여기에는 **코드로 옮길 결정만** 적는다.
+
+### 16.1 먼저 인정하고 갈 전제
+
+- 지표는 `metrics_json`(TEXT) 이라 SQL 집계가 안 된다. 지금 규모(수백 Run)에선 스키마를 바꿀
+  이유가 없고, 대신 **JSON 해석을 한 곳에 몰아넣는다**(16.2 Phase 0). 수천 Run 을 넘어가면 그때
+  인덱스용 `run_metrics(run_id, key, value)` 를 추가해도 늦지 않다.
+- `⇪ Parse` 는 **학습 로그 전용**이다(`log_parser.parse_loss_log` 는 BasicSR 검증 줄을 읽는다).
+  `utils.scan_result_folder()` 도 `config.*` 와 `*.log` 만 찾는다. 즉 **Evaluation 지표는 지금
+  전부 수동 입력**이며, 이게 분석 기능을 얹기 전에 먼저 풀어야 할 병목이다.
+
+### 16.2 Phase 0 — 데이터 층 (다른 모든 화면의 전제)
+
+- `db.metrics_frame(work_id | task_id, kind)` : Run 들을 `{run_id, model, dataset, 지표…}` 평평한
+  레코드로 돌려주는 **단일 진입점**. JSON 해석·형변환·결측 처리를 여기서 끝낸다. 이걸 건너뛰면
+  매트릭스·산점도·막대가 각자 `metrics_json` 을 푸는 코드를 3벌 갖게 된다.
+- `eval_parser.py` : 결과 폴더의 `results.json` / `metrics.csv` / `*_results.txt` 에서
+  `{데이터셋: {지표: 값}}` 을 관대하게 뽑는다. `log_parser.py` 와 같은 원칙 - **못 알아보면 조용히
+  빈 결과**, 예외를 던지지 않는다. 지표 이름 정규화는 기존 `canonical_metric_name()` 재사용.
+- Evaluation 폼의 `⇪ Parse` 가 이걸 쓰게 하고, 데이터셋이 여러 개면 **Run 을 여러 건 한꺼번에
+  만들지** 묻는다.
+
+### 16.3 Phase 1 — 성적표 매트릭스 (모델 × 데이터셋)
+
+차트보다 **이게 먼저다**. 체크포인트 하나를 Set5/Set14/BSD100/Urban100 에 돌리면 지금은 4줄로
+흩어지고, 논문·발표에서 쓰는 "행=모델, 열=데이터셋" 형태로 뒤집어 볼 방법이 앱에 없다.
+
+- Evaluation 탭 상단에 `Table / Matrix` 토글. 셀 = 고른 지표 하나.
+- 열마다 `higher_is_better` 방향으로 최고값을 `metric.best` 색으로 강조(표에서 쓰던 규칙 그대로).
+- **seed 반복은 `tags` 를 그룹 키로** 쓴다(예: `seed-sweep/nafnet-a`). 같은 그룹은
+  `32.41 ± 0.06 (n=3)` 로 접어 보여 주고 개별 Run 은 그대로 남긴다 - 새 컬럼을 안 만들어도 된다.
+- Markdown 복사 / CSV 내보내기는 `render_markdown_report()`·`write_csv()` 재사용.
+
+### 16.4 Phase 2 — 품질–속도 산점도 (Pareto)
+
+- x = `latency_ms`(또는 `throughput_fps`), y = 고른 지표. 점 = Run, 색 = 모델.
+- Pareto 프론티어를 선으로 잇고 지배당한 점은 흐리게. 방향은 `higher_is_better` 로 자동 결정.
+- **점 클릭 → 표의 그 Run 선택.** 그림에서 표로 돌아오는 길을 반드시 둔다.
+
+### 16.5 Phase 3 — 지표 비교 막대 + 에러바
+
+- 데이터셋 하나 고정 → 모델별 막대. seed 그룹이면 평균 막대 + σ 에러바(16.3 과 같은 계산).
+- 기준선 Run 을 고르면 나머지는 `Δ +0.31 dB` 로 표시.
+- 색은 STYLE_GUIDE §2.6 시리즈 팔레트 공유, 색만으로 구분하지 않고 라벨을 함께 붙인다.
+
+### 16.6 Phase 4 — 이미지 동기 비교 (보류 가능)
+
+지금은 대표 이미지 한 장만 본다(`image_viewer.py`). GT/Input/모델 출력 여러 장을 같은 crop 으로
+동기 확대하는 건 구현 비용이 가장 크고, 앞 단계들이 "어떤 실험을 눈으로 볼지"를 먼저 좁혀 주므로
+뒤로 미룬다. Run 별 출력 폴더는 `extra_json` 커스텀 필드(`image_dir`)로 받는다(§10.3 예정된 확장점).
+
+### 16.7 기술 선택 — §10.2 의 pyqtgraph 권고를 뒤집는다
+
+§10.2 는 pyqtgraph 를 권했지만, 실제로 만든 학습 곡선(`curve_chart.py`)과 아이콘(`theme/icons.py`)은
+**QPainter 로 직접 그려서 잘 돌아간다**. 산점도·막대는 점 수백 개 규모라 같은 방식으로 충분하니
+**의존성 0을 유지**하고, ROI 확대·팬이 필요한 Phase 4 에서만 pyqtgraph 를 다시 검토한다.
+내보내기는 `QWidget.grab()` PNG 까지만. 논문용 벡터가 필요해지면 그때 matplotlib 을
+**내보내기 전용** 경로로만 붙이고 화면 렌더링과 역할을 섞지 않는다.
+
+### 16.8 권장 순서
+
+1. Phase 0 (집계 API + `eval_parser.py`) - 이 단계만으로 등록 노동이 크게 준다.
+2. Phase 1 매트릭스 뷰 - "아카이버"에서 "분석 도구"로 넘어가는 분기점.
+3. Phase 2 Pareto + Train 상세의 `Evaluations (N)` 탭(역방향 링크, 비용 S).
+4. Phase 3 막대·에러바, 이후 필요에 따라 리더보드 · 저장된 뷰 · stale 힌트.
