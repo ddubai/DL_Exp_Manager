@@ -680,3 +680,41 @@ Selected), 그리고 **`editing.build_item_menu()`** — 서버 칩 컨텍스트
   같은 파랑으로 강조하고 나니 "지금 상태"와 "누를 수 있는 버튼"이 같은 색을 놓고 경쟁했다.
   청록 계열 `cta` 토큰(dark `#2DD4BF` / light `#0D9488`)을 새로 만들고 `+ New Run` 만 여기로
   옮겼다 - 폼 안의 Save 버튼은 옆에 경쟁 상대가 없어서 그대로 `primary`(파랑)를 쓴다.
+
+---
+
+## 14. 2026-09 세션 — 다크/라이트를 앱 안에서 전환
+
+지금까지 테마는 `python main.py --theme light` 처럼 **실행 시점에만** 고를 수 있었다.
+`View ▸ Theme ▸ Dark/Light` 메뉴(체크 가능한 라디오 액션 2개, `QActionGroup` 으로 배타 선택)를
+추가해 실행 중에도 바로 바꿀 수 있게 했다.
+
+**왜 "다시 그리기"가 아니라 "다시 만들기"인가**: 이 앱의 커스텀 위젯들(`nav_panel.py`,
+`server_panel.py`, `run_panel.py` 상세 영역, §13 의 아이콘들)은 대부분 `theme.color(...)` 값을
+문자열로 구워 `setStyleSheet()` 에 박아 넣는 방식이다 - 만들 때 한 번 계산해서 끝이라, 나중에
+`theme._current` 딕셔너리만 바꿔서는 이미 그려진 위젯들이 알아서 재도색되지 않는다(QSS/QPalette
+로 전역 스타일을 입히는 기본 Qt 위젯은 예외 - 메뉴바 등은 저절로 따라간다). 모든 커스텀 스타일
+문자열을 찾아 "테마 바뀌면 다시 계산" 훅을 하나하나 심는 것도 방법이지만, 놓치는 자리가 반드시
+생긴다. 대신 `MainWindow._build_workspace()` 로 좌측 네비게이션·Train/Inference 탭·서버 바를
+만드는 코드를 통째로 뽑아 뒀다가, 테마를 바꿀 때 **그 블록을 다시 실행**해서 처음 앱을 켰을 때와
+똑같은 경로로 새로 만든다 - 새로 만든 위젯은 애초에 새 테마값으로 스타일을 계산하므로 빠짐없이
+맞다.
+
+**보던 화면으로 되돌아가기**: `set_theme()` 이 재빌드 직전에 현재 Task/Work(`nav.current_task_id
+/current_work_id()`), 탭 인덱스, 스플리터 상태를 잡아 뒀다가, 재빌드 후 `nav.refresh(select_work_id=
+...)` 등으로 그대로 복원한다. 컬럼 순서/너비(§13.4, `QSettings` 기반)는 애초에 위젯이 아니라
+설정 파일에 저장돼 있어서 재빌드해도 자동으로 이어진다. 반대로 검색어·정렬·숨김 컬럼처럼 각
+Panel 인스턴스가 메모리에만 들고 있던 상태는 새 인스턴스에 없으므로 초기화된다 - 테마 전환은
+자주 하는 조작이 아니라서 감수했다.
+
+**메뉴 액션이 옛 객체를 가리키던 버그**: `_build_menu()` 는 앱 시작 시 딱 한 번만 실행되는데,
+`self._action("Add DL Task", self.nav.add_task, ...)` 처럼 **바운드 메서드를 즉시 평가해서**
+넘기면 그 시점의 `self.nav` 객체가 그대로 캡처된다. 재빌드로 `self.nav` 가 새 객체를 가리키게
+된 뒤에도 메뉴는 여전히 버려진 옛 `nav` 의 `add_task` 를 부르게 되는 문제라, 이런 자리
+(`nav.add_task`, `nav.add_work`, `server_bar.add_server`)를 전부 `lambda: self.nav.add_task()`
+형태로 바꿔 클릭하는 시점에 `self.nav` 를 새로 읽도록 고쳤다. `Train Tab`/`Inference Tab` 처럼
+이미 람다였던 자리는 원래도 문제없었다.
+
+**설정 저장/재사용**: 고른 테마는 `QSettings(ORG_NAME, APP_NAME)` 의 `"theme"` 키에 즉시
+저장된다. `main.py` 는 `--theme` 를 안 주면 이 값을(없으면 `"dark"`) 기본값으로 쓴다 - `--theme`
+를 명시하면 그 실행만 강제로 덮어쓰고 저장된 값은 안 건드린다.

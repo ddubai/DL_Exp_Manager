@@ -7,8 +7,10 @@
     python main.py                      # 프로젝트 폴더의 experiments.db 사용
     python main.py --db ~/exp/my.db     # DB 경로 지정
     python main.py --config my.yaml     # 선택지/컬럼 설정 파일 지정
-    python main.py --theme light        # 라이트 테마
+    python main.py --theme light        # 라이트 테마로 강제 실행 (기본: 앱에서 마지막으로 고른 것)
     python main.py --sample             # 비어 있으면 샘플 데이터도 함께 생성
+
+다크/라이트는 실행 중에도 View > Theme 메뉴에서 바로 바꿀 수 있고, 고른 값은 다음 실행에 이어진다.
 """
 from __future__ import annotations
 
@@ -34,9 +36,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--theme",
-        default="dark",
+        default=None,
         choices=["dark", "light"],
-        help="UI theme (default: dark)",
+        help="UI theme (default: last used, via View > Theme in the app, else dark)",
     )
     parser.add_argument(
         "--sample",
@@ -50,14 +52,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     from dl_exp_manager import theme
-    from dl_exp_manager.qt import QtWidgets
+    from dl_exp_manager.qt import QtCore, QtWidgets
     from dl_exp_manager.main_window import MainWindow
 
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setApplicationVersion(__version__)
-    theme.apply_theme(app, args.theme)
+
+    # --theme 를 안 주면 앱 안(View > Theme)에서 마지막으로 고른 걸 그대로 이어서 쓴다.
+    theme_name = args.theme or QtCore.QSettings(ORG_NAME, APP_NAME).value("theme", "dark")
+    if theme_name not in ("dark", "light"):
+        theme_name = "dark"
+    theme.apply_theme(app, theme_name)
 
     window = MainWindow(args.db, args.config)
 

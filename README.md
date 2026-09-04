@@ -21,10 +21,13 @@ cp config/servers.template.yaml config/servers.yaml   # 실서버 정보를 직�
 python main.py                    # 프로젝트 폴더의 experiments.db 사용
 python main.py --db ~/exp/my.db   # DB 경로 지정
 python main.py --config my.yaml   # 선택지/컬럼 설정 파일 지정
-python main.py --theme light      # 라이트 테마 (기본: dark)
+python main.py --theme light      # 라이트 테마로 처음 실행 (이후엔 앱 안에서 고른 게 우선)
 python main.py --sample           # 비어 있으면 예시 데이터까지 생성 (UI 둘러보기용)
 ```
 
+- **다크/라이트 전환은 앱 메뉴 `View ▸ Theme` 에서도 바로 됩니다.** 재시작 없이 즉시 반영되고
+  (좌측 네비게이션 + Train/Inference 표를 새로 그림 - 보던 Task/Work·탭은 그대로 유지),
+  고른 값은 다음 실행에도 이어집니다. `--theme` 를 주면 그 실행에서만 강제로 덮어씁니다.
 - Python 3.10+ 권장 (타입 힌트에 `X | None` 문법 사용).
 - 폰트는 시스템에 설치된 것 중 앞 순위를 씁니다(Pretendard → Apple SD Gothic Neo/Malgun Gothic → Noto Sans KR → OS 기본).
   `assets/fonts/` 에 ttf/otf 를 넣어 두면 자동으로 등록해서 함께 후보로 삼습니다.

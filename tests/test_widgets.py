@@ -832,6 +832,39 @@ def test_search_dialog_escape_rejects(qapp, config):
     db.close()
 
 
+def test_set_theme_rebuilds_workspace_and_preserves_scope(qapp, config):
+    from dl_exp_manager import theme
+    from dl_exp_manager.main_window import MainWindow
+
+    d = tempfile.mkdtemp()
+    window = MainWindow(os.path.join(d, "e.db"), os.path.join(d, "options.yaml"))
+    try:
+        sr = window.db.add_task("SR")
+        work_id = window.db.add_work(sr, "SSL2SL")
+        window.nav.refresh(select_work_id=work_id)
+        window.tabs.setCurrentIndex(1)
+        old_nav = window.nav
+        old_train_panel = window.train_panel
+
+        window.set_theme("light")
+
+        assert theme.current_theme() == "light"
+        assert window.nav is not old_nav  # 위젯을 통째로 새로 만들었다
+        assert window.train_panel is not old_train_panel
+        assert window.nav.current_work_id() == work_id  # 보던 화면으로 되돌아간다
+        assert window.tabs.currentIndex() == 1
+        assert window.settings.value("theme") == "light"
+        checked = {a.text(): a.isChecked() for a in window._theme_actions}
+        assert checked == {"Dark": False, "Light": True}
+
+        rebuilt_nav = window.nav
+        window.set_theme("light")  # 이미 light 인데 다시 골라도 조용히 무시한다 (재빌드 없음)
+        assert window.nav is rebuilt_nav
+    finally:
+        window.set_theme("dark")  # 이후 테스트들이 기대하는 dark 테마로 되돌려 둔다
+        window.close()
+
+
 def test_main_window_navigates_to_run_from_search(qapp, config):
     from dl_exp_manager.main_window import MainWindow
 

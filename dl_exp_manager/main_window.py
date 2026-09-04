@@ -28,7 +28,37 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(f"{APP_NAME}  —  {os.path.basename(self.db.path)}")
         self.resize(1500, 940)
 
-        # -- 중앙 위젯 ------------------------------------------------------
+        self._build_workspace()
+        self._build_menu()
+        self._show_startup_status()
+
+        self._timer = QtCore.QTimer(self)
+        self._timer.setInterval(STATUS_REFRESH_MS)
+        self._timer.timeout.connect(lambda: self.server_bar.refresh())
+        self._timer.start()
+
+        # 외부 편집기로 options.yaml 을 고쳐도 즉시 반영한다.
+        self._watcher = QtCore.QFileSystemWatcher(self)
+        self._watch_config()
+        self._watcher.fileChanged.connect(self._on_config_file_changed)
+        self._reload_pending = QtCore.QTimer(self)
+        self._reload_pending.setSingleShot(True)
+        self._reload_pending.setInterval(400)
+        self._reload_pending.timeout.connect(self._reload_config_from_disk)
+
+        self._restore_state()
+        self.nav.refresh()
+
+    # ==================================================================
+    # 작업 공간 (좌측 네비게이션 + Train/Inference 탭 + 서버 바)
+    #
+    # 테마를 바꾸면(set_theme) 이 위젯들을 통째로 다시 만든다 - 다들 스타일을
+    # theme.color(...) 값을 문자열로 구워서 setStyleSheet 에 넣는 방식이라,
+    # 새로 만드는 게 이미 그려진 위젯을 일일이 재도색하는 것보다 훨씬 안전하다.
+    # ==================================================================
+    def _build_workspace(self) -> None:
+        old_central = self.centralWidget()
+
         self.nav = NavigationPanel(self.db, self.config, self)
         self.train_panel = TrainPanel(self.db, self.config, self)
         self.inference_panel = InferencePanel(self.db, self.config, self)
@@ -63,6 +93,8 @@ class MainWindow(QtWidgets.QMainWindow):
         central_layout.addWidget(self.server_bar)
         central_layout.addWidget(self.splitter, 1)
         self.setCentralWidget(central)
+        if old_central is not None:
+            old_central.deleteLater()
 
         # -- 시그널 ---------------------------------------------------------
         self.nav.selectionChanged.connect(self._on_scope_changed)
@@ -72,25 +104,35 @@ class MainWindow(QtWidgets.QMainWindow):
         self.inference_panel.configChanged.connect(self._on_config_changed)
         self.server_bar.configChanged.connect(self._on_config_changed)
 
-        self._build_menu()
-        self._show_startup_status()
+    # ==================================================================
+    # 테마
+    # ==================================================================
+    def set_theme(self, name: str) -> None:
+        if name == theme.current_theme():
+            return
 
-        self._timer = QtCore.QTimer(self)
-        self._timer.setInterval(STATUS_REFRESH_MS)
-        self._timer.timeout.connect(self.server_bar.refresh)
-        self._timer.start()
+        # 다시 그린 뒤 원래 보던 화면으로 되돌아가도록 지금 상태를 기억해 둔다.
+        task_id = self.nav.current_task_id()
+        work_id = self.nav.current_work_id()
+        tab_index = self.tabs.currentIndex()
+        splitter_state = self.splitter.saveState()
 
-        # 외부 편집기로 options.yaml 을 고쳐도 즉시 반영한다.
-        self._watcher = QtCore.QFileSystemWatcher(self)
-        self._watch_config()
-        self._watcher.fileChanged.connect(self._on_config_file_changed)
-        self._reload_pending = QtCore.QTimer(self)
-        self._reload_pending.setSingleShot(True)
-        self._reload_pending.setInterval(400)
-        self._reload_pending.timeout.connect(self._reload_config_from_disk)
+        theme.apply_theme(QtWidgets.QApplication.instance(), name)
+        self._build_workspace()
 
-        self._restore_state()
-        self.nav.refresh()
+        self.splitter.restoreState(splitter_state)
+        self.tabs.setCurrentIndex(tab_index)
+        if work_id and work_id > 0:
+            self.nav.refresh(select_work_id=work_id)
+        elif task_id and task_id > 0:
+            self.nav.refresh(select_task_id=task_id)
+        else:
+            self.nav.refresh()
+
+        self.settings.setValue("theme", name)
+        for action, action_name in self._theme_actions.items():
+            action.setChecked(action_name == name)
+        self.statusBar().showMessage(f"Theme: {name}", 2000)
 
     # ==================================================================
     # 메뉴
@@ -107,8 +149,8 @@ class MainWindow(QtWidgets.QMainWindow):
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.addAction(self._action("Search…", self.open_search, "Ctrl+K"))
         edit_menu.addSeparator()
-        edit_menu.addAction(self._action("Add DL Task", self.nav.add_task, "Ctrl+Shift+T"))
-        edit_menu.addAction(self._action("Add Work ID", self.nav.add_work, "Ctrl+Shift+W"))
+        edit_menu.addAction(self._action("Add DL Task", lambda: self.nav.add_task(), "Ctrl+Shift+T"))
+        edit_menu.addAction(self._action("Add Work ID", lambda: self.nav.add_work(), "Ctrl+Shift+W"))
         edit_menu.addSeparator()
         edit_menu.addAction(self._action("Copy Selected Rows", self.copy_current_selection, "Ctrl+C"))
         edit_menu.addAction(self._action("Copy Entire Table", self.copy_current_all, "Ctrl+Shift+C"))
@@ -119,9 +161,11 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self._action("Refresh", self.refresh_all, "F5"))
         view_menu.addAction(self._action("Train Tab", lambda: self.tabs.setCurrentIndex(0), "Ctrl+1"))
         view_menu.addAction(self._action("Inference Tab", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2"))
+        view_menu.addSeparator()
+        self._build_theme_menu(view_menu)
 
         tools_menu = self.menuBar().addMenu("&Tools")
-        tools_menu.addAction(self._action("Add Server / GPUs…", self.server_bar.add_server))
+        tools_menu.addAction(self._action("Add Server / GPUs…", lambda: self.server_bar.add_server()))
         tools_menu.addSeparator()
         tools_menu.addAction(self._action("Open Config Folder", self.open_config_file))
         tools_menu.addAction(
@@ -141,6 +185,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if shortcut:
             action.setShortcut(QtGui.QKeySequence(shortcut))
         return action
+
+    def _build_theme_menu(self, view_menu: QtWidgets.QMenu) -> None:
+        theme_menu = view_menu.addMenu("Theme")
+        group = QtGui.QActionGroup(self)
+        group.setExclusive(True)
+        self._theme_actions: dict[QtGui.QAction, str] = {}
+        for name, label in (("dark", "Dark"), ("light", "Light")):
+            action = QtGui.QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(name == theme.current_theme())
+            action.triggered.connect(lambda _=False, n=name: self.set_theme(n))
+            group.addAction(action)
+            theme_menu.addAction(action)
+            self._theme_actions[action] = name
 
     # ==================================================================
     # 슬롯
