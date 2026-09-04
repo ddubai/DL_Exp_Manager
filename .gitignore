@@ -21,6 +21,10 @@ exports/
 config/*.yaml.bak
 config/*.yaml.tmp
 
+# 실서버 IP/구성이 들어가는 실제 servers.yaml 은 커밋하지 않는다.
+# config/servers.template.yaml 을 복사해서 로컬에서만 정의한다.
+config/servers.yaml
+
 # uv 환경
 .python-version
 pyproject.toml

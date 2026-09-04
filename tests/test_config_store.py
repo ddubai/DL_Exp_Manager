@@ -320,6 +320,24 @@ def test_split_runs_only_once():
     assert second.task_names == ["SR"]
 
 
+def test_missing_servers_yaml_falls_back_without_writing_it():
+    """servers.yaml 은 실서버 정보라 gitignore 대상. 없어도 앱은 안 죽고, 알아서 만들지도 않는다."""
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    os.makedirs(directory)
+    path = os.path.join(directory, "options.yaml")
+    with open(path, "w", encoding="utf-8") as fp:
+        yaml.safe_dump({"version": 2}, fp)
+    # servers.yaml 은 없고 template 만 있는, 실제 저장소를 클론한 상태를 흉내낸다.
+    with open(os.path.join(directory, "servers.template.yaml"), "w", encoding="utf-8") as fp:
+        yaml.safe_dump({"servers": [{"name": "Example", "host": "0.0.0.0", "gpus": []}]}, fp)
+
+    config = OptionsConfig(path)
+
+    assert not os.path.exists(os.path.join(directory, "servers.yaml"))
+    assert [s.name for s in config.servers] == ["Server 1", "Server 2", "Server 3", "Server 4"]
+    assert any("servers.template.yaml" in e for e in config.errors)
+
+
 def test_broken_task_file_does_not_break_the_rest():
     config = make_config()
     with open(config.task_path("DN"), "w", encoding="utf-8") as fp:

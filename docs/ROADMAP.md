@@ -506,3 +506,24 @@ QAbstractSpinBox))` 처럼 타입을 튜플로 넘겼는데, **PyQt6 는 튜플�
 통과하고도 사용자 환경에서 터진 이유입니다. `dl_exp_manager.qt` 를 통해 바인딩을 알아내 그걸로
 `importorskip` 하도록 바꾸면 두 바인딩 모두에서 실제로 돌려볼 수 있는데, 아직 안 했습니다(§7 후속
 후보).
+
+### 12.4 `config/servers.yaml` 을 git 에서 뺌 — 템플릿만 추적
+
+`servers.yaml` 에는 실서버 IP/구성이 들어가는데 이제까지 저장소에 그대로 커밋돼 있었습니다.
+`config/servers.template.yaml` (BUILTIN 과 동일한 placeholder 서버 4개)을 새로 만들어 git 에
+추적시키고, 실제 `config/servers.yaml` 은 `.gitignore` 에 추가한 뒤 `git rm --cached` 로 추적만
+해제했습니다(로컬 파일은 그대로 둠 — 이 세션 중 사용자가 UI 로 등록해 둔 "DGX" 서버 항목까지
+같이 지우면 작업 내용을 잃으므로).
+
+`config_store.py` 의 런타임 동작은 사실 거의 안 건드려도 됐습니다 — `servers.yaml` 이 없을 때
+BUILTIN 값을 메모리에만 채우고 **디스크에 다시 쓰지는 않는** 경로가 이미 있었습니다
+(`load()` 의 "정상 로드" 분기, `options.yaml` 자체는 있고 `servers.yaml` 만 없는 경우). 이 저장소는
+`config/options.yaml` 을 계속 추적하므로 fresh clone 은 항상 이 분기를 타 — 클론 직후 실행해도
+`servers.yaml` 이 자동 생성되지 않고, placeholder 서버 4개로 뜨면서 상태바에 템플릿을 복사하라는
+안내만 표시됩니다. (반대로 `options.yaml` 자체가 아예 없는 완전 백지 상태의 "첫 실행" 경로는
+그대로 뒀습니다 — 이건 저장소 관리가 아니라 `config/` 폴더 자체를 통째로 잃어버렸을 때의 복구
+경로라 성격이 다르고, `tests/test_config_store.py::make_config()` 를 비롯한 다수 테스트가 이
+경로에서 바로 쓸 수 있는 `servers.yaml` 이 생긴다고 가정하고 있어 건드리면 그 테스트들이 전부
+깨집니다.)
+
+README 설치 안내에 `cp config/servers.template.yaml config/servers.yaml` 단계를 추가했습니다.

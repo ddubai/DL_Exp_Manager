@@ -2,7 +2,8 @@
 
     config/
       options.yaml          진입점 (버전 + 안내). 세부 설정은 아래 파일들에 있다.
-      servers.yaml          서버 & GPU 인벤토리
+      servers.yaml          서버 & GPU 인벤토리 (실서버 정보라 gitignore 대상 - 직접 만들어야 한다)
+      servers.template.yaml servers.yaml 이 없을 때 복사해서 쓰는 예시 (git 추적)
       defaults.yaml         모든 Task 공통 선택지
       tasks/
         SR.yaml             Task 별 선택지 / 지표 / 컬럼
@@ -148,6 +149,7 @@ class TaskDef:
 # --- 파일 레이아웃 ------------------------------------------------------------
 ROOT_FILE = "options.yaml"
 SERVERS_FILE = "servers.yaml"
+SERVERS_TEMPLATE_FILE = "servers.template.yaml"
 DEFAULTS_FILE = "defaults.yaml"
 TASKS_DIR = "tasks"
 
@@ -284,6 +286,8 @@ ROOT_HEADER = """\
 
 SERVERS_HEADER = """\
 # Servers & GPU inventory
+# This file holds real server addresses, so it is gitignored - only
+# servers.template.yaml is tracked in git. Nothing here leaves this machine.
 # The GPUs listed here become the checkboxes in the run form and the slots
 # in the server status bar.
 #   index = CUDA_VISIBLE_DEVICES number · type = V100 / H100 / A100 ... · memory_gb = informational
@@ -441,7 +445,11 @@ class OptionsConfig:
             self._servers_file = self.path
         else:
             merged["servers"] = copy.deepcopy(BUILTIN["servers"])
-            self.errors.append("No server definitions found; added the default servers.")
+            self.errors.append(
+                "No servers.yaml found; showing placeholder servers. "
+                f"Copy {SERVERS_TEMPLATE_FILE} to {SERVERS_FILE} (or use the server bar's "
+                "+ button) to add your real servers."
+            )
 
         # 2) 공통 선택지
         defaults_doc = self._read(self.defaults_path)

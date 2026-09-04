@@ -16,6 +16,8 @@ DL Task (SR / DN / Clustering / Classification)   ← Level 1 : 좌측 드릴다
 ```bash
 pip install -r requirements.txt
 
+cp config/servers.template.yaml config/servers.yaml   # 실서버 정보를 직접 채워 넣는다 (gitignore 대상)
+
 python main.py                    # 프로젝트 폴더의 experiments.db 사용
 python main.py --db ~/exp/my.db   # DB 경로 지정
 python main.py --config my.yaml   # 선택지/컬럼 설정 파일 지정
@@ -29,6 +31,8 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 - **PySide6 를 쓰고 싶다면** `requirements.txt` 에서 PyQt6 대신 PySide6 를 설치하기만 하면 됩니다.
   `dl_exp_manager/qt.py` 가 PyQt6 → PySide6 순으로 바인딩을 찾아 API 차이를 흡수합니다.
 - Linux 서버 등 GUI 라이브러리가 없는 환경에서는 `libegl1 libgl1 libxkbcommon0` 등이 추가로 필요합니다.
+- `config/servers.yaml` 을 복사해서 만들지 않아도 앱은 죽지 않습니다 - placeholder 서버 4개로 뜨고
+  상태바에 안내가 뜹니다. 실서버를 쓰려면 위 `cp` 명령이나 서버 상태 바의 + 버튼으로 등록하세요.
 
 ## 화면 구성
 
@@ -105,7 +109,8 @@ main.py                        진입점 (--db, --config, --theme, --sample)
 requirements.txt
 config/
   options.yaml                 진입점 (버전 + 작성법 안내)
-  servers.yaml                 서버 & GPU 인벤토리
+  servers.yaml                 서버 & GPU 인벤토리 (gitignore 대상, 직접 만들어야 함)
+  servers.template.yaml        servers.yaml 을 만들 때 복사하는 예시 (git 추적)
   defaults.yaml                모든 Task 공통 선택지
   tasks/SR.yaml                Task 별 선택지 · 지표 · 컬럼
   tasks/DN.yaml                (Task 를 추가하면 파일도 함께 생깁니다)
@@ -145,14 +150,26 @@ docs/ROADMAP.md                설계 배경과 진행 기록
 
 ```
 config/
-  options.yaml        진입점. 버전과 작성법 안내만 들어 있습니다.
-  servers.yaml        서버와 GPU 인벤토리 (index / type / memory_gb)
-  defaults.yaml       모든 Task 가 공유하는 기본 선택지
+  options.yaml            진입점. 버전과 작성법 안내만 들어 있습니다.
+  servers.yaml            서버와 GPU 인벤토리 (index / type / memory_gb) - gitignore 대상
+  servers.template.yaml   servers.yaml 예시. git 에는 이것만 들어 있습니다.
+  defaults.yaml           모든 Task 가 공유하는 기본 선택지
   tasks/
-    SR.yaml           Task 별 options · metrics · columns
+    SR.yaml               Task 별 options · metrics · columns
     DN.yaml
     ...
 ```
+
+**`servers.yaml` 은 실서버 IP/구성이 들어가서 git 에 커밋하지 않습니다.** 저장소에는
+`servers.template.yaml` 만 들어 있고, 실행 전에 아래처럼 복사해서 직접 채웁니다.
+
+```bash
+cp config/servers.template.yaml config/servers.yaml
+```
+
+복사하지 않고 바로 실행해도 앱이 죽지는 않습니다 - `servers.template.yaml` 과 같은 내용의
+placeholder 서버 4개(Server 1~4)로 뜨고, 상태바에 "복사해서 쓰라"는 안내가 뜹니다. 서버 상태
+바의 + 버튼으로 서버를 하나라도 추가하면 그 시점에 `servers.yaml` 이 만들어집니다.
 
 `config/tasks/SR.yaml` 예시 — 이 한 파일이 SR 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
 

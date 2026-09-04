@@ -1,4 +1,11 @@
-# Servers & GPU inventory
+# Servers & GPU inventory - TEMPLATE
+#
+# This file is tracked in git as an example only; the app does not read it.
+# Copy it to servers.yaml (gitignored, local to your machine) and fill in
+# your real servers before running the app:
+#
+#   cp config/servers.template.yaml config/servers.yaml
+#
 # The GPUs listed here become the checkboxes in the run form and the slots
 # in the server status bar.
 #   index = CUDA_VISIBLE_DEVICES number · type = V100 / H100 / A100 ... · memory_gb = informational
@@ -32,7 +39,3 @@ servers:
   - {index: 1, type: A100, memory_gb: 80}
   - {index: 2, type: A100, memory_gb: 80}
   - {index: 3, type: A100, memory_gb: 80}
-- name: DGX
-  host: '112'
-  gpus:
-  - {index: 0, type: V100, memory_gb: 32.0}
