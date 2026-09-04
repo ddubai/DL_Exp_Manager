@@ -18,7 +18,7 @@
 #   metrics : The table's metric columns. digits sets decimal places shown,
 #             higher_is_better marks whether a bigger value is better.
 #   columns : Which columns appear (and in what order) in the Train /
-#             Inference tables. Allowed values:
+#             Evaluation tables. Allowed values:
 #     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
 #                 checkpoint_path, device, input_size, duration, started_at,
 #                 latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes

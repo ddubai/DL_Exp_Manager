@@ -5,7 +5,7 @@
     tasks (Level 1: DL Task)
       └─ works (Level 2: Work ID)
            ├─ train_runs
-           └─ inference_runs
+           └─ evaluation_runs
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS train_runs (
     updated_at    TEXT    NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS inference_runs (
+CREATE TABLE IF NOT EXISTS evaluation_runs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     work_id         INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
     server          TEXT    DEFAULT '',
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS inference_runs (
 
 CREATE TABLE IF NOT EXISTS run_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_kind    TEXT    NOT NULL,   -- 'train' | 'inference'
+    run_kind    TEXT    NOT NULL,   -- 'train' | 'evaluation'
     run_id      INTEGER NOT NULL,
     action      TEXT    NOT NULL,   -- 'created' | 'updated' | 'duplicated'
     detail      TEXT    DEFAULT '',
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS datasets (
 CREATE INDEX IF NOT EXISTS idx_works_task       ON works(task_id);
 CREATE INDEX IF NOT EXISTS idx_train_work       ON train_runs(work_id);
 CREATE INDEX IF NOT EXISTS idx_train_status     ON train_runs(status);
-CREATE INDEX IF NOT EXISTS idx_infer_work       ON inference_runs(work_id);
+CREATE INDEX IF NOT EXISTS idx_eval_work        ON evaluation_runs(work_id);
 CREATE INDEX IF NOT EXISTS idx_history_run      ON run_history(run_kind, run_id);
 CREATE INDEX IF NOT EXISTS idx_datasets_work    ON datasets(work_id);
 """
@@ -141,7 +141,7 @@ TRAIN_FIELDS: tuple[str, ...] = (
     "config_yaml", "notes", "favorite", "tags", "failure_reason",
 )
 
-INFER_FIELDS: tuple[str, ...] = (
+EVAL_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "checkpoint_path", "dataset", "dataset_path",
     "result_path", "device", "input_size", "latency_ms", "throughput_fps",
     "status", "started_at", "duration_sec", "gpu_indices", "extra_json",
@@ -154,8 +154,8 @@ INFER_FIELDS: tuple[str, ...] = (
 _V2_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("train_runs", "gpu_indices", "TEXT DEFAULT ''"),
     ("train_runs", "extra_json", "TEXT DEFAULT '{}'"),
-    ("inference_runs", "gpu_indices", "TEXT DEFAULT ''"),
-    ("inference_runs", "extra_json", "TEXT DEFAULT '{}'"),
+    ("evaluation_runs", "gpu_indices", "TEXT DEFAULT ''"),
+    ("evaluation_runs", "extra_json", "TEXT DEFAULT '{}'"),
 )
 
 # v2 -> v3: 즐겨찾기 / 태그 / 실패 사유
@@ -163,15 +163,15 @@ _V3_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("train_runs", "favorite", "INTEGER DEFAULT 0"),
     ("train_runs", "tags", "TEXT DEFAULT ''"),
     ("train_runs", "failure_reason", "TEXT DEFAULT ''"),
-    ("inference_runs", "favorite", "INTEGER DEFAULT 0"),
-    ("inference_runs", "tags", "TEXT DEFAULT ''"),
-    ("inference_runs", "failure_reason", "TEXT DEFAULT ''"),
+    ("evaluation_runs", "favorite", "INTEGER DEFAULT 0"),
+    ("evaluation_runs", "tags", "TEXT DEFAULT ''"),
+    ("evaluation_runs", "failure_reason", "TEXT DEFAULT ''"),
 )
 
-# v3 -> v4: Inference 가 어느 Train 실행의 체크포인트를 쓰는지 + 몇 epoch/iter 인지
+# v3 -> v4: Evaluation 이 어느 Train 실행의 체크포인트를 쓰는지 + 몇 epoch/iter 인지
 _V4_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("inference_runs", "source_train_run_id", "INTEGER"),
-    ("inference_runs", "checkpoint_epoch", "TEXT DEFAULT ''"),
+    ("evaluation_runs", "source_train_run_id", "INTEGER"),
+    ("evaluation_runs", "checkpoint_epoch", "TEXT DEFAULT ''"),
 )
 
 # v4 -> v5: 데이터셋 레지스트리에 총 데이터 개수
@@ -216,9 +216,24 @@ class Database:
 
     # -- 내부 --------------------------------------------------------------
     def _create_schema(self) -> None:
+        # 이름 변경은 _SCHEMA 를 실행하기 **전에** 해야 한다. 순서가 반대면 빈
+        # evaluation_runs 가 먼저 생겨 버려서 RENAME 이 "이미 있는 이름"으로 실패한다.
+        self._rename_legacy_tables()
         with self.conn:
             self.conn.executescript(_SCHEMA)
         self._migrate()
+
+    def _rename_legacy_tables(self) -> None:
+        """v7 이하에서 쓰던 `inference_runs` 를 `evaluation_runs` 로 바꾼다(데이터 보존)."""
+        names = {
+            row[0]
+            for row in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if "inference_runs" in names and "evaluation_runs" not in names:
+            with self.conn:
+                self.conn.execute("ALTER TABLE inference_runs RENAME TO evaluation_runs")
 
     def _migrate(self) -> None:
         """기존 DB 를 현재 스키마로 올린다. 몇 번 실행해도 안전하다."""
@@ -229,6 +244,12 @@ class Database:
             ):
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            if current < 8:
+                # v7 -> v8: Inference -> Evaluation. 테이블은 위에서 이미 바꿨고,
+                # 이력에 남아 있는 run_kind 문자열도 새 이름으로 맞춰 준다.
+                self.conn.execute(
+                    "UPDATE run_history SET run_kind = 'evaluation' WHERE run_kind = 'inference'"
+                )
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.migrated_from = current if current < SCHEMA_VERSION else None
 
@@ -390,10 +411,10 @@ class Database:
         train = self.conn.execute(
             "SELECT COUNT(*) FROM train_runs WHERE work_id = ?", (work_id,)
         ).fetchone()[0]
-        infer = self.conn.execute(
-            "SELECT COUNT(*) FROM inference_runs WHERE work_id = ?", (work_id,)
+        evaluation = self.conn.execute(
+            "SELECT COUNT(*) FROM evaluation_runs WHERE work_id = ?", (work_id,)
         ).fetchone()[0]
-        return int(train), int(infer)
+        return int(train), int(evaluation)
 
     # -- Work 별 데이터셋 레지스트리 ------------------------------------------
     # 같은 이름이라도 variant 를 다르게 두면(예: "Full Pair" / "Subset A") 한
@@ -476,7 +497,7 @@ class Database:
         """이름(+variant)이 일치하는 실행이 몇 건인지 - 삭제 확인창에 쓴다."""
         label = f"{name} · {variant}" if variant else name
         total = 0
-        for table in ("train_runs", "inference_runs"):
+        for table in ("train_runs", "evaluation_runs"):
             row = self.conn.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE work_id = ? AND dataset = ?",
                 (work_id, label),
@@ -512,10 +533,10 @@ class Database:
     ) -> list[dict[str, Any]]:
         return self._select_runs("train_runs", work_id, task_id)
 
-    def list_inference_runs(
+    def list_evaluation_runs(
         self, work_id: int | None = None, task_id: int | None = None
     ) -> list[dict[str, Any]]:
-        return self._select_runs("inference_runs", work_id, task_id)
+        return self._select_runs("evaluation_runs", work_id, task_id)
 
     def get_run(self, kind: str, run_id: int) -> dict[str, Any] | None:
         table = self._table(kind)
@@ -527,13 +548,13 @@ class Database:
     def _table(kind: str) -> str:
         if kind == "train":
             return "train_runs"
-        if kind == "inference":
-            return "inference_runs"
+        if kind in ("evaluation", "inference"):  # inference = v7 이하에서 쓰던 이름
+            return "evaluation_runs"
         raise ValueError(f"Unknown run kind: {kind!r}")
 
     @staticmethod
     def _fields(kind: str) -> tuple[str, ...]:
-        return TRAIN_FIELDS if kind == "train" else INFER_FIELDS
+        return TRAIN_FIELDS if kind == "train" else EVAL_FIELDS
 
     def insert_run(
         self,
@@ -725,7 +746,7 @@ class Database:
         if column not in self._COUNTABLE or not value:
             return 0
         total = 0
-        for table, fields in (("train_runs", TRAIN_FIELDS), ("inference_runs", INFER_FIELDS)):
+        for table, fields in (("train_runs", TRAIN_FIELDS), ("evaluation_runs", EVAL_FIELDS)):
             if column not in fields:
                 continue
             row = self.conn.execute(
@@ -739,7 +760,7 @@ class Database:
         if column not in self._COUNTABLE or not old:
             return 0
         changed = 0
-        for table, fields in (("train_runs", TRAIN_FIELDS), ("inference_runs", INFER_FIELDS)):
+        for table, fields in (("train_runs", TRAIN_FIELDS), ("evaluation_runs", EVAL_FIELDS)):
             if column not in fields:
                 continue
             cur = self._exec(
@@ -754,7 +775,7 @@ class Database:
         if not field_name or not value:
             return 0
         total = 0
-        for table in ("train_runs", "inference_runs"):
+        for table in ("train_runs", "evaluation_runs"):
             rows = self.conn.execute(f"SELECT extra_json FROM {table}").fetchall()
             for row in rows:
                 try:
@@ -772,7 +793,7 @@ class Database:
             "tasks": int(q("SELECT COUNT(*) FROM tasks").fetchone()[0]),
             "works": int(q("SELECT COUNT(*) FROM works").fetchone()[0]),
             "train": int(q("SELECT COUNT(*) FROM train_runs").fetchone()[0]),
-            "inference": int(q("SELECT COUNT(*) FROM inference_runs").fetchone()[0]),
+            "evaluation": int(q("SELECT COUNT(*) FROM evaluation_runs").fetchone()[0]),
             "running": int(
                 q("SELECT COUNT(*) FROM train_runs WHERE status = ?", (C.STATUS_RUNNING,)).fetchone()[0]
             ),
@@ -857,7 +878,7 @@ class Database:
             "server", "model", "dataset", "dataset_path", "result_path",
             "notes", "tags", "failure_reason", "exec_command",
         ),
-        "inference_runs": (
+        "evaluation_runs": (
             "server", "model", "checkpoint_path", "dataset", "dataset_path",
             "result_path", "notes", "tags", "failure_reason", "exec_command",
         ),
@@ -870,7 +891,7 @@ class Database:
             return []
         out: list[dict[str, Any]] = []
         for table, columns in self._SEARCH_COLUMNS.items():
-            kind = "train" if table == "train_runs" else "inference"
+            kind = "train" if table == "train_runs" else "evaluation"
             where = " OR ".join(f"r.{c} LIKE ?" for c in columns)
             where += " OR t.name LIKE ? OR w.name LIKE ?"
             sql = (

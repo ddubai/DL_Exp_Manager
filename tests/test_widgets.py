@@ -457,19 +457,19 @@ def test_paths_and_command_hidden_until_row_selected(qapp, config):
     db.close()
 
 
-def test_inference_shows_server_but_hides_gpu_row(qapp, config):
+def test_evaluation_shows_server_but_hides_gpu_row(qapp, config):
     from dl_exp_manager.db import Database
-    from dl_exp_manager.widgets.run_panel import InferencePanel
+    from dl_exp_manager.widgets.run_panel import EvaluationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
     task_id = db.add_task("SR")
     work_id = db.add_work(task_id, "W")
     window = QtWidgets.QMainWindow()
-    panel = InferencePanel(db, config, parent=window)
+    panel = EvaluationPanel(db, config, parent=window)
     window.setCentralWidget(panel)
     panel.set_scope(task_id, work_id)
 
-    # Server is back for Inference (item 6 of the requested field order)...
+    # Server is back for Evaluation (item 6 of the requested field order)...
     assert panel.form_layout.getWidgetPosition(panel.server_combo)[0] != -1
     # isHidden() (not isVisibleTo()) - the form now lives inside a QScrollArea
     # that's never actually shown in this test, which makes isVisibleTo()
@@ -482,16 +482,16 @@ def test_inference_shows_server_but_hides_gpu_row(qapp, config):
     db.close()
 
 
-def test_inference_source_train_run_prefills_model(qapp, config):
+def test_evaluation_source_train_run_prefills_model(qapp, config):
     from dl_exp_manager.db import Database
-    from dl_exp_manager.widgets.run_panel import InferencePanel
+    from dl_exp_manager.widgets.run_panel import EvaluationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
     task_id = db.add_task("SR")
     work_id = db.add_work(task_id, "W")
     train_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
     window = QtWidgets.QMainWindow()
-    panel = InferencePanel(db, config, parent=window)
+    panel = EvaluationPanel(db, config, parent=window)
     window.setCentralWidget(panel)
     panel.set_scope(task_id, work_id)
     panel.reset_form()
@@ -505,7 +505,7 @@ def test_inference_source_train_run_prefills_model(qapp, config):
     panel.result_path_edit.set_path("/mnt/exp/x")
     panel.save_form()
 
-    row = db.list_inference_runs(work_id=work_id)[0]
+    row = db.list_evaluation_runs(work_id=work_id)[0]
     assert row["source_train_run_id"] == train_id
     assert row["checkpoint_epoch"] == "300000"
     db.close()
@@ -752,7 +752,7 @@ def _search_env(config):
     w1 = db.add_work(sr, "SSL2SL")
     db.add_work(sr, "EmptyWork")  # no runs yet - should still be searchable
     db.insert_run("train", {"work_id": w1, "model": "Restormer", "notes": "baseline"})
-    db.insert_run("inference", {"work_id": w1, "model": "SwinIR", "checkpoint_path": "/mnt/x/net.pth"})
+    db.insert_run("evaluation", {"work_id": w1, "model": "SwinIR", "checkpoint_path": "/mnt/x/net.pth"})
     return db, sr, w1
 
 
@@ -782,7 +782,7 @@ def test_search_dialog_finds_runs_by_model(qapp, config):
     payloads = [dialog.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(dialog.list.count())]
     run_hits = [p for p in payloads if p["kind"] == "run"]
     assert len(run_hits) == 1
-    assert run_hits[0]["run_kind"] == "inference"
+    assert run_hits[0]["run_kind"] == "evaluation"
     db.close()
 
 
@@ -1174,15 +1174,15 @@ def test_curve_dialog_no_log_shows_message(qapp):
     assert "No log file found" in dialog.path_label.text()
 
 
-def test_inference_panel_has_no_training_curve_button(qapp, config):
+def test_evaluation_panel_has_no_training_curve_button(qapp, config):
     from dl_exp_manager.db import Database
-    from dl_exp_manager.widgets.run_panel import InferencePanel
+    from dl_exp_manager.widgets.run_panel import EvaluationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
     task_id = db.add_task("SR")
     work_id = db.add_work(task_id, "W")
     window = QtWidgets.QMainWindow()
-    panel = InferencePanel(db, config, parent=window)
+    panel = EvaluationPanel(db, config, parent=window)
     window.setCentralWidget(panel)
     panel.set_scope(task_id, work_id)
     assert panel.SHOW_TRAINING_CURVE is False

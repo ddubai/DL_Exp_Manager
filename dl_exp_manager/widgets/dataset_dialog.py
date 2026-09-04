@@ -1,5 +1,5 @@
 """Work 별 데이터셋 레지스트리 관리 - 이름 + (선택) 변형 + 위치를 등록해 두고,
-Train/Inference 등록 폼에서 그중 하나를 골라 경로를 바로 불러온다.
+Train/Evaluation 등록 폼에서 그중 하나를 골라 경로를 바로 불러온다.
 
 같은 데이터셋이라도 "전체 페어"와 "특정 서브셋"처럼 여러 판이 있을 수 있어,
 이름은 같게 두고 Variant 만 다르게 등록할 수 있게 한다
@@ -190,7 +190,7 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(
             QtWidgets.QLabel(
-                "Datasets registered here appear in the Train/Inference form's "
+                "Datasets registered here appear in the Train/Evaluation form's "
                 "Dataset picker for this Work.",
                 self,
             )

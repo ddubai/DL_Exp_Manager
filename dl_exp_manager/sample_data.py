@@ -12,7 +12,7 @@ def _ts(days_ago: float) -> str:
 
 
 def populate(db: Database) -> int:
-    """샘플 Train / Inference 기록을 넣고 추가한 건수를 돌려준다."""
+    """샘플 Train / Evaluation 기록을 넣고 추가한 건수를 돌려준다."""
     sr = db.add_task("SR", "Super Resolution")
     dn = db.add_task("DN", "Denoising")
     ssl2sl = db.add_work(sr, "SSL2SL", "Self-supervised -> Supervised transfer experiment")
@@ -95,7 +95,7 @@ def populate(db: Database) -> int:
         }
     )
 
-    infer_rows = [
+    eval_rows = [
         {
             "work_id": ssl2sl, "server": "Server 1", "model": "Restormer",
             "checkpoint_path": "/mnt/exp/SSL2SL/restormer_x4/models/net_g_300000.pth",
@@ -105,7 +105,7 @@ def populate(db: Database) -> int:
             "device": "cuda:0", "input_size": "3x256x256", "latency_ms": 41.7,
             "throughput_fps": 23.98, "status": C.STATUS_DONE, "started_at": _ts(3),
             "duration_sec": 96, "metrics_json": {"PSNR": 32.41, "SSIM": 0.8993, "LPIPS": 0.121},
-            "exec_command": C.SAMPLE_INFER_CMD, "config_yaml": "",
+            "exec_command": C.SAMPLE_EVAL_CMD, "config_yaml": "",
             "notes": "Set5 benchmark.",
         },
         {
@@ -117,7 +117,7 @@ def populate(db: Database) -> int:
             "device": "cuda:0", "input_size": "3x256x256", "latency_ms": 88.2,
             "throughput_fps": 11.34, "status": C.STATUS_DONE, "started_at": _ts(2),
             "duration_sec": 640, "metrics_json": {"PSNR": 27.05, "SSIM": 0.8142, "LPIPS": 0.163},
-            "exec_command": C.SAMPLE_INFER_CMD.replace("restormer_x4", "swinir_x4").replace("Set5", "Urban100"),
+            "exec_command": C.SAMPLE_EVAL_CMD.replace("restormer_x4", "swinir_x4").replace("Set5", "Urban100"),
             "config_yaml": "", "notes": "2x slower than Restormer.",
         },
         {
@@ -129,7 +129,7 @@ def populate(db: Database) -> int:
             "device": "cuda:1", "input_size": "1x321x481", "latency_ms": 12.4,
             "throughput_fps": 80.6, "status": C.STATUS_DONE, "started_at": _ts(1),
             "duration_sec": 45, "metrics_json": {"PSNR": 31.08, "SSIM": 0.8812},
-            "exec_command": "python inference.py --ckpt /mnt/exp/N2N-Base/nafnet/models/net_g_latest.pth "
+            "exec_command": "python evaluate.py --ckpt /mnt/exp/N2N-Base/nafnet/models/net_g_latest.pth "
                             "--input /mnt/data/benchmark/BSD68 --output /mnt/exp/N2N-Base/nafnet/results/BSD68",
             "config_yaml": "", "notes": "sigma=25 setting.",
         },
@@ -139,7 +139,7 @@ def populate(db: Database) -> int:
     for row in train_rows:
         db.insert_run("train", row)
         count += 1
-    for row in infer_rows:
-        db.insert_run("inference", row)
+    for row in eval_rows:
+        db.insert_run("evaluation", row)
         count += 1
     return count

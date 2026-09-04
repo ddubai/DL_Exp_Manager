@@ -14,4 +14,4 @@ metrics:
 - {key: LPIPS, digits: 3, higher_is_better: false}
 columns:
   train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
-  inference: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, throughput_fps, PSNR, SSIM, LPIPS, result_path]
+  evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, throughput_fps, PSNR, SSIM, LPIPS, result_path]

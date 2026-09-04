@@ -98,7 +98,7 @@ class GlobalSearchDialog(QtWidgets.QDialog):
 
         if needle:
             for row in self.db.search_runs(needle, limit=MAX_RESULTS):
-                mode = "Train" if row["kind"] == "train" else "Inference"
+                mode = "Train" if row["kind"] == "train" else "Evaluation"
                 label = (
                     f"#{row['id']}  {row.get('model') or '-'}  ·  "
                     f"{row['task_name']} ▸ {row['work_name']}"

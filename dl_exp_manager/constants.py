@@ -29,7 +29,7 @@ DEFAULT_WORKS = {
 
 # options.yaml 이 없을 때의 폴백 지표 프리셋
 TRAIN_METRIC_PRESETS = ["PSNR", "SSIM", "LPIPS", "Loss", "Accuracy", "mIoU", "NMI", "ARI"]
-INFER_METRIC_PRESETS = ["PSNR", "SSIM", "LPIPS", "NIQE", "Accuracy", "Top-5", "FID"]
+EVAL_METRIC_PRESETS = ["PSNR", "SSIM", "LPIPS", "NIQE", "Accuracy", "Top-5", "FID"]
 
 # --- 실행 상태 --------------------------------------------------------------
 STATUS_QUEUED = "queued"
@@ -73,8 +73,8 @@ SAMPLE_TRAIN_CMD = (
     "train.py -opt options/train/SSL2SL/restormer_x4.yml --launcher pytorch"
 )
 
-SAMPLE_INFER_CMD = (
-    "CUDA_VISIBLE_DEVICES=0 python inference.py "
+SAMPLE_EVAL_CMD = (
+    "CUDA_VISIBLE_DEVICES=0 python evaluate.py "
     "--ckpt /mnt/exp/SSL2SL/restormer_x4/models/net_g_300000.pth "
     "--input /mnt/data/benchmark/Set5/LR --output /mnt/exp/SSL2SL/restormer_x4/results/Set5"
 )

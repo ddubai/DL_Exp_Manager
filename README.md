@@ -8,7 +8,7 @@ DL Task (SR / DN / Clustering / Classification)   ← Level 1 : 좌측 드릴다
    └─ Work ID (SSL2SL, BSR-x4, ...)               ← Level 2 : 좌측 드릴다운
         ├─ Dataset (이름 + 위치, Work 별 등록)      ← Level 2 화면에 인라인으로
         ├─ Train      탭                          ← Level 3 : 상단 탭 (아이콘 없이 텍스트만)
-        └─ Inference  탭
+        └─ Evaluation 탭
 ```
 
 ## 설치 & 실행
@@ -26,7 +26,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ```
 
 - **다크/라이트 전환은 앱 메뉴 `View ▸ Theme` 에서도 바로 됩니다.** 재시작 없이 즉시 반영되고
-  (좌측 네비게이션 + Train/Inference 표를 새로 그림 - 보던 Task/Work·탭은 그대로 유지),
+  (좌측 네비게이션 + Train/Evaluation 표를 새로 그림 - 보던 Task/Work·탭은 그대로 유지),
   고른 값은 다음 실행에도 이어집니다. `--theme` 를 주면 그 실행에서만 강제로 덮어씁니다.
 - Python 3.10+ 권장 (타입 힌트에 `X | None` 문법 사용).
 - 폰트는 시스템에 설치된 것 중 앞 순위를 씁니다(Pretendard → Apple SD Gothic Neo/Malgun Gothic → Noto Sans KR → OS 기본).
@@ -45,7 +45,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 | 좌측 네비게이션 | **All Tasks ▸ Task ▸ Work 드릴다운**(트리 아님, 브레드크럼으로 한 번에 한 단계만). Work 까지 들어가면 그 Work 에 등록된 **Dataset(이름 + 위치)** 이 그 자리에 바로 나와 추가/수정/삭제할 수 있습니다. 검색·Task/Work 추가·이름변경·삭제는 그대로 지원 |
 | 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 2~3개 실행을 지표·config.yaml diff 로 나란히 비교. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
 | 중앙 하단 상세 | **행을 선택했을 때만 나타남.** 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes, 그리고 그 실행이 **생성/수정/복제될 때마다 기록되는 History** 탭. **🖼 View Image**(결과 폴더의 대표 이미지 한 장) / **📈 Training Curve**(Train 전용, 로그를 파싱해 iteration 별 지표를 그린 라인 차트) 버튼도 여기에 |
-| 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** **좌(실행 설정) / 우(경로 + 실행 코드) 2단 분할**이며, 좌측 스크롤과 우측 스크롤이 독립적으로 움직이고 Save/Clear/Cancel 버튼은 스크롤 밖에 고정돼 항상 보입니다. Work ID 는 좌측에서 이미 고른 Work 가 있으면 그 값을 기본으로 채웁니다. Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Dataset** 콤보는 그 Work 에 등록된 데이터셋 레지스트리와 바로 연동되어, 고르면 경로(+ Inference 는 Input size 도)가 자동으로 채워집니다(옆 📦 버튼으로 전체 관리). **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Inference 폼은 GPU 대신 **같은 Work 의 Train Run + Epoch/Iter** 를 먼저 고르는 순서(Server 는 유지) |
+| 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** **좌(실행 설정) / 우(경로 + 실행 코드) 2단 분할**이며, 좌측 스크롤과 우측 스크롤이 독립적으로 움직이고 Save/Clear/Cancel 버튼은 스크롤 밖에 고정돼 항상 보입니다. Work ID 는 좌측에서 이미 고른 Work 가 있으면 그 값을 기본으로 채웁니다. Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Dataset** 콤보는 그 Work 에 등록된 데이터셋 레지스트리와 바로 연동되어, 고르면 경로(+ Evaluation 은 Input size 도)가 자동으로 채워집니다(옆 📦 버튼으로 전체 관리). **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Evaluation 폼은 GPU 대신 **같은 Work 의 Train Run + Epoch/Iter** 를 먼저 고르는 순서(Server 는 유지) |
 
 ### 주요 기능
 
@@ -63,7 +63,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
   같은 이름이라도 Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개 항목으로 관리할 수 있습니다
   (예: `DIV2K · Full Pair`, `DIV2K · Subset A`). 좌측 네비게이션에서 바로 추가/수정/삭제하고,
   등록/수정 폼의 **Dataset** 콤보 자체가 이 레지스트리와 연동됩니다 — 고르면 경로가 자동으로 채워지고
-  (Inference 는 등록해 둔 이미지 크기로 Input size 도 자동 채움, 수정 가능), 드롭다운 맨 아래
+  (Evaluation 은 등록해 둔 이미지 크기로 Input size 도 자동 채움, 수정 가능), 드롭다운 맨 아래
   `＋ 새 데이터셋 추가…` 로 바로 등록할 수도 있습니다.
 - **train.py 결과에서 자동 채우기** — 결과 폴더의 `config.yaml`(BasicSR 류 스키마 우선 시도)과
   학습 로그(`loss.log` 등)를 파싱해 Model/Dataset/Batch/LR/Optimizer/Epoch, 최근 검증 지표,
@@ -94,7 +94,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 | 키 | 동작 |
 |---|---|
 | `F5` | 새로고침 |
-| `Ctrl+1` / `Ctrl+2` | Train / Inference 탭 |
+| `Ctrl+1` / `Ctrl+2` | Train / Evaluation 탭 |
 | `Ctrl+E` | 현재 탭 CSV 내보내기 |
 | `Ctrl+C` / `Ctrl+Shift+C` | 선택 행 / 표 전체 클립보드 복사 |
 | `Ctrl+Shift+T` / `Ctrl+Shift+W` | DL Task / Work ID 추가 |
@@ -137,7 +137,7 @@ dl_exp_manager/
   widgets/
     common.py                  PathEdit, ManagedCombo, ServerCombo, GpuSelector, MetricsEditor
     nav_panel.py               Task ▸ Work 드릴다운 + Work 별 Dataset 인라인 표시
-    run_panel.py               Train / Inference 대시보드 (표 + 상세 + 입력 폼)
+    run_panel.py               Train / Evaluation 대시보드 (표 + 상세 + 입력 폼)
     server_panel.py            GPU 개수 기반 서버 상태 패널
     dataset_dialog.py          Work 별 데이터셋 등록 (이름 + Variant + 경로)
     compare_dialog.py          Run 2~3개 비교 (지표/파라미터 표 + config.yaml diff)
@@ -190,7 +190,7 @@ metrics:
 - {key: LPIPS, digits: 3, higher_is_better: false}
 columns:
   train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
-  inference: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, PSNR, SSIM]
+  evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, PSNR, SSIM]
 ```
 
 규칙 몇 가지:
@@ -213,14 +213,14 @@ columns:
 | `works` | task_id→tasks, name, description, UNIQUE(task_id, name) — **Level 2** |
 | `datasets` | work_id→works, name, variant, path, **sample_count**, **image_size**, **extension**, notes, created_at(등록일 - UI 에 표시), UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
 | `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, crop_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
-| `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
+| `evaluation_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
 | `run_history` | run_kind, run_id, action(created/updated/duplicated), detail, created_at — Run 별 변경 이력 |
 
 두 run 테이블은 `gpu_indices`(GPU **개수**, 예: `"2"`. 예전 콤마 인덱스 목록 `"0,1"`도 개수로 읽힙니다)와
 `extra_json`(Task 별 사용자 정의 필드)도 가집니다.
 
 `ON DELETE CASCADE` + `PRAGMA foreign_keys = ON` 이므로 Task 를 지우면 하위 Work·Dataset·실행 기록이 함께 정리됩니다.
-스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v7), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
+스키마 버전은 `PRAGMA user_version` 으로 관리하며(현재 v8 - v8 에서 `inference_runs` 가 `evaluation_runs` 로 이름이 바뀌었고, 기존 DB 는 열 때 자동으로 옮겨집니다), 예전 DB 는 앱 실행 시 자동으로 올라갑니다(데이터 보존, 몇 번 실행해도 안전).
 
 ## 테스트
 

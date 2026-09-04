@@ -1,4 +1,4 @@
-"""메인 윈도우 - 좌측 네비게이션 + Train/Inference 탭 + 서버 상태 인디케이터."""
+"""메인 윈도우 - 좌측 네비게이션 + Train/Evaluation 탭 + 서버 상태 인디케이터."""
 from __future__ import annotations
 
 import os
@@ -11,7 +11,7 @@ from .qt import QT_BINDING, Qt, QtCore, QtGui, QtWidgets
 from .utils import open_in_file_manager, platform_label
 from .widgets.common import toast
 from .widgets.nav_panel import NavigationPanel
-from .widgets.run_panel import InferencePanel, TrainPanel
+from .widgets.run_panel import EvaluationPanel, TrainPanel
 from .widgets.search_dialog import GlobalSearchDialog
 from .widgets.server_panel import ServerStatusPanel
 
@@ -50,7 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.nav.refresh()
 
     # ==================================================================
-    # 작업 공간 (좌측 네비게이션 + Train/Inference 탭 + 서버 바)
+    # 작업 공간 (좌측 네비게이션 + Train/Evaluation 탭 + 서버 바)
     #
     # 테마를 바꾸면(set_theme) 이 위젯들을 통째로 다시 만든다 - 다들 스타일을
     # theme.color(...) 값을 문자열로 구워서 setStyleSheet 에 넣는 방식이라,
@@ -61,14 +61,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.nav = NavigationPanel(self.db, self.config, self)
         self.train_panel = TrainPanel(self.db, self.config, self)
-        self.inference_panel = InferencePanel(self.db, self.config, self)
+        self.evaluation_panel = EvaluationPanel(self.db, self.config, self)
 
         self.tabs = QtWidgets.QTabWidget(self)
         self.tabs.addTab(self.train_panel, "Train")
-        self.tabs.addTab(self.inference_panel, "Inference")
+        self.tabs.addTab(self.evaluation_panel, "Evaluation")
         self.tabs.setDocumentMode(True)
 
-        # Train/Inference 탭과 같은 줄 우측에 현재 Scope(Task ▸ Work)를 보여준다 -
+        # Train/Evaluation 탭과 같은 줄 우측에 현재 Scope(Task ▸ Work)를 보여준다 -
         # 따로 한 줄을 더 쓰지 않고 탭 바의 코너 위젯 자리를 빌린다.
         self.scope_label = QtWidgets.QLabel("", self)
         self.scope_label.setStyleSheet(
@@ -99,9 +99,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # -- 시그널 ---------------------------------------------------------
         self.nav.selectionChanged.connect(self._on_scope_changed)
         self.train_panel.runsChanged.connect(self._on_runs_changed)
-        self.inference_panel.runsChanged.connect(self._on_runs_changed)
+        self.evaluation_panel.runsChanged.connect(self._on_runs_changed)
         self.train_panel.configChanged.connect(self._on_config_changed)
-        self.inference_panel.configChanged.connect(self._on_config_changed)
+        self.evaluation_panel.configChanged.connect(self._on_config_changed)
         self.server_bar.configChanged.connect(self._on_config_changed)
 
     # ==================================================================
@@ -160,7 +160,7 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self._action("Refresh", self.refresh_all, "F5"))
         view_menu.addAction(self._action("Train Tab", lambda: self.tabs.setCurrentIndex(0), "Ctrl+1"))
-        view_menu.addAction(self._action("Inference Tab", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2"))
+        view_menu.addAction(self._action("Evaluation Tab", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2"))
         view_menu.addSeparator()
         self._build_theme_menu(view_menu)
 
@@ -208,7 +208,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_scope_changed(self, task_id: int, work_id: int) -> None:
         self.train_panel.set_scope(task_id, work_id)
-        self.inference_panel.set_scope(task_id, work_id)
+        self.evaluation_panel.set_scope(task_id, work_id)
 
         if work_id > 0:
             work = self.db.get_work(work_id)
@@ -231,7 +231,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def refresh_all(self) -> None:
         self.train_panel.reload()
-        self.inference_panel.reload()
+        self.evaluation_panel.reload()
         self.server_bar.refresh()
         self.statusBar().showMessage("Refreshed.", 2000)
 
@@ -269,7 +269,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         old = self.db
         self.db = new_db
-        for widget in (self.nav, self.train_panel, self.inference_panel, self.server_bar):
+        for widget in (self.nav, self.train_panel, self.evaluation_panel, self.server_bar):
             widget.db = new_db
         old.close()
 
@@ -298,7 +298,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # nav.refresh 가 setCurrentItem 을 호출하면 currentItemChanged 가 바로 발생해서
             # _on_scope_changed -> panel.set_scope() 가 이 시점에 이미 끝나 있다.
             self.nav.refresh(select_work_id=payload["work_id"])
-            panel = self.train_panel if payload["run_kind"] == "train" else self.inference_panel
+            panel = self.train_panel if payload["run_kind"] == "train" else self.evaluation_panel
             self.tabs.setCurrentWidget(panel)
             panel._select_run(int(payload["run_id"]))
 
@@ -309,7 +309,7 @@ class MainWindow(QtWidgets.QMainWindow):
         answer = QtWidgets.QMessageBox.question(
             self,
             "Sample Data",
-            "This adds example Train/Inference records under SR/SSL2SL etc. Continue?",
+            "This adds example Train/Evaluation records under SR/SSL2SL etc. Continue?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )
@@ -326,7 +326,7 @@ class MainWindow(QtWidgets.QMainWindow):
             f"About {APP_NAME}",
             f"<h3>{APP_NAME} v{__version__}</h3>"
             "<p>Desktop app for archiving and managing experiments from 4 training servers, locally.</p>"
-            "<p><b>Hierarchy</b>: DL Task ▸ Work ID ▸ Train / Inference</p>"
+            "<p><b>Hierarchy</b>: DL Task ▸ Work ID ▸ Train / Evaluation</p>"
             f"<p><b>DB</b>: {self.db.path}<br>"
             f"<b>Config</b>: {self.config.config_dir}<br>"
             f"<b>Qt</b>: {QT_BINDING} · theme: {theme.current_theme()}<br>"
@@ -375,7 +375,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _apply_config_everywhere(self) -> None:
         self.train_panel.reload_columns()
-        self.inference_panel.reload_columns()
+        self.evaluation_panel.reload_columns()
         self.server_bar.refresh()
 
     def _show_startup_status(self) -> None:

@@ -13,4 +13,4 @@ metrics:
 - {key: SSIM, digits: 4, higher_is_better: true}
 columns:
   train: [status, server, gpus, model, dataset, noise_sigma, duration, PSNR, SSIM, result_path]
-  inference: [status, server, gpus, model, checkpoint_path, dataset, noise_sigma, latency_ms, PSNR, SSIM, result_path]
+  evaluation: [status, server, gpus, model, checkpoint_path, dataset, noise_sigma, latency_ms, PSNR, SSIM, result_path]

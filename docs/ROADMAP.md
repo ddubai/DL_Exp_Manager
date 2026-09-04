@@ -718,3 +718,35 @@ Panel 인스턴스가 메모리에만 들고 있던 상태는 새 인스턴스�
 **설정 저장/재사용**: 고른 테마는 `QSettings(ORG_NAME, APP_NAME)` 의 `"theme"` 키에 즉시
 저장된다. `main.py` 는 `--theme` 를 안 주면 이 값을(없으면 `"dark"`) 기본값으로 쓴다 - `--theme`
 를 명시하면 그 실행만 강제로 덮어쓰고 저장된 값은 안 건드린다.
+
+---
+
+## 15. 2026-09 세션 — Inference ▸ Evaluation 이름 변경
+
+"추론을 돌린다"보다 "학습한 모델을 평가한다"가 실제 사용 목적에 가깝다는 판단으로, 두 번째 탭과
+그에 딸린 모든 이름을 Inference -> Evaluation 으로 바꿨다. UI 문구만 바꾸면 코드/DB/설정에
+옛 이름이 남아 나중에 읽을 때 더 헷갈리므로 **저장 계층까지 전부** 옮겼다.
+
+| 층 | 전 | 후 |
+|---|---|---|
+| DB 테이블 | `inference_runs` | `evaluation_runs` |
+| DB run kind | `"inference"` | `"evaluation"` (`run_history.run_kind` 포함) |
+| 설정 키 | `columns.inference` | `columns.evaluation` |
+| 클래스 | `InferencePanel` | `EvaluationPanel` |
+| 상수 | `INFER_METRIC_PRESETS` / `SAMPLE_INFER_CMD` | `EVAL_METRIC_PRESETS` / `SAMPLE_EVAL_CMD` |
+| DB 메서드 | `list_inference_runs()` | `list_evaluation_runs()` |
+
+**마이그레이션(스키마 v8)**: `ALTER TABLE inference_runs RENAME TO evaluation_runs` +
+`UPDATE run_history SET run_kind='evaluation' WHERE run_kind='inference'`.
+
+주의해야 했던 순서 문제: `_create_schema()` 는 `executescript(_SCHEMA)` 로 테이블을 만든 뒤
+`_migrate()` 를 부르는데, 이 순서대로면 **빈 `evaluation_runs` 가 먼저 생겨서** RENAME 이
+"이미 있는 이름"으로 실패한다. 그래서 이름 변경만 `_rename_legacy_tables()` 로 빼서
+`executescript` **앞**에서 돌린다. 실제 사용 중인 DB(v3, train 2건) 사본으로 v3 -> v8 업그레이드를
+돌려 데이터가 그대로 남는 것을 확인했다.
+
+**하위 호환 두 군데**:
+- `Database._table()` 은 `"inference"` 도 계속 받는다(옛 이름으로 부르는 코드가 있어도 죽지 않게).
+- `OptionsConfig.columns_for()` 는 `columns.evaluation` 이 없으면 옛 `columns.inference` 키를
+  읽어 준다 - 손으로 쓴 Task 파일이 아직 옛 키를 쓰고 있어도 컬럼이 사라지지 않는다.
+  대신 UI 에서 컬럼을 한 번 저장하면(`set_columns`) 새 키로 쓰면서 옛 키를 지워 파일이 수렴한다.

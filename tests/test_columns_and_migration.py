@@ -148,6 +148,10 @@ def _make_v1_db(path: str) -> None:
         "INSERT INTO train_runs(work_id,model,metrics_json,created_at,updated_at) "
         "VALUES (1,'Restormer','{\"PSNR\": 31.2}',datetime(),datetime())"
     )
+    conn.execute(
+        "INSERT INTO inference_runs(work_id,model,checkpoint_path,created_at,updated_at) "
+        "VALUES (1,'SwinIR','/mnt/x/net_g.pth',datetime(),datetime())"
+    )
     conn.commit()
     conn.close()
 
@@ -170,6 +174,48 @@ def test_v1_database_migrates_and_keeps_data():
     assert rows[0]["metrics_json"] == '{"PSNR": 31.2}'
     assert rows[0]["gpu_indices"] == ""
     assert rows[0]["extra_json"] == "{}"
+
+    # inference_runs -> evaluation_runs 로 이름이 바뀌어도 기록은 그대로 살아 있어야 한다.
+    evaluations = db.list_evaluation_runs()
+    assert len(evaluations) == 1
+    assert evaluations[0]["model"] == "SwinIR"
+    assert evaluations[0]["checkpoint_path"] == "/mnt/x/net_g.pth"
+    db.close()
+
+
+def test_v7_inference_tables_and_history_are_renamed_to_evaluation():
+    """v7 -> v8: 테이블 이름과 run_history 의 run_kind 문자열을 함께 옮긴다."""
+    from dl_exp_manager.db import Database
+
+    path = os.path.join(tempfile.mkdtemp(), "v7.db")
+    db = Database(path, seed=False)
+    work_id = db.add_work(db.add_task("SR"), "W")
+    run_id = db.insert_run("evaluation", {"work_id": work_id, "model": "NAFNet"})
+    db.close()
+
+    # 실제 v7 DB 모양으로 되돌려 둔다 (옛 테이블 이름 + 옛 run_kind + user_version).
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        f"""
+        ALTER TABLE evaluation_runs RENAME TO inference_runs;
+        UPDATE run_history SET run_kind = 'inference' WHERE run_id = {run_id};
+        PRAGMA user_version = 7;
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    db = Database(path, seed=False)
+    assert db.migrated_from == 7
+    tables = {
+        row[0]
+        for row in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    assert "evaluation_runs" in tables and "inference_runs" not in tables
+
+    rows = db.list_evaluation_runs()
+    assert len(rows) == 1 and rows[0]["model"] == "NAFNet"
+    assert {h["run_kind"] for h in db.list_history("evaluation", run_id)} == {"evaluation"}
     db.close()
 
 
@@ -222,7 +268,7 @@ def test_bulk_rename_updates_both_tables():
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
     work_id = db.add_work(db.add_task("SR"), "W")
     db.insert_run("train", {"work_id": work_id, "model": "Old"})
-    db.insert_run("inference", {"work_id": work_id, "model": "Old"})
+    db.insert_run("evaluation", {"work_id": work_id, "model": "Old"})
     assert db.count_runs_using("model", "Old") == 2
     assert db.rename_value_in_runs("model", "Old", "New") == 2
     assert db.count_runs_using("model", "Old") == 0
@@ -280,7 +326,7 @@ def test_search_runs_matches_notes_tags_and_names():
     work_id = db.add_work(db.add_task("SR"), "SSL2SL")
     db.insert_run("train", {"work_id": work_id, "model": "Restormer", "notes": "OOM crash here"})
     db.insert_run("train", {"work_id": work_id, "model": "SwinIR", "tags": "paper-final"})
-    db.insert_run("inference", {"work_id": work_id, "model": "NAFNet", "checkpoint_path": "/mnt/x/net.pth"})
+    db.insert_run("evaluation", {"work_id": work_id, "model": "NAFNet", "checkpoint_path": "/mnt/x/net.pth"})
 
     assert {r["model"] for r in db.search_runs("OOM")} == {"Restormer"}
     assert {r["model"] for r in db.search_runs("paper-final")} == {"SwinIR"}
@@ -296,9 +342,9 @@ def test_search_runs_marks_kind():
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
     work_id = db.add_work(db.add_task("SR"), "W")
     db.insert_run("train", {"work_id": work_id, "model": "FindMe"})
-    db.insert_run("inference", {"work_id": work_id, "model": "FindMe"})
+    db.insert_run("evaluation", {"work_id": work_id, "model": "FindMe"})
     results = db.search_runs("FindMe")
-    assert {r["kind"] for r in results} == {"train", "inference"}
+    assert {r["kind"] for r in results} == {"train", "evaluation"}
     db.close()
 
 

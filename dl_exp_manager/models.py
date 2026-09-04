@@ -97,7 +97,7 @@ FIELD_SPECS: dict[str, ColumnSpec] = {
 FALLBACK_COLUMNS: dict[str, tuple[str, ...]] = {
     "train": ("status", "server", "gpus", "model", "dataset", "dataset_path",
               "result_path", "started_at", "duration"),
-    "inference": ("status", "server", "gpus", "model", "checkpoint_path", "dataset",
+    "evaluation": ("status", "server", "gpus", "model", "checkpoint_path", "dataset",
                   "dataset_path", "result_path", "latency_ms", "throughput_fps", "started_at"),
 }
 
@@ -130,7 +130,7 @@ def build_columns(
     mode: str,
     extra_metric_keys: Sequence[str] = (),
 ) -> list[ColumnSpec]:
-    """Task + 모드(train/inference)에 맞는 컬럼 목록을 만든다.
+    """Task + 모드(train/evaluation)에 맞는 컬럼 목록을 만든다.
 
     `extra_metric_keys` 는 데이터에는 있지만 설정에는 없는 지표로,
     설정에 없다고 값을 숨기지 않도록 뒤에 덧붙인다.
@@ -184,7 +184,7 @@ def build_columns(
 
 
 class RunTableModel(QtCore.QAbstractTableModel):
-    """Train / Inference run 목록 모델."""
+    """Train / Evaluation run 목록 모델."""
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)

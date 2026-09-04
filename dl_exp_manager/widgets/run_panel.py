@@ -1,4 +1,4 @@
-"""Train / Inference dashboard panel.
+"""Train / Evaluation dashboard panel.
 
 Layout::
 
@@ -162,7 +162,7 @@ class MetricSettingsDialog(QtWidgets.QDialog):
 
 
 class BaseRunPanel(QtWidgets.QWidget):
-    """Shared Train / Inference dashboard."""
+    """Shared Train / Evaluation dashboard."""
 
     KIND: str = "train"
     METRIC_PRESETS: Sequence[str] = ()
@@ -533,7 +533,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.form_layout.addRow(self._custom_host)
 
         # Train 의 Training Hyperparameters 는 여기(Task-Specific Fields 다음, Metrics 전)
-        # 에 온다 - Inference 는 _build_left_fields 에서 이미 다 그려서 여기선 no-op.
+        # 에 온다 - Evaluation 은 _build_left_fields 에서 이미 다 그려서 여기선 no-op.
         self._build_extra_form_rows(left_inner)
 
         self.metrics_editor = MetricsEditor(
@@ -604,7 +604,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     # ==================================================================
-    # LEFT column - Train 의 기본 순서. Inference 는 이 메서드를 통째로 오버라이드한다.
+    # LEFT column - Train 의 기본 순서. Evaluation 은 이 메서드를 통째로 오버라이드한다.
     # ==================================================================
     def _build_left_fields(self, parent: QtWidgets.QWidget) -> None:
         self.work_combo = self._make_work_combo(parent)
@@ -647,7 +647,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         the same spot regardless of how a subclass orders its other fields.
         """
 
-    # -- 공용 위젯 팩토리 - LEFT 컬럼 순서를 재구성하는 서브클래스(Inference)도 함께 쓴다 ---
+    # -- 공용 위젯 팩토리 - LEFT 컬럼 순서를 재구성하는 서브클래스(Evaluation)도 함께 쓴다 ---
     @staticmethod
     def _make_work_combo(parent: QtWidgets.QWidget) -> EditableCombo:
         combo = EditableCombo([], parent, "Work ID (new if not found)")
@@ -981,7 +981,7 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _fetch_rows(self) -> list[dict[str, Any]]:
         if self.KIND == "train":
             return self.db.list_train_runs(work_id=self._work_id, task_id=self._task_id)
-        return self.db.list_inference_runs(work_id=self._work_id, task_id=self._task_id)
+        return self.db.list_evaluation_runs(work_id=self._work_id, task_id=self._task_id)
 
     def _apply_column_sizing(self) -> None:
         # 프로그램이 너비/순서/숨김을 다시 맞추는 동안은 사용자가 직접 조정한 것으로
@@ -997,7 +997,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         finally:
             self._restoring_columns = False
 
-    # -- Column order/width persistence (per Task, per Train/Inference) -------
+    # -- Column order/width persistence (per Task, per Train/Evaluation) -------
     def _column_settings_key(self) -> str:
         return f"columns/{self.KIND}/{self._task_name or '_default'}"
 
@@ -1917,12 +1917,12 @@ class TrainPanel(BaseRunPanel):
         }
 
 
-class InferencePanel(BaseRunPanel):
-    """Inference dashboard."""
+class EvaluationPanel(BaseRunPanel):
+    """Evaluation dashboard."""
 
-    KIND = "inference"
-    SAMPLE_COMMAND = C.SAMPLE_INFER_CMD
-    METRIC_PRESETS = C.INFER_METRIC_PRESETS
+    KIND = "evaluation"
+    SAMPLE_COMMAND = C.SAMPLE_EVAL_CMD
+    METRIC_PRESETS = C.EVAL_METRIC_PRESETS
     SHOW_SERVER = True  # Server 는 보여준다 - 어느 서버에서 돌렸는지는 여전히 유용
     SHOW_GPU = False  # GPU 는 계속 뺀다 - Train Run + Epoch/Iter 가 핵심 식별자
     SHOW_TRAINING_CURVE = False  # 학습 곡선은 loss.log 기반 - 추론에는 해당 없음
@@ -1944,7 +1944,7 @@ class InferencePanel(BaseRunPanel):
 
         self.source_run_combo = QtWidgets.QComboBox(parent)
         self.source_run_combo.setToolTip(
-            "Pick a Train run from this Work to base the inference on. "
+            "Pick a Train run from this Work to base the evaluation on. "
             "Sets Model automatically; you still pick which checkpoint/epoch."
         )
         self.source_run_combo.currentIndexChanged.connect(self._on_source_run_changed)
@@ -2006,7 +2006,7 @@ class InferencePanel(BaseRunPanel):
 
     def _refresh_extra_combo_sources(self) -> None:
         self.device_combo.reload()
-        self.device_combo.merge_items(self.db.distinct_values("inference", "device", self._task_id))
+        self.device_combo.merge_items(self.db.distinct_values("evaluation", "device", self._task_id))
         self._refresh_source_run_combo()
 
     def _refresh_source_run_combo(self, keep: int | None = None) -> None:

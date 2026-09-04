@@ -296,9 +296,9 @@ Server 1  H100 ×8   ██▊▊░░░░   3/8 busy
 | `Ctrl+K` | 전역 검색 |
 | `Enter` | 폼에서 저장 |
 | `Esc` | 인라인 편집 취소 |
-| 헤더 드래그 | 컬럼 순서 변경 / 폭 조정 - Task·Train/Inference 별로 자동 저장, 재실행해도 유지 |
+| 헤더 드래그 | 컬럼 순서 변경 / 폭 조정 - Task·Train/Evaluation 별로 자동 저장, 재실행해도 유지 |
 
-Train/Inference 탭은 별도 줄을 쓰지 않고 탭 바 자체의 코너 위젯(우측)에 현재
+Train/Evaluation 탭은 별도 줄을 쓰지 않고 탭 바 자체의 코너 위젯(우측)에 현재
 Scope(`Task ▸ Work — 설명`)를 붙입니다(`QTabWidget.setCornerWidget`) — 세로 공간을 표 쪽에
 더 내줄 수 있습니다.
 

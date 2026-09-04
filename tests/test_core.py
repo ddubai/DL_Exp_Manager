@@ -133,10 +133,10 @@ def test_delete_task_cascades_to_runs():
     db = make_db()
     task_id = db.add_task("Temp")
     work_id = db.add_work(task_id, "W1")
-    db.insert_run("inference", {"work_id": work_id, "model": "M", "latency_ms": "12.5"})
-    assert db.summary()["inference"] == 1
+    db.insert_run("evaluation", {"work_id": work_id, "model": "M", "latency_ms": "12.5"})
+    assert db.summary()["evaluation"] == 1
     db.delete_task(task_id)
-    assert db.summary()["inference"] == 0
+    assert db.summary()["evaluation"] == 0
     db.close()
 
 
@@ -255,7 +255,7 @@ def test_count_runs_using_dataset():
     work_id = db.add_work(db.add_task("SR"), "W")
     db.add_dataset(work_id, "DIV2K", "Full Pair", "/a")
     db.insert_run("train", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
-    db.insert_run("inference", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
+    db.insert_run("evaluation", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
     db.insert_run("train", {"work_id": work_id, "model": "M", "dataset": "Other"})
 
     assert db.count_runs_using_dataset(work_id, "DIV2K", "Full Pair") == 2
@@ -263,17 +263,17 @@ def test_count_runs_using_dataset():
     db.close()
 
 
-def test_inference_numeric_fields():
+def test_evaluation_numeric_fields():
     db = make_db()
     work_id = db.add_work(db.add_task("SR"), "W")
     run_id = db.insert_run(
-        "inference",
+        "evaluation",
         {"work_id": work_id, "model": "M", "latency_ms": "41.7", "throughput_fps": "", "device": "cuda:0"},
     )
-    row = db.get_run("inference", run_id)
+    row = db.get_run("evaluation", run_id)
     assert row["latency_ms"] == 41.7
     assert row["throughput_fps"] is None
-    assert db.distinct_values("inference", "device") == ["cuda:0"]
+    assert db.distinct_values("evaluation", "device") == ["cuda:0"]
     db.close()
 
 
@@ -305,12 +305,12 @@ def test_run_history_records_create_update_duplicate():
     db.close()
 
 
-def test_inference_source_train_run_and_epoch_round_trip():
+def test_evaluation_source_train_run_and_epoch_round_trip():
     db = make_db()
     work_id = db.add_work(db.add_task("SR"), "W")
     train_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
-    infer_id = db.insert_run(
-        "inference",
+    eval_id = db.insert_run(
+        "evaluation",
         {
             "work_id": work_id,
             "model": "Restormer",
@@ -318,7 +318,7 @@ def test_inference_source_train_run_and_epoch_round_trip():
             "checkpoint_epoch": "300000",
         },
     )
-    row = db.get_run("inference", infer_id)
+    row = db.get_run("evaluation", eval_id)
     assert row["source_train_run_id"] == train_id
     assert row["checkpoint_epoch"] == "300000"
     db.close()

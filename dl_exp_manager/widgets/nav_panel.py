@@ -270,8 +270,8 @@ class NavigationPanel(QtWidgets.QWidget):
         for task in tasks:
             works = self.db.list_works(task["id"])
             n_train = sum(self.db.counts_for_work(w["id"])[0] for w in works)
-            n_infer = sum(self.db.counts_for_work(w["id"])[1] for w in works)
-            row = self._make_row(task["name"], task.get("description") or "", f"{n_train} / {n_infer}", bold=True)
+            n_eval = sum(self.db.counts_for_work(w["id"])[1] for w in works)
+            row = self._make_row(task["name"], task.get("description") or "", f"{n_train} / {n_eval}", bold=True)
             row.clicked.connect(lambda t=task: self._enter_task(t["id"]))
             row.rightClicked.connect(lambda pos, t=task: self._task_context_menu(pos, t))
             self.list_layout.addWidget(row)
@@ -288,8 +288,8 @@ class NavigationPanel(QtWidgets.QWidget):
             self.list_layout.addStretch(1)
             return
         for work in works:
-            n_train, n_infer = self.db.counts_for_work(work["id"])
-            row = self._make_row(work["name"], work.get("description") or "", f"{n_train} / {n_infer}")
+            n_train, n_eval = self.db.counts_for_work(work["id"])
+            row = self._make_row(work["name"], work.get("description") or "", f"{n_train} / {n_eval}")
             row.clicked.connect(lambda w=work: self._enter_work(w["id"]))
             row.rightClicked.connect(lambda pos, w=work: self._work_context_menu(pos, w))
             self.list_layout.addWidget(row)
@@ -342,9 +342,9 @@ class NavigationPanel(QtWidgets.QWidget):
             self._work_id = None
             return
 
-        n_train, n_infer = self.db.counts_for_work(work["id"])
+        n_train, n_eval = self.db.counts_for_work(work["id"])
         desc = f"{work['description']}  ·  " if work.get("description") else ""
-        self.meta_label.setText(f"{desc}{n_train} Train · {n_infer} Inference")
+        self.meta_label.setText(f"{desc}{n_train} Train · {n_eval} Evaluation")
 
         header = QtWidgets.QLabel("DATASET", self.list_host)
         header.setStyleSheet(
@@ -602,8 +602,8 @@ class NavigationPanel(QtWidgets.QWidget):
         self._render()
 
     def _delete_work(self, work: dict[str, Any]) -> None:
-        n_train, n_infer = self.db.counts_for_work(work["id"])
-        message = f"This Work and its {n_train} Train / {n_infer} Inference record(s) will be deleted.\nContinue?"
+        n_train, n_eval = self.db.counts_for_work(work["id"])
+        message = f"This Work and its {n_train} Train / {n_eval} Evaluation record(s) will be deleted.\nContinue?"
         if not editing.confirm(self, "Confirm Delete", message):
             return
         self.db.delete_work(work["id"])

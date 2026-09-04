@@ -156,6 +156,10 @@ TASKS_DIR = "tasks"
 # 옵션 필드 중 DB 에 전용 컬럼이 있는 것들. 이외의 필드는 extra_json 으로 간다.
 NATIVE_OPTION_FIELDS = {"model", "dataset", "optimizer", "server"}
 
+# columns 의 "evaluation" 은 예전에 "inference" 였다. 손으로 쓴 파일을 깨뜨리지 않도록
+# 읽을 때만 이 옛 키도 받아 준다(쓸 때는 항상 새 이름으로).
+LEGACY_EVAL_COLUMNS_KEY = "inference"
+
 
 # --- 내장 기본값 --------------------------------------------------------------
 BUILTIN: dict[str, Any] = {
@@ -191,9 +195,9 @@ BUILTIN: dict[str, Any] = {
             "columns": {
                 "train": ["status", "server", "gpus", "model", "dataset", "scale",
                           "duration", "PSNR", "SSIM", "LPIPS", "result_path"],
-                "inference": ["status", "server", "gpus", "model", "checkpoint_path",
-                              "dataset", "latency_ms", "throughput_fps",
-                              "PSNR", "SSIM", "LPIPS", "result_path"],
+                "evaluation": ["status", "server", "gpus", "model", "checkpoint_path",
+                               "dataset", "latency_ms", "throughput_fps",
+                               "PSNR", "SSIM", "LPIPS", "result_path"],
             },
         },
         "DN": {
@@ -210,9 +214,9 @@ BUILTIN: dict[str, Any] = {
             "columns": {
                 "train": ["status", "server", "gpus", "model", "dataset", "noise_sigma",
                           "duration", "PSNR", "SSIM", "result_path"],
-                "inference": ["status", "server", "gpus", "model", "checkpoint_path",
-                              "dataset", "noise_sigma", "latency_ms", "PSNR", "SSIM",
-                              "result_path"],
+                "evaluation": ["status", "server", "gpus", "model", "checkpoint_path",
+                               "dataset", "noise_sigma", "latency_ms", "PSNR", "SSIM",
+                               "result_path"],
             },
         },
         "Clustering": {
@@ -229,8 +233,8 @@ BUILTIN: dict[str, Any] = {
             "columns": {
                 "train": ["status", "server", "gpus", "model", "dataset", "duration",
                           "NMI", "ARI", "ACC", "result_path"],
-                "inference": ["status", "server", "model", "checkpoint_path", "dataset",
-                              "NMI", "ARI", "ACC", "result_path"],
+                "evaluation": ["status", "server", "model", "checkpoint_path", "dataset",
+                               "NMI", "ARI", "ACC", "result_path"],
             },
         },
         "Classification": {
@@ -246,8 +250,8 @@ BUILTIN: dict[str, Any] = {
             "columns": {
                 "train": ["status", "server", "gpus", "model", "dataset", "duration",
                           "Top-1", "Top-5", "result_path"],
-                "inference": ["status", "server", "model", "checkpoint_path", "dataset",
-                              "latency_ms", "throughput_fps", "Top-1", "Top-5", "result_path"],
+                "evaluation": ["status", "server", "model", "checkpoint_path", "dataset",
+                               "latency_ms", "throughput_fps", "Top-1", "Top-5", "result_path"],
             },
         },
     },
@@ -276,7 +280,7 @@ ROOT_HEADER = """\
 #   metrics : The table's metric columns. digits sets decimal places shown,
 #             higher_is_better marks whether a bigger value is better.
 #   columns : Which columns appear (and in what order) in the Train /
-#             Inference tables. Allowed values:
+#             Evaluation tables. Allowed values:
 #     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
 #                 checkpoint_path, device, input_size, duration, started_at,
 #                 latency_ms, throughput_fps, epochs, batch_size, crop_size, lr, optimizer, notes
@@ -773,7 +777,12 @@ class OptionsConfig:
         task_def = self.task(task)
         if task_def is None:
             return []
-        return list(task_def.columns.get(mode, []))
+        columns = task_def.columns.get(mode)
+        if columns is None and mode == "evaluation":
+            # 손으로 쓴 예전 파일에는 아직 `inference:` 로 남아 있을 수 있다.
+            # (UI 에서 컬럼을 한 번 저장하면 `evaluation:` 으로 바뀐다 - set_columns 참고)
+            columns = task_def.columns.get(LEGACY_EVAL_COLUMNS_KEY)
+        return list(columns or [])
 
     @property
     def servers(self) -> list[ServerDef]:
@@ -971,7 +980,10 @@ class OptionsConfig:
             raw = self._task_raw(task)
             if raw is None:
                 return
-        raw.setdefault("columns", {})[mode] = [str(c) for c in columns]
+        table = raw.setdefault("columns", {})
+        table[mode] = [str(c) for c in columns]
+        if mode == "evaluation":
+            table.pop(LEGACY_EVAL_COLUMNS_KEY, None)  # 옛 키가 남아 헷갈리지 않게 정리한다
         self._touch_task(task)
 
     def _drop_column_everywhere(self, task: str, column: str) -> None:

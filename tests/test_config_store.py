@@ -128,7 +128,7 @@ def test_metric_removal_cleans_columns():
     assert "LPIPS" in config.columns_for("SR", "train")
     assert config.remove_metric("SR", "LPIPS")
     assert "LPIPS" not in config.columns_for("SR", "train")
-    assert "LPIPS" not in config.columns_for("SR", "inference")
+    assert "LPIPS" not in config.columns_for("SR", "evaluation")
 
 
 def test_metric_rename_updates_columns():
