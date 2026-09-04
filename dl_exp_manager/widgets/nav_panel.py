@@ -426,12 +426,6 @@ class NavigationPanel(QtWidgets.QWidget):
         top.addWidget(del_btn)
         outer.addLayout(top)
 
-        if dataset.get("path"):
-            path_label = QtWidgets.QLabel(dataset["path"], row)
-            path_label.setFont(monospace_font(-1))
-            path_label.setStyleSheet(f"color: {theme.color('text.muted')}; font-size: 10.5px;")
-            outer.addWidget(path_label)
-
         meta_bits = [
             b for b in (
                 dataset.get("image_size"),
