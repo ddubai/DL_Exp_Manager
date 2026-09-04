@@ -279,7 +279,7 @@ ROOT_HEADER = """\
 #             Inference tables. Allowed values:
 #     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
 #                 checkpoint_path, device, input_size, duration, started_at,
-#                 latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
+#                 latency_ms, throughput_fps, epochs, batch_size, crop_size, lr, optimizer, notes
 #     metric      any key defined under metrics
 #     custom field  any name defined under options
 """

@@ -453,6 +453,7 @@ datasets:
     name: DIV2K
     dataroot_gt: /mnt/data/DIV2K/train
     batch_size_per_gpu: 8
+    gt_size: 256
 train:
   total_iter: 300000
   optim_g:
@@ -487,6 +488,7 @@ def test_parse_train_config_reads_basicsr_style_yaml():
     assert fields["dataset"] == "DIV2K"
     assert fields["dataset_path"] == "/mnt/data/DIV2K/train"
     assert fields["batch_size"] == "8"
+    assert fields["crop_size"] == "256"
     assert fields["lr"] == "0.0003"
     assert fields["optimizer"] == "AdamW"
     assert fields["epochs"] == "300000"

@@ -90,6 +90,19 @@ def parse_train_config(path: str) -> dict[str, str]:
     if batch is not None:
         out["batch_size"] = str(batch)
 
+    crop_size = _first(
+        data,
+        [
+            ("datasets", "train", "gt_size"),
+            ("datasets", "train", "crop_size"),
+            ("datasets", "train", "patch_size"),
+            ("train", "crop_size"),
+            ("dataset", "crop_size"),
+        ],
+    )
+    if crop_size is not None:
+        out["crop_size"] = str(crop_size)
+
     lr = _first(data, [("train", "optim_g", "lr"), ("train", "optim", "lr"), ("optim", "lr")])
     if lr is not None:
         out["lr"] = str(lr)

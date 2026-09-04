@@ -83,6 +83,7 @@ FIELD_SPECS: dict[str, ColumnSpec] = {
         ColumnSpec("throughput_fps", "Throughput (FPS)", "number", 126),
         ColumnSpec("epochs", "Epochs/Iter", "text", 96),
         ColumnSpec("batch_size", "Batch", "text", 70),
+        ColumnSpec("crop_size", "Crop Size", "text", 90),
         ColumnSpec("lr", "LR", "text", 82),
         ColumnSpec("optimizer", "Optimizer", "text", 94),
         ColumnSpec("checkpoint_epoch", "Model Epoch", "text", 110),

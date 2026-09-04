@@ -1171,6 +1171,7 @@ datasets:
     name: DIV2K
     dataroot_gt: /mnt/data/DIV2K/train
     batch_size_per_gpu: 8
+    gt_size: 256
 train:
   total_iter: 300000
   optim_g:
@@ -1205,6 +1206,7 @@ def test_parse_result_folder_fills_train_form(qapp, config):
     assert panel.dataset_path_edit.path() == "/mnt/data/DIV2K/train"
     assert panel.epochs_edit.text() == "300000"
     assert panel.batch_edit.text() == "8"
+    assert panel.crop_size_edit.text() == "256"
     assert panel.lr_edit.text() == "0.0003"
     assert panel.optimizer_combo.current_text() == "AdamW"
     assert panel.metrics_editor.metrics() == {"PSNR": 31.5, "SSIM": 0.9}

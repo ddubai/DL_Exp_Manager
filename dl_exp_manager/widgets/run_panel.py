@@ -1821,6 +1821,8 @@ class TrainPanel(BaseRunPanel):
         self.epochs_edit.setPlaceholderText("e.g. 300000 iter / 200 epoch")
         self.batch_edit = QtWidgets.QLineEdit(parent)
         self.batch_edit.setPlaceholderText("e.g. 8")
+        self.crop_size_edit = QtWidgets.QLineEdit(parent)
+        self.crop_size_edit.setPlaceholderText("e.g. 256x256 / 192")
         self.lr_edit = QtWidgets.QLineEdit(parent)
         self.lr_edit.setPlaceholderText("e.g. 3e-4")
         self.optimizer_combo = self._make_option_combo("optimizer", "Optimizer", parent)
@@ -1828,6 +1830,7 @@ class TrainPanel(BaseRunPanel):
         self.form_layout.addRow(self._section("Training Hyperparameters", parent))
         self.form_layout.addRow("Epochs / Iter:", self.epochs_edit)
         self.form_layout.addRow("Batch size:", self.batch_edit)
+        self.form_layout.addRow("Crop size:", self.crop_size_edit)
         self.form_layout.addRow("Learning rate:", self.lr_edit)
         self.form_layout.addRow("Optimizer:", self.optimizer_combo)
 
@@ -1842,6 +1845,9 @@ class TrainPanel(BaseRunPanel):
         if fields.get("batch_size"):
             self.batch_edit.setText(fields["batch_size"])
             filled.append("Batch size")
+        if fields.get("crop_size"):
+            self.crop_size_edit.setText(fields["crop_size"])
+            filled.append("Crop size")
         if fields.get("lr"):
             self.lr_edit.setText(fields["lr"])
             filled.append("LR")
@@ -1852,12 +1858,14 @@ class TrainPanel(BaseRunPanel):
     def _reset_extra_fields(self) -> None:
         self.epochs_edit.clear()
         self.batch_edit.clear()
+        self.crop_size_edit.clear()
         self.lr_edit.clear()
         self.optimizer_combo.set_text("")
 
     def _load_extra_fields(self, row: dict[str, Any]) -> None:
         self.epochs_edit.setText(str(row.get("epochs") or ""))
         self.batch_edit.setText(str(row.get("batch_size") or ""))
+        self.crop_size_edit.setText(str(row.get("crop_size") or ""))
         self.lr_edit.setText(str(row.get("lr") or ""))
         self.optimizer_combo.set_text(row.get("optimizer"))
 
@@ -1865,6 +1873,7 @@ class TrainPanel(BaseRunPanel):
         return {
             "epochs": self.epochs_edit.text().strip(),
             "batch_size": self.batch_edit.text().strip(),
+            "crop_size": self.crop_size_edit.text().strip(),
             "lr": self.lr_edit.text().strip(),
             "optimizer": self.optimizer_combo.current_text(),
         }

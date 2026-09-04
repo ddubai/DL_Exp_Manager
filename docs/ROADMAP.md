@@ -527,3 +527,12 @@ BUILTIN 값을 메모리에만 채우고 **디스크에 다시 쓰지는 않는*
 깨집니다.)
 
 README 설치 안내에 `cp config/servers.template.yaml config/servers.yaml` 단계를 추가했습니다.
+
+### 12.5 Train New Run 에 Crop size 추가
+
+`train_runs` 에 `crop_size` 컬럼을 추가했습니다(스키마 v7). Training Hyperparameters 섹션에서
+Batch size 바로 아래에 넣었습니다(둘 다 같은 데이터 파이프라인 설정이라 나란히 두는 게 자연스러움).
+`log_parser.parse_train_config` 도 BasicSR 류 config.yaml 의 `datasets.train.gt_size` /
+`crop_size` / `patch_size` 를 관대하게 시도해 자동으로 채웁니다. 값 형식은 자유 텍스트라
+`256x256` 처럼 정사각형이든 `256`처럼 한 변만 적든 그대로 저장됩니다(다른 하이퍼파라미터
+필드들과 동일한 관례).

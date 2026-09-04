@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS train_runs (
     duration_sec  REAL,
     epochs        TEXT    DEFAULT '',
     batch_size    TEXT    DEFAULT '',
+    crop_size     TEXT    DEFAULT '',
     lr            TEXT    DEFAULT '',
     optimizer     TEXT    DEFAULT '',
     gpu_indices   TEXT    DEFAULT '',
@@ -135,7 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_datasets_work    ON datasets(work_id);
 
 TRAIN_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "dataset", "dataset_path", "result_path",
-    "status", "started_at", "duration_sec", "epochs", "batch_size", "lr",
+    "status", "started_at", "duration_sec", "epochs", "batch_size", "crop_size", "lr",
     "optimizer", "gpu_indices", "extra_json", "metrics_json", "exec_command",
     "config_yaml", "notes", "favorite", "tags", "failure_reason",
 )
@@ -184,6 +185,11 @@ _V6_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("datasets", "extension", "TEXT DEFAULT ''"),
 )
 
+# v6 -> v7: Train 하이퍼파라미터에 crop size
+_V7_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("train_runs", "crop_size", "TEXT DEFAULT ''"),
+)
+
 
 def default_db_path() -> str:
     """기본 DB 경로: 프로젝트 루트의 experiments.db"""
@@ -219,7 +225,7 @@ class Database:
         current = int(self.conn.execute("PRAGMA user_version").fetchone()[0])
         with self.conn:
             for table, column, definition in (
-                _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS + _V5_COLUMNS + _V6_COLUMNS
+                _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS + _V5_COLUMNS + _V6_COLUMNS + _V7_COLUMNS
             ):
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

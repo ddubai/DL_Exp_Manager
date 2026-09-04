@@ -208,7 +208,7 @@ columns:
 | `tasks` | name(UNIQUE), description — **Level 1** |
 | `works` | task_id→tasks, name, description, UNIQUE(task_id, name) — **Level 2** |
 | `datasets` | work_id→works, name, variant, path, **sample_count**, **image_size**, **extension**, notes, UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
-| `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
+| `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, crop_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
 | `inference_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
 | `run_history` | run_kind, run_id, action(created/updated/duplicated), detail, created_at — Run 별 변경 이력 |
 
