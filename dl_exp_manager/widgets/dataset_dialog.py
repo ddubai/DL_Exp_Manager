@@ -12,6 +12,7 @@ from typing import Any
 from .. import editing, theme
 from ..db import Database
 from ..qt import Qt, QtCore, QtGui, QtWidgets, Signal
+from ..theme import icons
 from .common import PathEdit, toast
 
 
@@ -156,13 +157,19 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         self.table.customContextMenuRequested.connect(self._context_menu)
 
         add_btn = QtWidgets.QToolButton(self)
-        add_btn.setText("+ Add Dataset")
+        add_btn.setIcon(icons.icon("add", theme.color("text.secondary")))
+        add_btn.setText("Add Dataset")
+        add_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         add_btn.clicked.connect(self._add)
         edit_btn = QtWidgets.QToolButton(self)
-        edit_btn.setText("✎ Edit")
+        edit_btn.setIcon(icons.icon("edit", theme.color("text.secondary")))
+        edit_btn.setText("Edit")
+        edit_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         edit_btn.clicked.connect(self._edit_selected)
         del_btn = QtWidgets.QToolButton(self)
-        del_btn.setText("- Remove")
+        del_btn.setIcon(icons.icon("delete", theme.color("text.secondary")))
+        del_btn.setText("Remove")
+        del_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         del_btn.clicked.connect(self._remove_selected)
         editing.install_shortcuts(
             self.table, on_add=self._add, on_rename=self._edit_selected, on_delete=self._remove_selected

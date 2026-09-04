@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Callable
 
+from . import theme
 from .qt import Qt, QtCore, QtGui, QtWidgets
+from .theme import icons
 
 RENAME_KEY = "F2"
 DELETE_KEY = "Del"
@@ -78,19 +80,19 @@ def build_item_menu(
     extra_top: list[tuple[str, Callable[[], None]]] | None = None,
 ) -> QtWidgets.QMenu:
     """추가 / 이름변경 / 삭제 순서와 단축키 표기를 통일한 컨텍스트 메뉴."""
+    color = theme.color("text.secondary")
     menu = QtWidgets.QMenu(parent)
     for label, handler in extra_top or []:
         menu.addAction(label, handler)
     if extra_top and (on_add or on_rename or on_delete):
         menu.addSeparator()
     if on_add is not None:
-        menu.addAction(f"+ {add_label or 'Add'}\t{ADD_KEY}", on_add)
+        menu.addAction(icons.icon("add", color), f"{add_label or 'Add'}\t{ADD_KEY}", on_add)
     if on_rename is not None:
-        menu.addAction(f"{rename_label}\t{RENAME_KEY}", on_rename)
+        menu.addAction(icons.icon("edit", color), f"{rename_label}\t{RENAME_KEY}", on_rename)
     if on_delete is not None:
         menu.addSeparator()
-        action = menu.addAction(f"{delete_label}\t{DELETE_KEY}", on_delete)
-        action.setIcon(QtGui.QIcon())
+        menu.addAction(icons.icon("delete", color), f"{delete_label}\t{DELETE_KEY}", on_delete)
     return menu
 
 

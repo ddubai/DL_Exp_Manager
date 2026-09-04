@@ -18,11 +18,13 @@ import json
 import os
 from typing import Any, Callable, Sequence
 
+from .. import APP_NAME, ORG_NAME
 from .. import constants as C
 from .. import editing, theme
 from ..config_store import MetricDef, OptionsConfig
 from ..db import Database
 from ..log_parser import canonical_metric_name, parse_loss_log, parse_train_config
+from ..theme import icons
 from ..models import (
     FIELD_SPECS,
     PATH_KEYS,
@@ -56,6 +58,7 @@ from .common import (
     OpenFolderButton,
     PathEdit,
     ServerCombo,
+    colorize_status_items,
     copy_to_clipboard,
     monospace_font,
     table_selection_to_tsv,
@@ -190,6 +193,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._editing_favorite: bool = False
         self._hidden_headers: set[str] = set()
         self._custom_widgets: dict[str, ManagedCombo] = {}
+        self._column_settings = QtCore.QSettings(ORG_NAME, APP_NAME)
+        self._restoring_columns = False
 
         self.model = RunTableModel(self)
         self.proxy = RunFilterProxy(self)
@@ -217,7 +222,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         container = QtWidgets.QWidget(self)
 
         new_run_btn = QtWidgets.QPushButton("+ New Run", container)
-        new_run_btn.setProperty("variant", "primary")
+        new_run_btn.setProperty("variant", "cta")
         new_run_btn.setToolTip("Open a form to register a new run.")
         new_run_btn.clicked.connect(self.open_new_run_dialog)
 
@@ -230,6 +235,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.status_filter.addItem("All statuses", "")
         for status in C.STATUS_LIST:
             self.status_filter.addItem(f"●  {status}", status)
+        colorize_status_items(self.status_filter, C.STATUS_LIST, offset=1)
         self.status_filter.currentIndexChanged.connect(
             lambda: self.proxy.set_status_filter(self.status_filter.currentData())
         )
@@ -272,7 +278,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         compare_btn.clicked.connect(self.compare_selected)
 
         del_btn = QtWidgets.QToolButton(container)
-        del_btn.setText("🗑 Delete")
+        del_btn.setIcon(icons.icon("delete", theme.color("text.secondary")))
+        del_btn.setText("Delete")
+        del_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         del_btn.clicked.connect(self.delete_selected)
 
         toolbar = QtWidgets.QHBoxLayout()
@@ -309,6 +317,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         header.setStretchLastSection(True)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._header_context_menu)
+        header.sectionMoved.connect(self._on_column_geometry_changed)
+        header.sectionResized.connect(self._on_column_geometry_changed)
         header.setToolTip("Click a header to sort, right-click to manage columns")
 
         self.view.selectionModel().selectionChanged.connect(lambda *_: self._on_selection_changed())
@@ -396,7 +406,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         image_btn.setToolTip("Show one representative image from this run's result folder.")
         image_btn.clicked.connect(self.view_image)
 
-        edit_btn = QtWidgets.QPushButton("✎ Edit This Run", container)
+        edit_btn = QtWidgets.QPushButton("Edit This Run", container)
+        edit_btn.setIcon(icons.icon("edit", theme.color("text.secondary")))
         edit_btn.clicked.connect(self.open_edit_dialog)
 
         action_row = QtWidgets.QHBoxLayout()
@@ -676,6 +687,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         for status in C.STATUS_LIST:
             combo.addItem(f"●  {status}", status)
         combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_QUEUED))
+        colorize_status_items(combo, C.STATUS_LIST)
         return combo
 
     def _make_started_row(self, parent: QtWidgets.QWidget) -> QtWidgets.QWidget:
@@ -972,10 +984,35 @@ class BaseRunPanel(QtWidgets.QWidget):
         return self.db.list_inference_runs(work_id=self._work_id, task_id=self._task_id)
 
     def _apply_column_sizing(self) -> None:
-        header = self.view.horizontalHeader()
-        for index, spec in enumerate(self.model.columns()):
-            self.view.setColumnWidth(index, spec.width)
-            header.setSectionHidden(index, spec.header in self._hidden_headers)
+        # 프로그램이 너비/순서/숨김을 다시 맞추는 동안은 사용자가 직접 조정한 것으로
+        # 착각해 저장하지 않도록 막는다 - reload() 는 스코프를 바꿀 때마다 불린다.
+        self._restoring_columns = True
+        try:
+            header = self.view.horizontalHeader()
+            restored = self._restore_column_state()
+            for index, spec in enumerate(self.model.columns()):
+                if not restored:
+                    self.view.setColumnWidth(index, spec.width)
+                header.setSectionHidden(index, spec.header in self._hidden_headers)
+        finally:
+            self._restoring_columns = False
+
+    # -- Column order/width persistence (per Task, per Train/Inference) -------
+    def _column_settings_key(self) -> str:
+        return f"columns/{self.KIND}/{self._task_name or '_default'}"
+
+    def _restore_column_state(self) -> bool:
+        data = self._column_settings.value(self._column_settings_key())
+        if not isinstance(data, QtCore.QByteArray):
+            return False
+        return bool(self.view.horizontalHeader().restoreState(data))
+
+    def _on_column_geometry_changed(self, *_args: Any) -> None:
+        if self._restoring_columns:
+            return
+        self._column_settings.setValue(
+            self._column_settings_key(), self.view.horizontalHeader().saveState()
+        )
 
     def _refresh_combo_sources(self) -> None:
         """Base the list on config, but merge in legacy values only found in the DB."""
@@ -1183,9 +1220,10 @@ class BaseRunPanel(QtWidgets.QWidget):
             star_label = "☆ Remove from Favorites" if row.get("favorite") else "★ Mark as Favorite"
             menu.addAction(star_label, lambda: self.toggle_favorite(row))
             menu.addSeparator()
+            folder_icon = icons.icon("folder", theme.color("text.secondary"))
             for key, label in self.DETAIL_PATHS:
                 path = str(row.get(key) or "")
-                action = menu.addAction(f"📁 Open {label}")
+                action = menu.addAction(folder_icon, f"Open {label}")
                 action.setEnabled(bool(path))
                 action.triggered.connect(lambda _=False, p=path: self._open_path(p))
             menu.addSeparator()
@@ -1196,7 +1234,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             menu.addAction("🖼 View Image", self.view_image)
             if self.SHOW_TRAINING_CURVE:
                 menu.addAction("📈 Training Curve", self.view_curve)
-            menu.addAction("✎ Edit This Run", self.open_edit_dialog)
+            menu.addAction(icons.icon("edit", theme.color("text.secondary")), "Edit This Run", self.open_edit_dialog)
             menu.addAction("⎘ Duplicate", self.duplicate_selected)
             menu.addSeparator()
 
@@ -1206,7 +1244,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         menu.addAction("Export Report (Markdown/HTML)", self.export_report)
         if row is not None:
             menu.addSeparator()
-            menu.addAction("🗑 Delete Selected", self.delete_selected)
+            menu.addAction(icons.icon("delete", theme.color("text.secondary")), "Delete Selected", self.delete_selected)
         menu.exec(self.view.viewport().mapToGlobal(pos))
 
     def _header_context_menu(self, pos) -> None:

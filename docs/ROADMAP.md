@@ -602,3 +602,81 @@ Segoe UI` 순으로 재정렬했습니다. macOS/Windows 기본 탑재 고딕 �
 "심플하게 보여주는" 것이 목표였던 UI 라(§11.6) 정보를 덜어내는 방향과도 맞습니다.
 `DatasetManagerDialog` 표의 Path 컬럼은 그대로 뒀습니다 - 그쪽은 여러 데이터셋의 경로를 한눈에
 비교/관리하는 용도라 텍스트로 보이는 게 여전히 유용합니다.
+
+---
+
+## 13. 2026-09 세션 — 색 위계 정리, 벡터 아이콘, 컬럼 상태 저장, 탭 바 개편
+
+한 요청 안에 6가지가 섞여 있어(상태색·서버색·아이콘·컬럼 저장·탭 바 레이아웃·CTA 색) 항목별로
+정리한다.
+
+### 13.1 Status 색
+
+`queued`(회색) / `running`(파랑) / `done`(초록) / `failed`(빨강)는 이미 §11 이전부터 이 값으로
+있었고 잘 고른 조합이라 **값 자체는 안 바꿨다** - 대신 실제로 안 칠해져 있던 곳(Status 콤보,
+상태 필터 드롭다운)에 입혔다. `widgets/common.py::colorize_status_items()` 로 콤보 항목의
+`ForegroundRole` 을 `theme.status_color()` 값으로 칠하는 한 줄짜리 헬퍼를 추가해 `_make_status_combo`
+와 `status_filter` 양쪽에 적용했다.
+
+### 13.2 서버 "사용 중" 색: 파랑 → 초록
+
+서버 상태 바가 GPU 사용 중인 서버를 `status.running`(파랑, Run 상태용) 그대로 빌려 쓰고
+있었다. "이 서버가 지금 바쁘다"와 "이 Run 이 running 상태다"는 다른 질문인데 같은 색을
+쓰면 서버 바가 마치 Run 상태를 보여주는 것처럼 읽힌다. `server.busy` 토큰(초록, `status.done`
+과 같은 값)을 새로 추가해 `server_panel.py` 의 칩 색·job 색 둘 다 여기로 바꿨다.
+
+### 13.3 이모지 아이콘 → 벡터 아이콘 (`theme/icons.py`)
+
+이모지(📁 ✎ 🗑 ＋)는 OS/폰트마다 굵기·정렬·색이 달라 다크 테마 안에서 붕 뜬다는 문제가 있었다.
+반복적으로 쓰이는 네 개(folder/edit/delete/add)를 `QPainter` 로 한 번 그려 `QIcon` 으로 캐시 없이
+매번 생성하는 작은 모듈을 만들었다. 좌표는 20×20 그리드에 잡고 실제 렌더는 요청 크기로
+스케일한다. 오프스크린으로 PNG 시트를 렌더해 16px/64px 두 크기에서 눈으로 확인한 뒤
+(연필 아이콘은 처음에 지우개 캡이 안 보여 밋밋했고, 캡 사각형 + 뾰족한 촉으로 다시 그려서
+바로잡았다) 적용했다.
+
+적용한 곳: `nav_panel.py` 의 Dataset 인라인 행(폴더/수정/삭제) + Task/Work 툴바(추가/수정/삭제),
+`dataset_dialog.py::DatasetManagerDialog` 의 Add/Edit/Remove 버튼, `common.py::OpenFolderButton`
+(경로 입력란마다 붙는 폴더 버튼 - `PathEdit`/`run_panel.py` 상세 영역 등 여러 곳에서 재사용),
+`run_panel.py` 의 Delete 버튼·"Edit This Run"·테이블 우클릭 메뉴(Open .../Edit This Run/Delete
+Selected), 그리고 **`editing.build_item_menu()`** — 서버 칩 컨텍스트 메뉴, `DatasetCombo` 우클릭
+메뉴 등 이 헬퍼를 쓰는 모든 곳에 한 번에 적용됐다(가장 넓게 퍼진 변경이 이 한 줄).
+
+호버 시 아이콘 자체를 재색칠하진 않는다(고정 비트맵이라 어렵고, 기존 `QToolButton:hover` 의
+배경색 반응으로 충분하다고 판단). ↻ ⤓ ⧉ ⎘ ⇄ 처럼 자주 안 바뀌고 이미 폴더/연필/휴지통만큼
+흔한 아이콘이 아닌 것들은 이번엔 손대지 않았다 - "다른 아이콘들도 마찬가지"를 "이 네 개 타입이
+나오는 다른 자리도"로 해석했고, 필요하면 후속 요청으로 넓히면 된다.
+
+### 13.4 Run 테이블 컬럼 순서/폭 저장
+
+`QHeaderView.setSectionsMovable(True)` 는 이미 켜져 있었지만 드래그한 결과가 어디에도 저장되지
+않아 재실행하면 매번 config 기본값(`spec.width`)으로 되돌아갔다. `header.sectionMoved` /
+`sectionResized` 를 `QSettings(ORG_NAME, APP_NAME)` 에 `header.saveState()` 로 저장하고,
+`reload()` 가 부르는 `_apply_column_sizing()` 에서 `header.restoreState()` 로 복원한다.
+
+키는 `columns/{train|inference}/{task_name}` - Task 마다 컬럼 구성이 다를 수 있어서(SR 과 DN 은
+다른 컬럼) Train/Inference·Task 조합별로 따로 저장한다. `restoreState()` 는 섹션 개수가 안
+맞으면(= config 에서 컬럼 구성이 바뀐 경우) 조용히 실패하고 기본값으로 폴백한다 - 별도 처리
+없이 안전하다.
+
+**주의해서 짠 부분**: `reload()` 는 스코프를 바꿀 때마다(혹은 그냥 새로고침할 때도) 불리는데,
+그때마다 `_apply_column_sizing()` 이 `setColumnWidth`/`setSectionHidden` 을 다시 부르면서
+`sectionResized` 시그널을 실제로 발생시킨다. 이걸 "사용자가 방금 드래그했다"로 착각해 저장하면
+프로그램이 스스로 쓴 값을 계속 재저장하는 것도 낭비고, 최악의 경우 복원 도중 값이 저장돼
+꼬일 수 있다. `_restoring_columns` 플래그로 `_apply_column_sizing()` 실행 구간 전체를 감싸
+`_on_column_geometry_changed` 가 이 구간에서는 아무것도 안 하게 막았다. 테스트
+(`test_reload_does_not_write_column_settings_by_itself`)로 이 부분을 명시적으로 검증해 뒀다.
+
+### 13.5 Train/Inference 탭 줄 + Scope 줄 병합, 활성 탭 강조, CTA 색 분리
+
+세 가지가 한 요청이라 함께 적용했다:
+
+- **탭 줄 병합**: `main_window.py` 에서 `scope_label`(Task ▸ Work 줄)을 탭 바 위 별도 줄에
+  두던 것을 `self.tabs.setCornerWidget(self.scope_label, Qt.Corner.TopRightCorner)` 로
+  옮겼다 - Qt 가 탭 바용으로 이미 제공하는 코너 위젯 자리라 레이아웃을 새로 안 짜도 됐다.
+  세로 한 줄만큼 표 영역이 늘어난다.
+- **활성 탭 강조**: `QTabBar::tab:selected` 에 `background: accent.bg` 를 추가해 밑줄 2px 만
+  있던 걸 옅은 남색 배경 + 파란 글자 + 밑줄로 강화했다.
+- **CTA 색 분리**: `+ New Run` 이 `variant="primary"`(파랑, `accent`)를 썼는데, 활성 탭도
+  같은 파랑으로 강조하고 나니 "지금 상태"와 "누를 수 있는 버튼"이 같은 색을 놓고 경쟁했다.
+  청록 계열 `cta` 토큰(dark `#2DD4BF` / light `#0D9488`)을 새로 만들고 `+ New Run` 만 여기로
+  옮겼다 - 폼 안의 Save 버튼은 옆에 경쟁 상대가 없어서 그대로 `primary`(파랑)를 쓴다.

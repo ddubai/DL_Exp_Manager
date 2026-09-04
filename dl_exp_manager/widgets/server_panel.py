@@ -205,7 +205,7 @@ class ServerStatusPanel(QtWidgets.QWidget):
             used = 0
             for job in running.get(server.name, []):
                 job = dict(job)
-                job["color"] = colors.get(int(job["id"]), theme.color("status.running"))
+                job["color"] = colors.get(int(job["id"]), theme.color("server.busy"))
                 jobs.append(job)
                 used += self._parse_count(job.get("gpu_indices"))
 
@@ -238,7 +238,7 @@ class ServerStatusPanel(QtWidgets.QWidget):
             color = theme.color("text.muted")
         elif busy:
             text = f"● {name} ({busy}/{total})"
-            color = theme.color("status.running")
+            color = theme.color("server.busy")
         else:
             text = f"○ {name} (0/{total})"
             color = theme.color("text.secondary")

@@ -34,6 +34,16 @@ DARK: dict[str, str] = {
     "status.running": "#4DA3FF",
     "status.done": "#3FBF7F",
     "status.failed": "#FF6B6B",
+    # -- 서버 -----------------------------------------------------------------
+    # "사용 중"은 running(파란색) 과는 다른 의미라 초록으로 구분한다.
+    "server.busy": "#3FBF7F",
+    # -- 강조색 2 (Primary CTA) -------------------------------------------------
+    # accent(파랑)는 선택/포커스/활성 탭 전용으로 남기고, "새로 만들기" 류 버튼은
+    # 이 색으로 구분해 둘이 한 화면에서 경쟁하지 않게 한다.
+    "cta": "#2DD4BF",
+    "cta.hover": "#5EEAD4",
+    "cta.pressed": "#14B8A6",
+    "cta.text": "#0E1116",
     # -- 의미 -----------------------------------------------------------------
     "metric.best": "#3FBF7F",
     "metric.worst": "#FF8A8A",
@@ -65,6 +75,11 @@ LIGHT: dict[str, str] = {
     "status.running": "#2C6FE0",
     "status.done": "#1D9A5F",
     "status.failed": "#D9483F",
+    "server.busy": "#1D9A5F",
+    "cta": "#0D9488",
+    "cta.hover": "#0F766E",
+    "cta.pressed": "#115E59",
+    "cta.text": "#FFFFFF",
     "metric.best": "#1D9A5F",
     "metric.worst": "#D9483F",
     "danger": "#D9483F",

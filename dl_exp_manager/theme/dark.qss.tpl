@@ -132,6 +132,14 @@ QPushButton[variant="primary"] {
 }
 QPushButton[variant="primary"]:hover { background-color: {{accent.hover}}; border-color: {{accent.hover}}; }
 QPushButton[variant="primary"]:pressed { background-color: {{accent.pressed}}; }
+QPushButton[variant="cta"] {
+    background-color: {{cta}};
+    border: 1px solid {{cta}};
+    color: {{cta.text}};
+    font-weight: 600;
+}
+QPushButton[variant="cta"]:hover { background-color: {{cta.hover}}; border-color: {{cta.hover}}; }
+QPushButton[variant="cta"]:pressed { background-color: {{cta.pressed}}; }
 QPushButton[variant="danger"] {
     background-color: transparent;
     border: 1px solid {{danger}};
@@ -204,6 +212,9 @@ QTabWidget::pane {
     border-radius: {{radius.medium}}px;
     top: -1px;
 }
+QTabBar {
+    qproperty-drawBase: 0;
+}
 QTabBar::tab {
     background: transparent;
     color: {{text.secondary}};
@@ -211,9 +222,12 @@ QTabBar::tab {
     margin-right: 2px;
     border: none;
     border-bottom: 2px solid transparent;
+    border-top-left-radius: {{radius.small}}px;
+    border-top-right-radius: {{radius.small}}px;
 }
-QTabBar::tab:hover { color: {{text.primary}}; }
+QTabBar::tab:hover { color: {{text.primary}}; background: {{bg.hover}}; }
 QTabBar::tab:selected {
+    background: {{accent.bg}};
     color: {{accent}};
     border-bottom: 2px solid {{accent}};
     font-weight: 600;

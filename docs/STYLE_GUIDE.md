@@ -67,18 +67,40 @@ QSS는 이 토큰을 치환해서 생성되므로, 색을 하드코딩한 곳이
 > 선택 행은 **강조색으로 배경을 채우지 말고** `accent.bg`(어두운 남색) + 좌측 2px `accent` 바로 표시합니다.
 > 표 전체가 파랗게 뒤집히면 그 행의 지표 숫자를 읽기 어렵습니다.
 
+### 2.4b 강조색 2 — CTA (`cta`)
+
+| 토큰 | 값 | 용도 |
+|---|---|---|
+| `cta` | `#2DD4BF` | "새로 만들기" 류 주 액션 버튼 (`+ New Run`) |
+| `cta.hover` | `#5EEAD4` | 호버 |
+| `cta.pressed` | `#14B8A6` | 눌림 |
+| `cta.text` | `#0E1116` | 버튼 위 텍스트 |
+
+`accent`(파랑)는 선택 상태·활성 탭·포커스 전용으로 남겨 두고, "새로 만들기" 같은 주 액션
+버튼은 `cta`(청록)로 구분합니다. 활성 탭이 파란색으로 강조된 화면에서 `+ New Run` 버튼까지
+파란색이면 어느 쪽이 "지금 상태"고 어느 쪽이 "누를 수 있는 버튼"인지 헷갈립니다 —
+색상 하나에 의미 두 개를 억지로 얹지 않습니다. `QPushButton[variant="cta"]` 로 적용합니다
+(`variant="primary"` 는 accent, 폼 안의 Save 버튼처럼 별도 경쟁 상대가 없는 곳에 그대로 씁니다).
+
 ### 2.5 상태 색 (다크 전용으로 재조정)
 
 라이트 테마용 구글 팔레트(`#1a73e8`, `#188038`, `#d93025`)는 다크 배경에서 탁합니다. 아래 값으로 대체합니다.
 
 | 상태 | 토큰 | 값 | 아이콘 |
 |---|---|---|---|
-| queued | `status.queued` | `#8B93A7` | `○` |
-| running | `status.running` | `#4DA3FF` | `●` (은은한 펄스 애니메이션) |
-| done | `status.done` | `#3FBF7F` | `●` |
-| failed | `status.failed` | `#FF6B6B` | `●` |
+| queued | `status.queued` | `#8B93A7` (회색) | `○` |
+| running | `status.running` | `#4DA3FF` (파랑) | `●` (은은한 펄스 애니메이션) |
+| done | `status.done` | `#3FBF7F` (초록) | `●` |
+| failed | `status.failed` | `#FF6B6B` (빨강) | `●` |
 
 상태는 **점 + 텍스트**로 표시합니다(칩 배경 채움 ❌). 표 안에서 배경을 칠하면 행 선택과 충돌합니다.
+Status 콤보(New Run 폼)와 상태 필터 드롭다운도 `widgets/common.py::colorize_status_items()` 로
+같은 색을 입혀서, 목록을 펼쳤을 때도 상태를 글자부터 훑을 수 있게 합니다.
+
+`server.busy`(`#3FBF7F`, done 과 같은 초록)는 서버 상태 바의 "GPU 사용 중" 표시 전용입니다.
+`status.running`(파랑)과 값을 공유하지 않는 이유: "이 Run 이 running 상태"와 "이 서버가 지금
+사용 중"은 서로 다른 질문이라, 같은 파랑을 쓰면 서버 바가 실제로는 "몇 대 중 몇 대가 바쁜지"를
+보여줄 뿐인데 마치 Run 상태를 보여주는 것처럼 읽힙니다.
 
 ### 2.6 데이터 시각화 시리즈 색
 
@@ -219,7 +241,8 @@ Malgun Gothic 처럼 각 OS 가 기본 탑재한 한글 고딕으로, 그마저 
 
 | 종류 | 배경 | 글자 | 사용처 |
 |---|---|---|---|
-| Primary | `accent` | `#0E1116` | 화면당 1개 (저장/등록) |
+| CTA | `cta` (청록) | `cta.text` | 화면당 1개, "새로 만들기" (`+ New Run`) |
+| Primary | `accent` (파랑) | `#0E1116` | 폼 안의 Save 등 — 경쟁하는 CTA가 없을 때 |
 | Secondary | `bg.elevated` + `border.default` | `text.primary` | 일반 동작 |
 | Ghost | 투명 | `text.secondary` | 툴바, 아이콘 버튼 |
 | Danger | 투명 + `#FF6B6B` 테두리 | `#FF6B6B` | 삭제 — 채우지 않음 |
@@ -242,6 +265,21 @@ Server 1  H100 ×8   ██▊▊░░░░   3/8 busy
 - 배경 `bg.elevated`, 테두리 `border.subtle`, 반경 `8px`, 항목 높이 `26px`.
 - 파괴적 동작(삭제)은 **항상 맨 아래**, 구분선 위, `#FF6B6B`.
 - 단축키는 우측에 `text.muted` 로 병기 — 사용자가 자연히 익히도록.
+- 폴더 열기/수정/삭제 아이콘은 §5.6 참고. `editing.build_item_menu()` 를 쓰면 자동으로 붙는다.
+
+### 5.6 아이콘
+
+이모지(📁 ✎ 🗑)는 OS/폰트마다 굵기·정렬·색이 달라 다크 테마 안에서 붕 뜹니다. 반복적으로
+쓰이는 폴더/수정/삭제/추가 네 개는 `theme/icons.py` 에서 `QPainter` 로 한 번 그려 `QIcon` 으로
+씁니다(`icons.icon("folder" | "edit" | "delete" | "add", color)`) — 어디서든 같은 굵기·같은
+정렬로 보이고, `theme.color("text.secondary")` 로 칠해 두면 테마를 바꿔도 같이 바뀝니다.
+호버 시 아이콘 자체는 재색칠하지 않고(고정 비트맵이라 어렵다), 기존처럼 `QToolButton:hover`
+의 배경색(`bg.hover`)으로만 반응을 줍니다. 새 아이콘이 필요하면 이 파일에 그리는 함수를
+추가하세요 — 이모지로 되돌리지 않습니다.
+
+그 외 툴바 아이콘(↻ 새로고침, ⤓ 내보내기, ⧉ 복사 등)은 유니코드 기호 그대로 둡니다 — 자주
+바뀌지 않고, 이미 폴더/연필/휴지통만큼 흔히 마주치는 형태가 아니라 굳이 다시 그릴 우선순위가
+낮습니다.
 
 ---
 
@@ -258,6 +296,11 @@ Server 1  H100 ×8   ██▊▊░░░░   3/8 busy
 | `Ctrl+K` | 전역 검색 |
 | `Enter` | 폼에서 저장 |
 | `Esc` | 인라인 편집 취소 |
+| 헤더 드래그 | 컬럼 순서 변경 / 폭 조정 - Task·Train/Inference 별로 자동 저장, 재실행해도 유지 |
+
+Train/Inference 탭은 별도 줄을 쓰지 않고 탭 바 자체의 코너 위젯(우측)에 현재
+Scope(`Task ▸ Work — 설명`)를 붙입니다(`QTabWidget.setCornerWidget`) — 세로 공간을 표 쪽에
+더 내줄 수 있습니다.
 
 ---
 
@@ -290,6 +333,7 @@ dl_exp_manager/theme/
   tokens.py        ← 이 문서의 모든 값. 색을 바꾸려면 여기만 수정
   dark.qss.tpl     ← {{token}} 자리표시자를 쓰는 QSS 템플릿
   fonts.py         ← 폰트 스택 해석 및 번들 폰트 로드
+  icons.py         ← 폴더/수정/삭제/추가 벡터 아이콘 (§5.6)
   __init__.py      ← apply_theme(app, name="dark")
 assets/fonts/      ← (선택) Pretendard, JetBrains Mono
 ```

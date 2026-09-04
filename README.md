@@ -130,6 +130,7 @@ dl_exp_manager/
     tokens.py                  색·치수·폰트 크기의 단일 출처
     dark.qss.tpl               토큰을 치환해 만드는 QSS 템플릿
     fonts.py                   폰트 스택 해석 / 번들 폰트 로드
+    icons.py                   폴더/수정/삭제/추가 벡터 아이콘 (이모지 대체)
   widgets/
     common.py                  PathEdit, ManagedCombo, ServerCombo, GpuSelector, MetricsEditor
     nav_panel.py               Task ▸ Work 드릴다운 + Work 별 Dataset 인라인 표시

@@ -540,6 +540,44 @@ def test_column_preset_full_clears_hidden_set(qapp, config):
     db.close()
 
 
+def test_column_width_and_order_persist_across_panel_instances(qapp, config):
+    """Dragging a header (resize/reorder) should survive a restart - a fresh panel
+    for the same Task must pick up the saved geometry instead of the config defaults."""
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    db, panel, run_id = _panel_with_one_run(config)
+    key = panel._column_settings_key()
+    panel._column_settings.remove(key)  # start clean regardless of prior test runs
+    try:
+        header = panel.view.horizontalHeader()
+        default_width = header.sectionSize(2)
+        header.resizeSection(2, default_width + 123)
+        assert panel._column_settings.value(key) is not None
+
+        window2 = QtWidgets.QMainWindow()
+        panel2 = TrainPanel(db, config, parent=window2)
+        window2.setCentralWidget(panel2)
+        panel2.set_scope(panel._task_id, panel._work_id)
+        assert panel2.view.horizontalHeader().sectionSize(2) == default_width + 123
+    finally:
+        panel._column_settings.remove(key)
+    db.close()
+
+
+def test_reload_does_not_write_column_settings_by_itself(qapp, config):
+    """reload() re-applies sizing/hidden-state on every scope change; that must not
+    be mistaken for a user edit and spam the settings store."""
+    db, panel, run_id = _panel_with_one_run(config)
+    key = panel._column_settings_key()
+    panel._column_settings.remove(key)
+    try:
+        panel.reload()
+        assert panel._column_settings.value(key) is None
+    finally:
+        panel._column_settings.remove(key)
+    db.close()
+
+
 # --- Nav panel: Task ▸ Work drill-down (Option A) -----------------------------
 def _nav_env(config):
     from dl_exp_manager.db import Database

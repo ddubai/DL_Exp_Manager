@@ -6,6 +6,7 @@ from typing import Any, Iterable, Sequence
 
 from .. import editing, theme
 from ..qt import Qt, QtCore, QtGui, QtWidgets, Signal
+from ..theme import icons
 from ..utils import (
     coerce_number,
     format_number,
@@ -13,8 +14,6 @@ from ..utils import (
     parse_gpu_count,
     rows_to_tsv,
 )
-
-FOLDER_ICON = "📁"
 
 
 def monospace_font(point_delta: int = 0) -> QtGui.QFont:
@@ -44,13 +43,29 @@ def copy_to_clipboard(text: str, parent: QtWidgets.QWidget | None = None, label:
     toast(parent, True, f"Copied {label} to the clipboard. ({len(text or '')} chars)")
 
 
+def colorize_status_items(
+    combo: QtWidgets.QComboBox, statuses: Iterable[str], offset: int = 0
+) -> None:
+    """콤보 항목의 글자색을 상태색으로 칠한다 (드롭다운에서 상태를 한눈에 구분하도록)."""
+    for i, status in enumerate(statuses, start=offset):
+        combo.setItemData(
+            i,
+            QtGui.QBrush(QtGui.QColor(theme.status_color(status))),
+            Qt.ItemDataRole.ForegroundRole,
+        )
+
+
 class OpenFolderButton(QtWidgets.QToolButton):
     """OS 탐색기(Finder/탐색기)에서 경로를 여는 버튼."""
 
-    def __init__(self, parent: QtWidgets.QWidget | None = None, text: str = f"{FOLDER_ICON} Open Folder"):
+    def __init__(self, parent: QtWidgets.QWidget | None = None, compact: bool = False):
         super().__init__(parent)
-        self.setText(text)
-        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.setIcon(icons.icon("folder", theme.color("text.secondary")))
+        if compact:
+            self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            self.setText("Open Folder")
+            self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setToolTip("Open this path in the OS file manager (Finder on macOS / Explorer on Windows).")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._provider = lambda: ""
@@ -99,7 +114,7 @@ class PathEdit(QtWidgets.QWidget):
         self.browse_btn.setToolTip("Pick a path with a file dialog.")
         self.browse_btn.clicked.connect(self._browse)
 
-        self.open_btn = OpenFolderButton(self, FOLDER_ICON if compact else f"{FOLDER_ICON} Open Folder")
+        self.open_btn = OpenFolderButton(self, compact=compact)
         self.open_btn.set_path_provider(self.path)
 
         layout = QtWidgets.QHBoxLayout(self)

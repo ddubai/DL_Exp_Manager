@@ -12,6 +12,7 @@ from .. import editing, theme
 from ..config_store import OptionsConfig
 from ..db import Database
 from ..qt import Qt, QtCore, QtGui, QtWidgets, Signal
+from ..theme import icons
 from ..utils import open_in_file_manager
 from .common import monospace_font, toast
 from .dataset_dialog import DatasetEditDialog
@@ -20,6 +21,19 @@ from .dataset_dialog import DatasetEditDialog
 def _registered_bit(created_at: Any) -> str:
     """등록 시각(created_at)을 날짜만 잘라 메타 줄에 붙일 짧은 표기로."""
     return str(created_at or "").strip()[:10]
+
+
+def _icon_button(
+    parent: QtWidgets.QWidget, icon_name: str, tooltip: str
+) -> QtWidgets.QToolButton:
+    """아이콘만 있는 작은 툴버튼 (폴더/수정/삭제처럼 행마다 반복되는 것들)."""
+    btn = QtWidgets.QToolButton(parent)
+    btn.setIcon(icons.icon(icon_name, theme.color("text.secondary")))
+    btn.setToolTip(tooltip)
+    btn.setStyleSheet(
+        "QToolButton { border: none; background: transparent; }"
+    )
+    return btn
 
 
 class _ClickableRow(QtWidgets.QFrame):
@@ -400,26 +414,11 @@ class NavigationPanel(QtWidgets.QWidget):
             top.addWidget(count_label)
         top.addStretch(1)
 
-        folder_btn = QtWidgets.QToolButton(row)
-        folder_btn.setText("📁")
-        folder_btn.setToolTip("Open dataset path in file manager")
-        folder_btn.setStyleSheet(
-            f"QToolButton {{ border: none; background: transparent; color: {theme.color('text.secondary')}; }}"
-        )
+        folder_btn = _icon_button(row, "folder", "Open dataset path in file manager")
         folder_btn.clicked.connect(lambda _=False, d=dataset: self._open_dataset_folder(d))
-        edit_btn = QtWidgets.QToolButton(row)
-        edit_btn.setText("✎")
-        edit_btn.setToolTip("Edit dataset")
-        edit_btn.setStyleSheet(
-            f"QToolButton {{ border: none; background: transparent; color: {theme.color('text.secondary')}; }}"
-        )
+        edit_btn = _icon_button(row, "edit", "Edit dataset")
         edit_btn.clicked.connect(lambda _=False, d=dataset: self._edit_dataset(d))
-        del_btn = QtWidgets.QToolButton(row)
-        del_btn.setText("🗑")
-        del_btn.setToolTip("Remove dataset")
-        del_btn.setStyleSheet(
-            f"QToolButton {{ border: none; background: transparent; color: {theme.color('text.secondary')}; }}"
-        )
+        del_btn = _icon_button(row, "delete", "Remove dataset")
         del_btn.clicked.connect(lambda _=False, d=dataset: self._delete_dataset(d))
         top.addWidget(folder_btn)
         top.addWidget(edit_btn)
@@ -488,21 +487,33 @@ class NavigationPanel(QtWidgets.QWidget):
     def _build_toolbar(self, level: str) -> None:
         self._clear_layout(self.toolbar_layout)
         if level == "root":
-            self.toolbar_layout.addWidget(self._toolbar_btn("＋ Task", self.add_task))
+            self.toolbar_layout.addWidget(self._toolbar_btn("Task", self.add_task, "add"))
         elif level == "task":
-            self.toolbar_layout.addWidget(self._toolbar_btn("＋ Work", self.add_work))
-            self.toolbar_layout.addWidget(self._toolbar_btn("✎ Edit Task", self._edit_current_task))
-            self.toolbar_layout.addWidget(self._toolbar_btn("🗑 Delete Task", self._delete_current_task))
+            self.toolbar_layout.addWidget(self._toolbar_btn("Work", self.add_work, "add"))
+            self.toolbar_layout.addWidget(
+                self._toolbar_btn("Edit Task", self._edit_current_task, "edit")
+            )
+            self.toolbar_layout.addWidget(
+                self._toolbar_btn("Delete Task", self._delete_current_task, "delete")
+            )
         else:
-            self.toolbar_layout.addWidget(self._toolbar_btn("＋ Work", self.add_work))
-            self.toolbar_layout.addWidget(self._toolbar_btn("✎ Edit Work", self._edit_current_work))
-            self.toolbar_layout.addWidget(self._toolbar_btn("🗑 Delete Work", self._delete_current_work))
+            self.toolbar_layout.addWidget(self._toolbar_btn("Work", self.add_work, "add"))
+            self.toolbar_layout.addWidget(
+                self._toolbar_btn("Edit Work", self._edit_current_work, "edit")
+            )
+            self.toolbar_layout.addWidget(
+                self._toolbar_btn("Delete Work", self._delete_current_work, "delete")
+            )
         self.toolbar_layout.addStretch(1)
 
     @staticmethod
-    def _toolbar_btn(text: str, handler: Callable[[], None]) -> QtWidgets.QToolButton:
+    def _toolbar_btn(
+        text: str, handler: Callable[[], None], icon_name: str
+    ) -> QtWidgets.QToolButton:
         btn = QtWidgets.QToolButton()
+        btn.setIcon(icons.icon(icon_name, theme.color("text.secondary")))
         btn.setText(text)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         btn.clicked.connect(handler)
         return btn
 

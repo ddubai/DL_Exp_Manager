@@ -38,19 +38,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.inference_panel, "Inference")
         self.tabs.setDocumentMode(True)
 
+        # Train/Inference 탭과 같은 줄 우측에 현재 Scope(Task ▸ Work)를 보여준다 -
+        # 따로 한 줄을 더 쓰지 않고 탭 바의 코너 위젯 자리를 빌린다.
         self.scope_label = QtWidgets.QLabel("", self)
-        self.scope_label.setStyleSheet("font-size: 14px; font-weight: 600; padding: 2px 6px;")
-
-        right = QtWidgets.QWidget(self)
-        right_layout = QtWidgets.QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(2)
-        right_layout.addWidget(self.scope_label)
-        right_layout.addWidget(self.tabs, 1)
+        self.scope_label.setStyleSheet(
+            f"font-size: 14px; font-weight: 600; padding: 4px 10px 4px 0;"
+            f" color: {theme.color('text.primary')};"
+        )
+        self.tabs.setCornerWidget(self.scope_label, Qt.Corner.TopRightCorner)
 
         self.splitter = QtWidgets.QSplitter(Qt.Orientation.Horizontal, self)
         self.splitter.addWidget(self.nav)
-        self.splitter.addWidget(right)
+        self.splitter.addWidget(self.tabs)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([300, 1200])
