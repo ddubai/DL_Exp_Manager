@@ -420,18 +420,20 @@ class Database:
         sample_count: int | None = None,
         image_size: str = "",
         extension: str = "",
+        created_at: str = "",
     ) -> int | None:
         name = name.strip()
         if not name:
             return None
         ts = now_iso()
+        registered = created_at.strip() or ts
         try:
             cur = self._exec(
                 "INSERT INTO datasets(work_id, name, variant, path, sample_count, image_size, "
                 "extension, notes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     work_id, name, variant.strip(), path.strip(), sample_count,
-                    image_size.strip(), extension.strip(), notes.strip(), ts, ts,
+                    image_size.strip(), extension.strip(), notes.strip(), registered, ts,
                 ),
             )
         except sqlite3.IntegrityError:
@@ -452,13 +454,18 @@ class Database:
         sample_count: int | None = None,
         image_size: str = "",
         extension: str = "",
+        created_at: str = "",
     ) -> None:
+        registered = created_at.strip()
+        if not registered:
+            existing = self.get_dataset(dataset_id)
+            registered = existing["created_at"] if existing else now_iso()
         self._exec(
             "UPDATE datasets SET name = ?, variant = ?, path = ?, sample_count = ?, image_size = ?, "
-            "extension = ?, notes = ?, updated_at = ? WHERE id = ?",
+            "extension = ?, notes = ?, created_at = ?, updated_at = ? WHERE id = ?",
             (
                 name.strip(), variant.strip(), path.strip(), sample_count,
-                image_size.strip(), extension.strip(), notes.strip(), now_iso(), dataset_id,
+                image_size.strip(), extension.strip(), notes.strip(), registered, now_iso(), dataset_id,
             ),
         )
 

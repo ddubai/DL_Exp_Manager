@@ -19,8 +19,7 @@ from .dataset_dialog import DatasetEditDialog
 
 def _registered_bit(created_at: Any) -> str:
     """등록 시각(created_at)을 날짜만 잘라 메타 줄에 붙일 짧은 표기로."""
-    text = str(created_at or "").strip()
-    return f"registered {text[:10]}" if text else ""
+    return str(created_at or "").strip()[:10]
 
 
 class _ClickableRow(QtWidgets.QFrame):
@@ -453,10 +452,12 @@ class NavigationPanel(QtWidgets.QWidget):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
         if not name:
             return
-        self.db.add_dataset(self._work_id, name, variant, path, notes, sample_count, image_size, extension)
+        self.db.add_dataset(
+            self._work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at
+        )
         self._render()
 
     def _open_dataset_folder(self, dataset: dict[str, Any]) -> None:
@@ -467,10 +468,12 @@ class NavigationPanel(QtWidgets.QWidget):
         dialog = DatasetEditDialog(self, dataset)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
         if not name:
             return
-        self.db.update_dataset(dataset["id"], name, variant, path, notes, sample_count, image_size, extension)
+        self.db.update_dataset(
+            dataset["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at
+        )
         self._render()
 
     def _delete_dataset(self, dataset: dict[str, Any]) -> None:

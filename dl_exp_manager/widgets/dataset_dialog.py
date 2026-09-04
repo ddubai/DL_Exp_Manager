@@ -62,6 +62,13 @@ class DatasetEditDialog(QtWidgets.QDialog):
         self.extension_edit = QtWidgets.QLineEdit(dataset.get("extension", "") if dataset else "", self)
         self.extension_edit.setPlaceholderText("optional, e.g. png, tiff, jpg")
 
+        self.registered_edit = QtWidgets.QDateEdit(self)
+        self.registered_edit.setCalendarPopup(True)
+        self.registered_edit.setDisplayFormat("yyyy-MM-dd")
+        registered_text = (dataset.get("created_at", "") if dataset else "")[:10]
+        registered_date = QtCore.QDate.fromString(registered_text, "yyyy-MM-dd")
+        self.registered_edit.setDate(registered_date if registered_date.isValid() else QtCore.QDate.currentDate())
+
         self.notes_edit = QtWidgets.QLineEdit(dataset.get("notes", "") if dataset else "", self)
         self.notes_edit.setPlaceholderText("optional notes")
 
@@ -80,6 +87,7 @@ class DatasetEditDialog(QtWidgets.QDialog):
         form.addRow("Total samples:", self.sample_count_spin)
         form.addRow("Image size:", self.image_size_edit)
         form.addRow("Extension:", self.extension_edit)
+        form.addRow("Registered:", self.registered_edit)
         form.addRow("Notes:", self.notes_edit)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -94,7 +102,7 @@ class DatasetEditDialog(QtWidgets.QDialog):
         )
         layout.addWidget(buttons)
 
-    def result_values(self) -> tuple[str, str, str, str, int | None, str, str]:
+    def result_values(self) -> tuple[str, str, str, str, int | None, str, str, str]:
         return (
             self.name_edit.text().strip(),
             self.variant_edit.text().strip(),
@@ -103,6 +111,7 @@ class DatasetEditDialog(QtWidgets.QDialog):
             self.sample_count_spin.value() or None,
             self.image_size_edit.text().strip(),
             self.extension_edit.text().strip(),
+            self.registered_edit.date().toString("yyyy-MM-dd"),
         )
 
 
@@ -230,11 +239,13 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
         if not name:
             toast(self, False, "Enter a dataset name.", "Add Dataset")
             return
-        self.db.add_dataset(self.work_id, name, variant, path, notes, sample_count, image_size, extension)
+        self.db.add_dataset(
+            self.work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at
+        )
         self._reload()
         self.datasetsChanged.emit()
 
@@ -246,11 +257,13 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         dialog = DatasetEditDialog(self, row)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
         if not name:
             toast(self, False, "Enter a dataset name.", "Edit Dataset")
             return
-        self.db.update_dataset(row["id"], name, variant, path, notes, sample_count, image_size, extension)
+        self.db.update_dataset(
+            row["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at
+        )
         self._reload()
         self.datasetsChanged.emit()
 
@@ -454,10 +467,12 @@ class DatasetCombo(QtWidgets.QComboBox):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
         if not name:
             return
-        self.db.add_dataset(self._work_id, name, variant, path, notes, sample_count, image_size, extension)
+        self.db.add_dataset(
+            self._work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at
+        )
         row = next(
             (r for r in self.db.list_datasets(self._work_id)
              if r["name"] == name and (r.get("variant") or "") == variant),
@@ -478,10 +493,12 @@ class DatasetCombo(QtWidgets.QComboBox):
         dialog = DatasetEditDialog(self, row)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
         if not name:
             return
-        self.db.update_dataset(row["id"], name, variant, path, notes, sample_count, image_size, extension)
+        self.db.update_dataset(
+            row["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at
+        )
         updated = self.db.get_dataset(row["id"])
         self.reload(keep_text=False)
         if updated:

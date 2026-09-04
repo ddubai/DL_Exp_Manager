@@ -631,7 +631,7 @@ def test_nav_shows_registered_datasets_for_selected_work(qapp, config):
     assert "DIV2K" in text_blob and "Full Pair" in text_blob and "DF2K" in text_blob
 
     registered = db.list_datasets(ssl2sl)[0]["created_at"][:10]
-    assert f"registered {registered}" in text_blob
+    assert registered in text_blob
     db.close()
 
 
@@ -669,7 +669,7 @@ def test_nav_add_dataset_via_inline_dialog(qapp, config, monkeypatch):
     monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "", 900, "256x256", "tiff"),
+        lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "", 900, "256x256", "tiff", "2024-01-15"),
     )
     nav._add_dataset()
 
@@ -1265,6 +1265,7 @@ def test_dataset_edit_dialog_round_trips_fields(qapp):
         dataset={
             "name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n",
             "sample_count": 900, "image_size": "256x256", "extension": "tiff",
+            "created_at": "2024-01-15 10:00:00",
         }
     )
     assert dialog.name_edit.text() == "DIV2K"
@@ -1273,7 +1274,18 @@ def test_dataset_edit_dialog_round_trips_fields(qapp):
     assert dialog.sample_count_spin.value() == 900
     assert dialog.image_size_edit.text() == "256x256"
     assert dialog.extension_edit.text() == "tiff"
-    assert dialog.result_values() == ("DIV2K", "Full Pair", "/a", "n", 900, "256x256", "tiff")
+    assert dialog.registered_edit.date().toString("yyyy-MM-dd") == "2024-01-15"
+    assert dialog.result_values() == (
+        "DIV2K", "Full Pair", "/a", "n", 900, "256x256", "tiff", "2024-01-15"
+    )
+
+
+def test_dataset_edit_dialog_defaults_registered_to_today_when_adding(qapp):
+    from dl_exp_manager.qt import QtCore
+    from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
+
+    dialog = DatasetEditDialog()
+    assert dialog.registered_edit.date() == QtCore.QDate.currentDate()
 
 
 def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
@@ -1291,7 +1303,7 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     )
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/a", "", 900, "256x256", "tiff"),
+        lambda self: ("DIV2K", "Full Pair", "/mnt/a", "", 900, "256x256", "tiff", "2024-01-15"),
     )
     dialog._add()
     assert dialog.table.rowCount() == 1
@@ -1299,19 +1311,20 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     assert db.list_datasets(work_id)[0]["sample_count"] == 900
     assert db.list_datasets(work_id)[0]["image_size"] == "256x256"
     assert db.list_datasets(work_id)[0]["extension"] == "tiff"
+    assert db.list_datasets(work_id)[0]["created_at"] == "2024-01-15"
     assert dialog.table.item(0, 3).text() == "900"
     assert dialog.table.item(0, 4).text() == "256x256"
     assert dialog.table.item(0, 5).text() == "tiff"
-    registered = db.list_datasets(work_id)[0]["created_at"]
-    assert dialog.table.item(0, 6).text() == registered[:10]
+    assert dialog.table.item(0, 6).text() == "2024-01-15"
 
     dialog.table.selectRow(0)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved", 1000, "512x512", "png"),
+        lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved", 1000, "512x512", "png", "2024-02-20"),
     )
     dialog._edit_selected()
     assert db.list_datasets(work_id)[0]["path"] == "/mnt/b"
+    assert db.list_datasets(work_id)[0]["created_at"] == "2024-02-20"
     assert db.list_datasets(work_id)[0]["notes"] == "moved"
     assert db.list_datasets(work_id)[0]["image_size"] == "512x512"
     assert db.list_datasets(work_id)[0]["extension"] == "png"
@@ -1363,7 +1376,7 @@ def test_dataset_combo_add_new_dataset_inline(qapp, config, monkeypatch):
     monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("Flickr2K", "", "/mnt/data/Flickr2K", "", 2650, "1920x1080", "png"),
+        lambda self: ("Flickr2K", "", "/mnt/data/Flickr2K", "", 2650, "1920x1080", "png", "2024-03-01"),
     )
     panel.dataset_combo.add_item()
 

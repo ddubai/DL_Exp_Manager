@@ -187,6 +187,25 @@ def test_dataset_update_and_delete():
     db.close()
 
 
+def test_dataset_registered_date_is_editable_but_defaults_to_now():
+    db = make_db()
+    work_id = db.add_work(db.add_task("SR"), "W")
+
+    auto_id = db.add_dataset(work_id, "DIV2K", path="/a")
+    assert db.get_dataset(auto_id)["created_at"]  # now() 로 채워짐
+
+    dated_id = db.add_dataset(work_id, "DF2K", path="/b", created_at="2024-01-15")
+    assert db.get_dataset(dated_id)["created_at"] == "2024-01-15"
+
+    db.update_dataset(dated_id, "DF2K", path="/b", created_at="2024-02-20")
+    assert db.get_dataset(dated_id)["created_at"] == "2024-02-20"
+
+    # created_at 을 안 주면 기존 값을 그대로 둔다 (다른 필드만 고칠 때 날짜가 안 튐)
+    db.update_dataset(dated_id, "DF2K", path="/c")
+    assert db.get_dataset(dated_id)["created_at"] == "2024-02-20"
+    db.close()
+
+
 def test_dataset_sample_count_round_trip():
     db = make_db()
     work_id = db.add_work(db.add_task("SR"), "W")

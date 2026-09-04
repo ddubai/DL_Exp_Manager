@@ -555,3 +555,21 @@ toast 로 보여줘서 별도 예외 처리가 필요 없었습니다.
 offscreen 환경에서 모달이 뜬 채 `exec()` 가 영원히 안 끝나 테스트 프로세스 전체가 멈춥니다
 (실제로 처음 테스트를 그렇게 짰다가 pytest 가 걸려서 중간에 죽여야 했음). 이런 위젯을
 단독으로 테스트할 땐 `toast` 자체를 monkeypatch 해서 우회해야 합니다.
+
+### 12.7 후속 수정 — 등록일을 Edit Dataset 에서 직접 고칠 수 있게, 표시에서 "registered" 라벨 제거
+
+§12.6 에서는 `created_at` 을 읽기 전용으로만 보여줬는데, 다른 항목들처럼 고칠 수 있어야
+한다는 피드백을 받아 `DatasetEditDialog` 에 `QDateEdit`("Registered:") 을 추가했습니다.
+새로 등록할 땐 오늘 날짜가 기본값이고, 기존 데이터셋을 열면 그 `created_at` 날짜로 채워집니다.
+`result_values()` 가 8-튜플로 늘어나(`registered_at` 추가), 이걸 쓰는 4곳
+(`DatasetManagerDialog._add/_edit_selected`, `DatasetCombo.add_item/_edit_row`,
+`NavigationPanel._add_dataset/_edit_dataset`)을 전부 맞춰 고쳤습니다.
+
+`db.add_dataset`/`update_dataset` 에 `created_at: str = ""` 파라미터를 추가했습니다 - 값을
+주면 그 날짜로, 안 주면(빈 문자열) add 는 지금 시각을, update 는 **기존 값을 그대로 유지**합니다
+(날짜 필드를 안 건드리고 다른 필드만 고치는 기존 호출부가 있어도 등록일이 저절로 튀지 않게).
+
+표시 쪽은 "registered 2026-09-04" 처럼 라벨을 붙였던 걸 날짜만("2026-09-04") 보이도록
+줄였습니다 - `DatasetManagerDialog` 표의 "Registered" 컬럼 헤더가 이미 라벨 역할을 하고,
+네비게이션 인라인 행은 옆에 image_size/extension 과 나란히 붙어 있어 굳이 문구가 없어도
+날짜라는 게 맥락상 읽힙니다.
