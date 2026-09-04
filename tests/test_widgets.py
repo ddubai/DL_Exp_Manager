@@ -386,13 +386,13 @@ def test_form_collects_tags_and_failure_reason(qapp, config):
 def test_failure_reason_row_visibility_follows_status(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
     panel.reset_form()
-    assert panel.form_layout.isRowVisible(panel.failure_reason_edit) is False
+    assert panel.right_form_layout.isRowVisible(panel.failure_reason_edit) is False
 
     panel.status_combo.setCurrentIndex(panel.status_combo.findData("failed"))
-    assert panel.form_layout.isRowVisible(panel.failure_reason_edit) is True
+    assert panel.right_form_layout.isRowVisible(panel.failure_reason_edit) is True
 
     panel.status_combo.setCurrentIndex(panel.status_combo.findData("done"))
-    assert panel.form_layout.isRowVisible(panel.failure_reason_edit) is False
+    assert panel.right_form_layout.isRowVisible(panel.failure_reason_edit) is False
     db.close()
 
 
@@ -457,7 +457,7 @@ def test_paths_and_command_hidden_until_row_selected(qapp, config):
     db.close()
 
 
-def test_inference_hides_server_and_gpu_rows(qapp, config):
+def test_inference_shows_server_but_hides_gpu_row(qapp, config):
     from dl_exp_manager.db import Database
     from dl_exp_manager.widgets.run_panel import InferencePanel
 
@@ -469,12 +469,16 @@ def test_inference_hides_server_and_gpu_rows(qapp, config):
     window.setCentralWidget(panel)
     panel.set_scope(task_id, work_id)
 
-    assert panel.form_layout.getWidgetPosition(panel.server_combo)[0] == -1
+    # Server is back for Inference (item 6 of the requested field order)...
+    assert panel.form_layout.getWidgetPosition(panel.server_combo)[0] != -1
+    # isHidden() (not isVisibleTo()) - the form now lives inside a QScrollArea
+    # that's never actually shown in this test, which makes isVisibleTo()
+    # unreliable; isHidden() checks the explicit hidden flag we actually set.
+    assert panel.server_combo.isHidden() is False
+    # ...but GPU still isn't - not just absent from the layout, actually hidden
+    # (an unlaid-out widget would otherwise float unpositioned at (0,0)).
     assert panel.form_layout.getWidgetPosition(panel.gpu_selector)[0] == -1
-    # Not just absent from the layout - actually hidden, or they float unpositioned
-    # at (0,0) on top of the form instead of taking no space.
-    assert panel.server_combo.isVisibleTo(panel) is False
-    assert panel.gpu_selector.isVisibleTo(panel) is False
+    assert panel.gpu_selector.isHidden() is True
     db.close()
 
 

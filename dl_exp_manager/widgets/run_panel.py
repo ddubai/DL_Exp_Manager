@@ -165,7 +165,8 @@ class BaseRunPanel(QtWidgets.QWidget):
     METRIC_PRESETS: Sequence[str] = ()
     DETAIL_PATHS: Sequence[tuple[str, str]] = ()
     SAMPLE_COMMAND: str = ""
-    SHOW_SERVER_GPU: bool = True
+    SHOW_SERVER: bool = True
+    SHOW_GPU: bool = True
     SHOW_TRAINING_CURVE: bool = True
 
     runsChanged = Signal()
@@ -426,7 +427,8 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _build_form_dialog(self) -> None:
         self.form_dialog = QtWidgets.QDialog(self)
         self.form_dialog.setModal(True)
-        self.form_dialog.setMinimumSize(440, 600)
+        self.form_dialog.setMinimumSize(900, 640)
+        self.form_dialog.resize(1000, 700)
         dialog_layout = QtWidgets.QVBoxLayout(self.form_dialog)
         dialog_layout.setContentsMargins(0, 0, 0, 0)
         dialog_layout.addWidget(self._build_form_area())
@@ -492,89 +494,25 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.form_dialog.activateWindow()
 
     def _build_form_area(self) -> QtWidgets.QWidget:
-        scroll = QtWidgets.QScrollArea(self.form_dialog)
-        scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(360)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        """팝업을 좌(실행 설정)/우(경로 + 실행 코드)로 나눈다."""
+        container = QtWidgets.QWidget(self.form_dialog)
+        outer_layout = QtWidgets.QVBoxLayout(container)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
-        inner = QtWidgets.QWidget(scroll)
-        self.form_layout = QtWidgets.QFormLayout(inner)
-        self.form_layout.setContentsMargins(12, 12, 12, 12)
-        self.form_layout.setSpacing(6)
-        self.form_layout.setFieldGrowthPolicy(
-            QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
-        self.form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        splitter = QtWidgets.QSplitter(Qt.Orientation.Horizontal, container)
+        splitter.setChildrenCollapsible(False)
 
-        # -- Common top fields -----------------------------------------------
-        # Work ID comes from the DB (works table), not options config.
-        self.work_combo = EditableCombo([], inner, "Work ID (new if not found)")
-        self.work_combo.setToolTip("The Work ID this run belongs to. Typing a new value creates it.")
+        # -- LEFT: Work / Server / GPU / Model / Dataset / Status / ... --------
+        left_scroll, left_inner = self._make_form_pane(splitter)
+        self.form_layout = QtWidgets.QFormLayout(left_inner)
+        self._style_form_layout(self.form_layout)
 
-        self.server_combo = ServerCombo(inner)
-        self.server_combo.currentTextChanged.connect(self._on_server_changed)
-        self.model_combo = self._make_option_combo("model", "Model", inner)
+        self._build_left_fields(left_inner)
 
-        self.dataset_combo = DatasetCombo(self.db, inner)
-        self.dataset_combo.setToolTip(
-            "Datasets registered for this Work. Picking one also fills in "
-            f"{self._dataset_path_label()}."
-        )
-        self.dataset_combo.datasetSelected.connect(self._on_dataset_selected)
-        manage_datasets_btn = QtWidgets.QToolButton(inner)
-        manage_datasets_btn.setText("📦")
-        manage_datasets_btn.setToolTip(
-            "Manage all datasets registered for this Work (name, variant, path, sample count)."
-        )
-        manage_datasets_btn.clicked.connect(self._open_dataset_manager)
-        dataset_row = QtWidgets.QWidget(inner)
-        dataset_row_layout = QtWidgets.QHBoxLayout(dataset_row)
-        dataset_row_layout.setContentsMargins(0, 0, 0, 0)
-        dataset_row_layout.setSpacing(4)
-        dataset_row_layout.addWidget(self.dataset_combo, 1)
-        dataset_row_layout.addWidget(manage_datasets_btn)
-
-        self.status_combo = QtWidgets.QComboBox(inner)
-        for status in C.STATUS_LIST:
-            self.status_combo.addItem(f"●  {status}", status)
-        self.status_combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_QUEUED))
-
-        self.started_edit = QtWidgets.QLineEdit(inner)
-        self.started_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
-        now_btn = QtWidgets.QToolButton(inner)
-        now_btn.setText("Now")
-        now_btn.clicked.connect(lambda: self.started_edit.setText(now_iso()))
-        started_row = QtWidgets.QWidget(inner)
-        started_layout = QtWidgets.QHBoxLayout(started_row)
-        started_layout.setContentsMargins(0, 0, 0, 0)
-        started_layout.setSpacing(4)
-        started_layout.addWidget(self.started_edit, 1)
-        started_layout.addWidget(now_btn)
-
-        self.duration_edit = QtWidgets.QLineEdit(inner)
-        self.duration_edit.setPlaceholderText("e.g. 3h 20m / 01:30:00 / 5400 (seconds)")
-
-        self.gpu_selector = GpuSelector(inner)
-
-        self.form_layout.addRow("Work ID:", self.work_combo)
-        if self.SHOW_SERVER_GPU:
-            self.form_layout.addRow("Server:", self.server_combo)
-            self.form_layout.addRow("GPU:", self.gpu_selector)
-        else:
-            # 레이아웃에 올리지 않은 위젯은 부모 위 (0,0) 에 떠 있는 채로 계속
-            # 보이므로, 아예 숨겨야 한다 (그냥 자식으로만 두면 안 됨).
-            self.server_combo.setVisible(False)
-            self.gpu_selector.setVisible(False)
-        self.form_layout.addRow("Model:", self.model_combo)
-        self.form_layout.addRow("Dataset:", dataset_row)
-        self.form_layout.addRow("Status:", self.status_combo)
-        self.form_layout.addRow("Started At:", started_row)
-        self.form_layout.addRow("Duration:", self.duration_edit)
-
-        # -- Task-specific fields (from config) -------------------------------
-        self._custom_section = self._section("Task-Specific Fields", inner)
+        self._custom_section = self._section("Task-Specific Fields", left_inner)
         self.form_layout.addRow(self._custom_section)
-        self._custom_host = QtWidgets.QWidget(inner)
+        self._custom_host = QtWidgets.QWidget(left_inner)
         self._custom_form = QtWidgets.QFormLayout(self._custom_host)
         self._custom_form.setContentsMargins(0, 0, 0, 0)
         self._custom_form.setSpacing(6)
@@ -583,108 +521,246 @@ class BaseRunPanel(QtWidgets.QWidget):
         )
         self.form_layout.addRow(self._custom_host)
 
-        # -- Subclass-specific fields ------------------------------------------
-        self._build_extra_form_rows(inner)
+        # Train 의 Training Hyperparameters 는 여기(Task-Specific Fields 다음, Metrics 전)
+        # 에 온다 - Inference 는 _build_left_fields 에서 이미 다 그려서 여기선 no-op.
+        self._build_extra_form_rows(left_inner)
 
-        # -- Paths -------------------------------------------------------------
-        self.dataset_path_edit = PathEdit(inner, "/mnt/data/DIV2K/train", compact=True)
-        self.result_path_edit = PathEdit(inner, "/mnt/exp/SSL2SL/restormer_x4", compact=True)
+        self.metrics_editor = MetricsEditor(
+            self.METRIC_PRESETS, left_inner, config=self.config, task_getter=self.current_task_name
+        )
+        self.metrics_editor.metricsDefined.connect(self._on_metrics_defined)
+        self.form_layout.addRow(self._section("Evaluation Metrics", left_inner))
+        self.form_layout.addRow(self.metrics_editor)
+
+        left_scroll.setWidget(left_inner)
+
+        # -- RIGHT: Paths + Execution Code / Config -----------------------------
+        right_scroll, right_inner = self._make_form_pane(splitter)
+        self.right_form_layout = QtWidgets.QFormLayout(right_inner)
+        self._style_form_layout(self.right_form_layout)
+        self._build_right_fields(right_inner)
+        right_scroll.setWidget(right_inner)
+
+        splitter.addWidget(left_scroll)
+        splitter.addWidget(right_scroll)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([500, 500])
+
+        # -- Buttons - 스크롤 영역 밖에 둬서 폼을 내려도 항상 보이게 -------------------
+        self.save_btn = QtWidgets.QPushButton("+ Register Run", container)
+        self.save_btn.setProperty("variant", "primary")
+        self.save_btn.setDefault(True)
+        self.save_btn.clicked.connect(self.save_form)
+
+        self.new_btn = QtWidgets.QPushButton("Clear", container)
+        self.new_btn.setToolTip("Clear the form for a new entry (keeps this dialog open).")
+        self.new_btn.clicked.connect(self.reset_form)
+
+        self.cancel_btn = QtWidgets.QPushButton("Cancel", container)
+        self.cancel_btn.clicked.connect(self.form_dialog.hide)
+
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(12, 8, 12, 10)
+        buttons.setSpacing(6)
+        buttons.addWidget(self.save_btn, 2)
+        buttons.addWidget(self.new_btn, 1)
+        buttons.addWidget(self.cancel_btn, 1)
+
+        outer_layout.addWidget(splitter, 1)
+        outer_layout.addLayout(buttons)
+
+        # 폼이 스크롤 영역 안에 있어서, 휠로 스크롤하다 커서가 콤보/스핀박스 위를
+        # 지나면 그 값이 실수로 바뀌기 쉽다 - 이 폼 안의 모든 콤보/스핀박스에서 막는다.
+        editing.disable_wheel_scrolling(container)
+
+        return container
+
+    @staticmethod
+    def _make_form_pane(parent: QtWidgets.QWidget) -> tuple[QtWidgets.QScrollArea, QtWidgets.QWidget]:
+        scroll = QtWidgets.QScrollArea(parent)
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(340)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        inner = QtWidgets.QWidget(scroll)
+        return scroll, inner
+
+    @staticmethod
+    def _style_form_layout(layout: QtWidgets.QFormLayout) -> None:
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
+        layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+    # ==================================================================
+    # LEFT column - Train 의 기본 순서. Inference 는 이 메서드를 통째로 오버라이드한다.
+    # ==================================================================
+    def _build_left_fields(self, parent: QtWidgets.QWidget) -> None:
+        self.work_combo = self._make_work_combo(parent)
+        self.form_layout.addRow("Work ID:", self.work_combo)
+
+        self.server_combo = self._make_server_combo(parent)
+        if self.SHOW_SERVER:
+            self.form_layout.addRow("Server:", self.server_combo)
+        else:
+            self.server_combo.setVisible(False)
+
+        self.gpu_selector = GpuSelector(parent)
+        if self.SHOW_GPU:
+            self.form_layout.addRow("GPU:", self.gpu_selector)
+        else:
+            # 레이아웃에 올리지 않은 위젯은 부모 위 (0,0) 에 떠 있는 채로 계속
+            # 보이므로, 아예 숨겨야 한다 (그냥 자식으로만 두면 안 됨).
+            self.gpu_selector.setVisible(False)
+
+        self.model_combo = self._make_option_combo("model", "Model", parent)
+        self.form_layout.addRow("Model:", self.model_combo)
+
+        dataset_row = self._make_dataset_row(parent)
+        self.form_layout.addRow("Dataset:", dataset_row)
+
+        self.status_combo = self._make_status_combo(parent)
+        self.form_layout.addRow("Status:", self.status_combo)
+
+        started_row = self._make_started_row(parent)
+        self.form_layout.addRow("Started At:", started_row)
+
+        self.duration_edit = self._make_duration_edit(parent)
+        self.form_layout.addRow("Duration:", self.duration_edit)
+
+    def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
+        """Subclasses add their own input fields here (Train: Training Hyperparameters).
+
+        Called by `_build_form_area` right after Task-Specific Fields, before
+        Evaluation Metrics - not from `_build_left_fields` itself, so it lands in
+        the same spot regardless of how a subclass orders its other fields.
+        """
+
+    # -- 공용 위젯 팩토리 - LEFT 컬럼 순서를 재구성하는 서브클래스(Inference)도 함께 쓴다 ---
+    @staticmethod
+    def _make_work_combo(parent: QtWidgets.QWidget) -> EditableCombo:
+        combo = EditableCombo([], parent, "Work ID (new if not found)")
+        combo.setToolTip("The Work ID this run belongs to. Typing a new value creates it.")
+        return combo
+
+    def _make_server_combo(self, parent: QtWidgets.QWidget) -> ServerCombo:
+        combo = ServerCombo(parent)
+        combo.currentTextChanged.connect(self._on_server_changed)
+        return combo
+
+    def _make_dataset_row(self, parent: QtWidgets.QWidget) -> QtWidgets.QWidget:
+        self.dataset_combo = DatasetCombo(self.db, parent)
+        self.dataset_combo.setToolTip(
+            "Datasets registered for this Work. Picking one also fills in "
+            f"{self._dataset_path_label()}."
+        )
+        self.dataset_combo.datasetSelected.connect(self._on_dataset_selected)
+        manage_datasets_btn = QtWidgets.QToolButton(parent)
+        manage_datasets_btn.setText("📦")
+        manage_datasets_btn.setToolTip(
+            "Manage all datasets registered for this Work "
+            "(name, variant, path, sample count, image size, extension)."
+        )
+        manage_datasets_btn.clicked.connect(self._open_dataset_manager)
+        row = QtWidgets.QWidget(parent)
+        row_layout = QtWidgets.QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(4)
+        row_layout.addWidget(self.dataset_combo, 1)
+        row_layout.addWidget(manage_datasets_btn)
+        return row
+
+    @staticmethod
+    def _make_status_combo(parent: QtWidgets.QWidget) -> QtWidgets.QComboBox:
+        combo = QtWidgets.QComboBox(parent)
+        for status in C.STATUS_LIST:
+            combo.addItem(f"●  {status}", status)
+        combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_QUEUED))
+        return combo
+
+    def _make_started_row(self, parent: QtWidgets.QWidget) -> QtWidgets.QWidget:
+        self.started_edit = QtWidgets.QLineEdit(parent)
+        self.started_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
+        now_btn = QtWidgets.QToolButton(parent)
+        now_btn.setText("Now")
+        now_btn.clicked.connect(lambda: self.started_edit.setText(now_iso()))
+        row = QtWidgets.QWidget(parent)
+        layout = QtWidgets.QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(self.started_edit, 1)
+        layout.addWidget(now_btn)
+        return row
+
+    @staticmethod
+    def _make_duration_edit(parent: QtWidgets.QWidget) -> QtWidgets.QLineEdit:
+        edit = QtWidgets.QLineEdit(parent)
+        edit.setPlaceholderText("e.g. 3h 20m / 01:30:00 / 5400 (seconds)")
+        return edit
+
+    # ==================================================================
+    # RIGHT column - Paths + Execution Code / Config (양쪽 폼 공통)
+    # ==================================================================
+    def _build_right_fields(self, parent: QtWidgets.QWidget) -> None:
+        self.dataset_path_edit = PathEdit(parent, "/mnt/data/DIV2K/train", compact=True)
+        self.result_path_edit = PathEdit(parent, "/mnt/exp/SSL2SL/restormer_x4", compact=True)
         self.result_path_edit.folderDropped.connect(self._on_result_folder_dropped)
-        parse_btn = QtWidgets.QToolButton(inner)
+        parse_btn = QtWidgets.QToolButton(parent)
         parse_btn.setText("⇪ Parse")
         parse_btn.setToolTip(
             "Read config.yaml + the training log in Result Folder Path and fill in "
             "Model/Dataset/hyperparameters/Metrics/Duration automatically."
         )
         parse_btn.clicked.connect(self._parse_result_folder)
-        result_path_row = QtWidgets.QWidget(inner)
+        result_path_row = QtWidgets.QWidget(parent)
         result_path_layout = QtWidgets.QHBoxLayout(result_path_row)
         result_path_layout.setContentsMargins(0, 0, 0, 0)
         result_path_layout.setSpacing(4)
         result_path_layout.addWidget(self.result_path_edit, 1)
         result_path_layout.addWidget(parse_btn)
-        self.form_layout.addRow(self._section("Paths", inner))
-        self.form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
-        self.form_layout.addRow("Result Folder Path:", result_path_row)
+        self.right_form_layout.addRow(self._section("Paths", parent))
+        self.right_form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
+        self.right_form_layout.addRow("Result Folder Path:", result_path_row)
 
-        # -- Metrics -----------------------------------------------------------
-        self.metrics_editor = MetricsEditor(
-            self.METRIC_PRESETS, inner, config=self.config, task_getter=self.current_task_name
-        )
-        self.metrics_editor.metricsDefined.connect(self._on_metrics_defined)
-        self.form_layout.addRow(self._section("Evaluation Metrics", inner))
-        self.form_layout.addRow(self.metrics_editor)
-
-        # -- Execution command / config -------------------------------------------
         self.command_input = LabeledText(
             "Execution Command",
-            inner,
+            parent,
             placeholder=self.SAMPLE_COMMAND,
             min_height=90,
         )
-        sample_cmd_btn = QtWidgets.QToolButton(inner)
+        sample_cmd_btn = QtWidgets.QToolButton(parent)
         sample_cmd_btn.setText("Sample")
         sample_cmd_btn.setToolTip("Fill in an example command.")
         sample_cmd_btn.clicked.connect(lambda: self.command_input.set_text(self.SAMPLE_COMMAND))
         self.command_input.add_header_widget(sample_cmd_btn)
 
         self.config_input = LabeledText(
-            "config.yml", inner, placeholder="# Paste YAML config content here", min_height=140
+            "config.yml", parent, placeholder="# Paste YAML config content here", min_height=140
         )
-        load_cfg_btn = QtWidgets.QToolButton(inner)
+        load_cfg_btn = QtWidgets.QToolButton(parent)
         load_cfg_btn.setText("Load From File")
         load_cfg_btn.clicked.connect(self._load_config_from_file)
         self.config_input.add_header_widget(load_cfg_btn)
 
         self.notes_input = LabeledText(
-            "Notes", inner, placeholder="Free-form notes", mono=False, min_height=70
+            "Notes", parent, placeholder="Free-form notes", mono=False, min_height=70
         )
 
-        self.tags_edit = QtWidgets.QLineEdit(inner)
+        self.tags_edit = QtWidgets.QLineEdit(parent)
         self.tags_edit.setPlaceholderText("comma-separated, e.g. paper-final, ablation")
         self.tags_edit.setToolTip("Free-form labels. Also searchable from the toolbar search box.")
 
-        self.failure_reason_edit = QtWidgets.QLineEdit(inner)
+        self.failure_reason_edit = QtWidgets.QLineEdit(parent)
         self.failure_reason_edit.setPlaceholderText("e.g. CUDA OOM at batch 32")
         self.status_combo.currentIndexChanged.connect(self._sync_failure_reason_visibility)
 
-        self.form_layout.addRow(self._section("Execution Code / Config", inner))
-        self.form_layout.addRow(self.command_input)
-        self.form_layout.addRow(self.config_input)
-        self.form_layout.addRow(self.notes_input)
-        self.form_layout.addRow("Tags:", self.tags_edit)
-        self.form_layout.addRow("Failure Reason:", self.failure_reason_edit)
+        self.right_form_layout.addRow(self._section("Execution Code / Config", parent))
+        self.right_form_layout.addRow(self.command_input)
+        self.right_form_layout.addRow(self.config_input)
+        self.right_form_layout.addRow(self.notes_input)
+        self.right_form_layout.addRow("Tags:", self.tags_edit)
+        self.right_form_layout.addRow("Failure Reason:", self.failure_reason_edit)
         self._sync_failure_reason_visibility()
-
-        # -- Buttons ---------------------------------------------------------------
-        self.save_btn = QtWidgets.QPushButton("+ Register Run", inner)
-        self.save_btn.setProperty("variant", "primary")
-        self.save_btn.setDefault(True)
-        self.save_btn.clicked.connect(self.save_form)
-
-        self.new_btn = QtWidgets.QPushButton("Clear", inner)
-        self.new_btn.setToolTip("Clear the form for a new entry (keeps this dialog open).")
-        self.new_btn.clicked.connect(self.reset_form)
-
-        self.cancel_btn = QtWidgets.QPushButton("Cancel", inner)
-        self.cancel_btn.clicked.connect(self.form_dialog.hide)
-
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.setContentsMargins(0, 6, 0, 0)
-        buttons.addWidget(self.save_btn, 2)
-        buttons.addWidget(self.new_btn, 1)
-        buttons.addWidget(self.cancel_btn, 1)
-        self.form_layout.addRow(self._wrap(buttons, inner))
-
-        # 폼이 스크롤 영역 안에 있어서, 휠로 스크롤하다 커서가 콤보/스핀박스 위를
-        # 지나면 그 값이 실수로 바뀌기 쉽다 - 이 폼 안의 모든 콤보/스핀박스에서 막는다.
-        editing.disable_wheel_scrolling(inner)
-
-        scroll.setWidget(inner)
-        return scroll
-
-    def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
-        """Subclasses add their own input fields here."""
 
     # -- option combos ------------------------------------------------------------
     def current_task_name(self) -> str | None:
@@ -736,7 +812,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         """Failure reason only matters once a run is marked failed - keep it out of the
         way otherwise so the form doesn't ask about failures that haven't happened."""
         is_failed = self.status_combo.currentData() == C.STATUS_FAILED
-        self.form_layout.setRowVisible(self.failure_reason_edit, is_failed)
+        self.right_form_layout.setRowVisible(self.failure_reason_edit, is_failed)
 
     def _dataset_path_label(self) -> str:
         return "Dataset Path"
@@ -746,12 +822,6 @@ class BaseRunPanel(QtWidgets.QWidget):
         label = QtWidgets.QLabel(f"<span style='color:#1a73e8'><b>— {title} —</b></span>", parent)
         label.setContentsMargins(0, 8, 0, 0)
         return label
-
-    @staticmethod
-    def _wrap(layout: QtWidgets.QLayout, parent: QtWidgets.QWidget) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget(parent)
-        widget.setLayout(layout)
-        return widget
 
     def _load_config_from_file(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1806,7 +1876,8 @@ class InferencePanel(BaseRunPanel):
     KIND = "inference"
     SAMPLE_COMMAND = C.SAMPLE_INFER_CMD
     METRIC_PRESETS = C.INFER_METRIC_PRESETS
-    SHOW_SERVER_GPU = False  # 추론은 서버/GPU 를 굳이 안 골라도 된다 - Train run + epoch 이 핵심
+    SHOW_SERVER = True  # Server 는 보여준다 - 어느 서버에서 돌렸는지는 여전히 유용
+    SHOW_GPU = False  # GPU 는 계속 뺀다 - Train Run + Epoch/Iter 가 핵심 식별자
     SHOW_TRAINING_CURVE = False  # 학습 곡선은 loss.log 기반 - 추론에는 해당 없음
     DETAIL_PATHS = (
         ("checkpoint_path", "Checkpoint Path"),
@@ -1819,16 +1890,22 @@ class InferencePanel(BaseRunPanel):
     def _dataset_path_label(self) -> str:
         return "Test Dataset Path"
 
-    def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
+    def _build_left_fields(self, parent: QtWidgets.QWidget) -> None:
+        """Train 과 순서가 크게 달라(같은 Work 의 Train Run 을 먼저 고르는 흐름) 통째로 재구성한다."""
+        self.work_combo = self._make_work_combo(parent)
+        self.form_layout.addRow("Work ID:", self.work_combo)
+
         self.source_run_combo = QtWidgets.QComboBox(parent)
         self.source_run_combo.setToolTip(
             "Pick a Train run from this Work to base the inference on. "
             "Sets Model automatically; you still pick which checkpoint/epoch."
         )
         self.source_run_combo.currentIndexChanged.connect(self._on_source_run_changed)
+        self.form_layout.addRow("Train Run:", self.source_run_combo)
 
         self.checkpoint_epoch_edit = QtWidgets.QLineEdit(parent)
         self.checkpoint_epoch_edit.setPlaceholderText("e.g. 300000 (iter) or 200 (epoch)")
+        self.form_layout.addRow("Epoch/Iter:", self.checkpoint_epoch_edit)
 
         self.checkpoint_edit = PathEdit(
             parent,
@@ -1836,22 +1913,49 @@ class InferencePanel(BaseRunPanel):
             directory=False,
             compact=True,
         )
+        self.form_layout.addRow("Checkpoint Path:", self.checkpoint_edit)
+
+        self.model_combo = self._make_option_combo("model", "Model", parent)
+        self.model_combo.setToolTip("Auto-filled when you pick a Train Run above; override if needed.")
+        self.form_layout.addRow("Model:", self.model_combo)
+
+        dataset_row = self._make_dataset_row(parent)
+        self.form_layout.addRow("Dataset:", dataset_row)
+
+        self.status_combo = self._make_status_combo(parent)
+        self.form_layout.addRow("Status:", self.status_combo)
+
+        self.server_combo = self._make_server_combo(parent)
+        self.form_layout.addRow("Server:", self.server_combo)
+        self.gpu_selector = GpuSelector(parent)
+        self.gpu_selector.setVisible(False)  # 추론은 GPU 를 안 씀 - 인스턴스는 그대로 유지
+
         self.device_combo = self._make_option_combo("device", "Device", parent)
-        self.input_size_edit = QtWidgets.QLineEdit(parent)
-        self.input_size_edit.setPlaceholderText("e.g. 3x256x256")
+        self.form_layout.addRow("Device:", self.device_combo)
+
         self.latency_edit = QtWidgets.QLineEdit(parent)
         self.latency_edit.setPlaceholderText("ms per image")
+        self.form_layout.addRow("Latency (ms):", self.latency_edit)
+
         self.throughput_edit = QtWidgets.QLineEdit(parent)
         self.throughput_edit.setPlaceholderText("images/sec (FPS)")
-
-        self.form_layout.addRow(self._section("Inference Settings / Speed", parent))
-        self.form_layout.addRow("Source Train Run:", self.source_run_combo)
-        self.form_layout.addRow("Model Epoch / Checkpoint:", self.checkpoint_epoch_edit)
-        self.form_layout.addRow("Checkpoint Path:", self.checkpoint_edit)
-        self.form_layout.addRow("Device:", self.device_combo)
-        self.form_layout.addRow("Input size:", self.input_size_edit)
-        self.form_layout.addRow("Latency (ms):", self.latency_edit)
         self.form_layout.addRow("Throughput (FPS):", self.throughput_edit)
+
+        self.input_size_edit = QtWidgets.QLineEdit(parent)
+        self.input_size_edit.setPlaceholderText("auto-filled from Dataset's Image size; editable")
+        self.form_layout.addRow("Input size:", self.input_size_edit)
+
+        started_row = self._make_started_row(parent)
+        self.form_layout.addRow("Started At:", started_row)
+
+        self.duration_edit = self._make_duration_edit(parent)
+        self.form_layout.addRow("Duration:", self.duration_edit)
+
+    def _on_dataset_selected(self, row: dict[str, Any]) -> None:
+        super()._on_dataset_selected(row)
+        # Dataset 에 등록해 둔 이미지 크기를 Input size 기본값으로 - 그래도 손으로 고칠 수 있다.
+        if row.get("image_size"):
+            self.input_size_edit.setText(row["image_size"])
 
     def _refresh_extra_combo_sources(self) -> None:
         self.device_combo.reload()
