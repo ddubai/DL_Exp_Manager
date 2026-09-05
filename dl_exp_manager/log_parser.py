@@ -4,7 +4,10 @@
 관대하게 시도하고, 못 찾으면 그냥 비워 두며(예외를 던지지 않는다), 결과는 항상
 사용자가 폼에서 눈으로 확인하고 저장하는 구조라 오탐이 있어도 되돌리기 쉽다.
 
-- `parse_train_config`  : BasicSR 류 config.yaml -> {model, dataset, batch_size, lr, ...}
+- `parse_train_config`  : config.yaml -> {model, dataset, batch_size, crop_size, lr, ...}.
+  BasicSR 류(`datasets.train.*`) 를 기본으로 삼되, 최상위 섹션 이름(`datasets`/`data`/`dataset`)과
+  crop 크기 필드 이름(`gt_size`/`crop_size`/`imagesize`/`image_size`/...) 이 다른 스키마도
+  `_section_candidates()` 로 함께 시도한다.
 - `parse_loss_log`      : 학습 로그 -> 곡선용 (iter, {지표: 값}) 목록 + 최근 검증 지표 + 소요 시간
 """
 from __future__ import annotations
@@ -41,6 +44,38 @@ def _first(data: dict[str, Any], candidates: list[tuple[str, ...]]) -> Any:
     return None
 
 
+# config.yaml 은 프로젝트마다 최상위 섹션 이름과 중첩 방식이 제각각이다
+# (BasicSR 은 `datasets.train.*`, 어떤 프로젝트는 `data.train.*`, 또 어떤 건
+# 섹션을 아예 안 나누고 `train.*` 에 다 넣는다). 필드 하나마다 경로를 일일이
+# 손으로 나열하는 대신, "섹션 이름 후보 × train 중첩 여부 × 필드 이름 후보"를
+# 조합해서 흔한 변형을 한 번에 시도한다.
+_SECTION_ALIASES: tuple[str, ...] = ("datasets", "data", "dataset")
+
+
+def _section_candidates(
+    field_aliases: tuple[str, ...], bare_train: bool = False
+) -> list[tuple[str, ...]]:
+    """`{section}.train.{field}` 와 `{section}.{field}` 형태의 후보 경로들을 만든다.
+
+    section 은 datasets/data/dataset 을 다 시도한다 - 예를 들어
+    `data: {train: {imagesize: 256}}` 처럼 `data` 아래 `train` 을 두는 스키마도
+    BasicSR 의 `datasets: {train: {gt_size: 256}}` 과 같은 방식으로 잡힌다.
+    `bare_train=True` 면 섹션 없이 최상위 `train.{field}` 도 마지막으로 시도한다
+    (섹션을 아예 안 나누는 config 용).
+    """
+    paths: list[tuple[str, ...]] = []
+    for section in _SECTION_ALIASES:
+        for field in field_aliases:
+            paths.append((section, "train", field))
+    for section in _SECTION_ALIASES:
+        for field in field_aliases:
+            paths.append((section, field))
+    if bare_train:
+        for field in field_aliases:
+            paths.append(("train", field))
+    return paths
+
+
 def parse_train_config(path: str) -> dict[str, str]:
     """config.yaml 에서 흔히 쓰는 필드를 추정해 뽑는다 (BasicSR 스키마를 우선 시도).
 
@@ -59,68 +94,84 @@ def parse_train_config(path: str) -> dict[str, str]:
 
     out: dict[str, str] = {}
 
-    model = _first(data, [("network_g", "type"), ("model", "type"), ("network", "type"), ("arch",)])
+    model = _first(
+        data,
+        [
+            ("network_g", "type"), ("model", "type"), ("network", "type"), ("arch",),
+            ("model", "name"), ("model", "arch"),
+        ],
+    )
     if isinstance(model, str):
         out["model"] = model
 
-    dataset = _first(data, [("datasets", "train", "name"), ("dataset", "name"), ("data", "name")])
+    dataset = _first(data, _section_candidates(("name", "dataset_name", "dataset")))
     if isinstance(dataset, str):
         out["dataset"] = dataset
 
     dataset_path = _first(
         data,
-        [
-            ("datasets", "train", "dataroot_gt"),
-            ("datasets", "train", "dataroot"),
-            ("dataset", "path"),
-            ("data", "root"),
-        ],
+        _section_candidates(
+            ("dataroot_gt", "dataroot", "root", "path", "dir", "data_root", "data_dir")
+        ),
     )
     if isinstance(dataset_path, str):
         out["dataset_path"] = dataset_path
 
     batch = _first(
         data,
-        [
-            ("datasets", "train", "batch_size_per_gpu"),
-            ("datasets", "train", "batch_size"),
-            ("train", "batch_size"),
-        ],
+        _section_candidates(("batch_size_per_gpu", "batch_size", "batch"), bare_train=True),
     )
     if batch is not None:
         out["batch_size"] = str(batch)
 
+    # "imagesize"/"image_size" 처럼 학습 crop 크기를 부르는 이름이 프로젝트마다 다르다
+    # (예: `data: {train: {imagesize: 256}}`) - 흔한 표기를 전부 후보에 넣는다.
     crop_size = _first(
         data,
-        [
-            ("datasets", "train", "gt_size"),
-            ("datasets", "train", "crop_size"),
-            ("datasets", "train", "patch_size"),
-            ("train", "crop_size"),
-            ("dataset", "crop_size"),
-        ],
+        _section_candidates(
+            (
+                "gt_size", "crop_size", "patch_size",
+                "imagesize", "image_size", "img_size", "input_size",
+            ),
+            bare_train=True,
+        ),
     )
     if crop_size is not None:
         out["crop_size"] = str(crop_size)
 
-    lr = _first(data, [("train", "optim_g", "lr"), ("train", "optim", "lr"), ("optim", "lr")])
+    lr = _first(
+        data,
+        [
+            ("train", "optim_g", "lr"), ("train", "optim", "lr"), ("optim", "lr"),
+            ("train", "lr"), ("train", "learning_rate"), ("optimizer", "lr"), ("learning_rate",),
+        ],
+    )
     if lr is not None:
         out["lr"] = str(lr)
 
     optimizer = _first(
-        data, [("train", "optim_g", "type"), ("train", "optim", "type"), ("optim", "type")]
+        data,
+        [
+            ("train", "optim_g", "type"), ("train", "optim", "type"), ("optim", "type"),
+            ("train", "optimizer"), ("optimizer", "type"), ("optimizer", "name"),
+            ("train", "optim_type"),
+        ],
     )
     if isinstance(optimizer, str):
         out["optimizer"] = optimizer
 
     epochs = _first(
         data,
-        [("train", "total_iter"), ("train", "total_epoch"), ("train", "num_epoch")],
+        [
+            ("train", "total_iter"), ("train", "total_epoch"), ("train", "num_epoch"),
+            ("train", "epochs"), ("train", "num_epochs"), ("train", "max_epochs"),
+            ("epochs",), ("num_epochs",),
+        ],
     )
     if epochs is not None:
         out["epochs"] = str(epochs)
 
-    scale = _get(data, "scale")
+    scale = _first(data, [("scale",), *_section_candidates(("scale",))])
     if scale is not None:
         out["scale"] = str(scale)
 

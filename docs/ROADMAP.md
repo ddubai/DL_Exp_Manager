@@ -822,3 +822,22 @@ Panel 인스턴스가 메모리에만 들고 있던 상태는 새 인스턴스�
 2. Phase 1 매트릭스 뷰 - "아카이버"에서 "분석 도구"로 넘어가는 분기점.
 3. Phase 2 Pareto + Train 상세의 `Evaluations (N)` 탭(역방향 링크, 비용 S).
 4. Phase 3 막대·에러바, 이후 필요에 따라 리더보드 · 저장된 뷰 · stale 힌트.
+
+---
+
+## 17. 2026-09 세션 — config.yaml 파서가 더 많은 스키마 변형을 인식하게
+
+`log_parser.parse_train_config()` 이 BasicSR 스키마(`datasets.train.gt_size` 등)만 정확히 맞는
+경로로 하드코딩돼 있어서, `data: {train: {imagesize: 256}}` 처럼 **최상위 섹션 이름이 다르고
+필드 이름도 다른** config 는 아무것도 못 읽었다. 필드마다 경로 튜플을 하나하나 손으로 늘리는
+대신 `_section_candidates(field_aliases, bare_train=False)` 를 추가했다 - 섹션 이름
+(`datasets`/`data`/`dataset`) × `train` 중첩 여부 × 필드 이름 후보를 조합해서 흔한 변형을
+한 번에 시도한다.
+
+`dataset`/`dataset_path`/`batch_size`/`crop_size` 네 필드에 적용했고, 특히 crop 크기는
+`gt_size`/`crop_size`/`patch_size`/`imagesize`/`image_size`/`img_size`/`input_size` 를 전부
+후보로 넣었다(사용자가 실제로 쓰는 이름이 `imagesize` 였음). `lr`/`optimizer`/`epochs` 도 별도로
+자주 쓰는 이름(`learning_rate`, `optim_type`, `num_epochs` 등)을 추가했다.
+
+기존 BasicSR config 테스트는 그대로 통과하고(우선순위가 안 바뀜), `data: train: imagesize` 형태의
+config 를 읽는 회귀 테스트(`test_parse_train_config_reads_data_train_nested_yaml`)를 추가했다.

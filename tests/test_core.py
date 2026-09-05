@@ -514,6 +514,43 @@ def test_parse_train_config_reads_basicsr_style_yaml():
     assert fields["scale"] == "4"
 
 
+_DATA_TRAIN_CONFIG = """\
+name: my_exp
+model:
+  type: NAFNet
+data:
+  train:
+    name: MyDataset
+    dataroot: /mnt/data/mydata/train
+    batch_size: 16
+    imagesize: 256
+train:
+  total_epoch: 200
+  optim:
+    type: AdamW
+    lr: 0.0002
+"""
+
+
+def test_parse_train_config_reads_data_train_nested_yaml():
+    """`datasets:` 대신 `data:` 를 쓰고, crop 크기를 `imagesize` 로 부르는 스키마도 잡아야 한다."""
+    from dl_exp_manager.log_parser import parse_train_config
+
+    path = os.path.join(tempfile.mkdtemp(), "config.yaml")
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write(_DATA_TRAIN_CONFIG)
+
+    fields = parse_train_config(path)
+    assert fields["model"] == "NAFNet"
+    assert fields["dataset"] == "MyDataset"
+    assert fields["dataset_path"] == "/mnt/data/mydata/train"
+    assert fields["batch_size"] == "16"
+    assert fields["crop_size"] == "256"
+    assert fields["lr"] == "0.0002"
+    assert fields["optimizer"] == "AdamW"
+    assert fields["epochs"] == "200"
+
+
 def test_parse_train_config_missing_file_is_safe():
     from dl_exp_manager.log_parser import parse_train_config
 
