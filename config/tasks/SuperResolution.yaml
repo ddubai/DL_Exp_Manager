@@ -1,9 +1,11 @@
-# Task: SR
+# Task: SuperResolution
 # options = combo-box choices · metrics = table metric columns · columns = table layout
+# short   = short name used in the generated command ({task_short})
 # See the header of options.yaml for the full syntax.
 
-name: SR
+name: SuperResolution
 label: Super Resolution
+short: sr
 options:
   model: [Restormer, SwinIR, MambaIR, HAT, EDSR, RCAN]
   dataset: [DIV2K, DF2K, Flickr2K, Set5, Set14, Urban100]
@@ -16,5 +18,5 @@ columns:
   train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
   evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, throughput_fps, PSNR, SSIM, LPIPS, result_path]
 commands:
-  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +batch_size={batch_size} +crop_size={crop_size} +lr={lr} +max_epoch={epochs}
-  evaluation: python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +ckpt_path={checkpoint_path} +epoch={checkpoint_epoch} +out_dir={result_path}
+  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
+  evaluation: python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>

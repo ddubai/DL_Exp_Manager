@@ -1,0 +1,27 @@
+params:
+  batch_size:
+    name: batch-size
+  checkpoint_epoch:
+    name: epoch
+  checkpoint_path:
+    name: ckpt_path
+  crop_size:
+    name: crop_size
+  dataset_path:
+    name: data_root
+  device:
+    name: device
+  epochs:
+    name: max_epoch
+  input_size:
+    name: input_size
+  lr:
+    name: lr
+  optimizer:
+    name: optimizer
+  result_path:
+    name: out_dir
+style:
+  prefix: --
+  separator: ' '
+version: 1

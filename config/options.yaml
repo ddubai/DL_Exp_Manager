@@ -4,13 +4,17 @@
 #
 #   servers.yaml        Servers and GPU inventory (type / count / memory)
 #   defaults.yaml       Options shared by every Task
-#   tasks/<name>.yaml   Per-Task options, metrics, and table columns
+#   params.yaml         How parameters are spelled on the command line
+#   tasks/<name>.yaml   Per-Task options, metrics, columns, and commands
 #
 # Edit by hand or through the app UI - both write to the same files.
 # Saving is picked up by the app immediately, and a UI edit only touches
 # the file the value already lived in.
 #
 # ── How to write tasks/<name>.yaml ──────────────────────────────────────────
+#   short   : Short name used in the generated command ({task_short}), so the
+#             Task can be called Denoising in the UI while the command still
+#             says algo=dn/... . Defaults to the Task name.
 #   options : That Task's combo-box choices. A name here 'replaces' the same
 #             name in defaults.yaml. Any name other than model / dataset /
 #             optimizer becomes a custom field with its own combo box in the
@@ -21,19 +25,27 @@
 #             Evaluation tables. Allowed values:
 #     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
 #                 checkpoint_path, device, input_size, duration, started_at,
-#                 latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
+#                 latency_ms, throughput_fps, epochs, batch_size, crop_size, lr, optimizer, notes
 #     metric      any key defined under metrics
 #     custom field  any name defined under options
 #   commands: The run form's "⚙ Generate" button builds the execution command
 #             from these templates - one for train, one for evaluation.
-#             {placeholder} is filled from the form; a token whose placeholder
-#             is empty is dropped whole, so `+batch_size={batch_size}` simply
-#             disappears when no batch size was entered. Available names:
-#     everywhere  task, task_lower, work, model, dataset, dataset_path,
+#             Two placeholder forms are filled from the form:
+#               {batch_size}  the value only      ->  16
+#               <batch_size>  the whole argument  ->  +batch_size=16
+#             The `<...>` shape (prefix, spelling, separator) lives in
+#             params.yaml, so renaming an argument is one edit for every Task.
+#             A token whose placeholder is empty is dropped whole, so
+#             `<batch_size>` simply disappears when no batch size was entered.
+#             Available names:
+#     everywhere  task, task_lower, task_short, work, model, dataset, dataset_path,
 #                 result_path, server, host, gpus, cuda_devices, status,
 #                 plus every custom field under options (e.g. {algo}, {scale})
 #     train       epochs, batch_size, crop_size, lr, optimizer
 #     evaluation  checkpoint_path, checkpoint_epoch, device, input_size,
 #                 train_result_path, train_run_id, train_model
+#                 (the last three come from the selected Train Run, so a
+#                  project-specific checkpoint layout stays in the template:
+#                  +ckpt={train_result_path}/models/net_g_{checkpoint_epoch}.pth)
 
 version: 2

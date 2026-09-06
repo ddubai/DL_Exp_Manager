@@ -13,8 +13,8 @@ def _ts(days_ago: float) -> str:
 
 def populate(db: Database) -> int:
     """샘플 Train / Evaluation 기록을 넣고 추가한 건수를 돌려준다."""
-    sr = db.add_task("SR", "Super Resolution")
-    dn = db.add_task("DN", "Denoising")
+    sr = db.add_task("SuperResolution", "Super Resolution")
+    dn = db.add_task("Denoising", "Denoising")
     ssl2sl = db.add_work(sr, "SSL2SL", "Self-supervised -> Supervised transfer experiment")
     x4 = db.add_work(sr, "BSR-x4", "Blind SR x4 baseline")
     n2n = db.add_work(dn, "N2N-Base", "Noise2Noise baseline")
@@ -75,7 +75,7 @@ def populate(db: Database) -> int:
             "epochs": "200000 iter", "batch_size": "16", "crop_size": "128x128",
             "lr": "1e-3", "optimizer": "AdamW",
             "metrics_json": {},
-            "exec_command": "python train.py -opt options/train/DN/nafnet_sidd.yml",
+            "exec_command": "python train.py -opt options/train/Denoising/nafnet_sidd.yml",
             "config_yaml": "", "notes": "Queued on Server 1.",
         },
     ]

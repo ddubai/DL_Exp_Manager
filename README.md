@@ -4,7 +4,7 @@
 모든 기록은 로컬 SQLite 파일(`experiments.db`) 하나에 저장되므로 별도 서버나 계정이 필요 없습니다.
 
 ```
-DL Task (SR / DN / Clustering / Classification)   ← Level 1 : 좌측 드릴다운
+DL Task (SuperResolution / Denoising / Clustering / Classification)  ← Level 1 : 좌측 드릴다운
    └─ Work ID (SSL2SL, BSR-x4, ...)               ← Level 2 : 좌측 드릴다운
         ├─ Dataset (이름 + 위치, Work 별 등록)      ← Level 2 화면에 인라인으로
         ├─ Train      탭                          ← Level 3 : 상단 탭 (아이콘 없이 텍스트만)
@@ -50,10 +50,10 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ### 주요 기능
 
 - **선택지를 설정 파일로 관리** — 콤보박스 항목·평가 지표·표 컬럼을 `config/` 아래에서 관리합니다.
-  **기능별로 파일이 나뉘어 있어** SR 을 고치려면 `config/tasks/SR.yaml`(약 17줄) 하나만 열면 됩니다.
+  **기능별로 파일이 나뉘어 있어** Super Resolution 을 고치려면 `config/tasks/SuperResolution.yaml`(약 20줄) 하나만 열면 됩니다.
   손으로 편집해도 되고 UI 에서 바꿔도 되며, 두 경로가 같은 파일을 씁니다.
   앱에서 바꾼 값은 **그 값이 있던 파일에만** 저장되고, 외부 편집기로 저장하면 앱이 즉시 반영합니다.
-- **Task 별 구성** — SR 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
+- **Task 별 구성** — SuperResolution 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
   Task 마다 선택지·지표·컬럼이 다릅니다. 좌측에서 Task 를 바꾸면 표 컬럼과 폼 필드가 함께 바뀝니다.
   평가 지표는 **같은 Task 안에서 공유**됩니다 — 어느 Run 에서든 새 지표 값을 입력하면 그 Task 의 지표로
   등록되고, 다음 New Run 부터 값 빈 상태로 미리 채워집니다. 지표마다 `higher_is_better`(높을수록/낮을수록
@@ -72,12 +72,16 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 
   ```yaml
   commands:
-    train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}
-      model={task_lower}/{model} +batch_size={batch_size}
+    train: python train.py algo={task_short}/{algo} data={task_short}/{dataset}
+      model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
   ```
 
   `algo` 처럼 Hydra config group 을 쓰려면 그 이름을 Task 의 `options:` 에 추가하면 됩니다 —
   폼에 콤보박스가 자동으로 생기고 템플릿에서 `{algo}` 로 바로 쓸 수 있습니다.
+- **파라미터 표기법은 `config/params.yaml` 한 곳에서** — 템플릿의 `<batch_size>` 는 값이 아니라
+  **인자 하나 전체**(`+batch_size=16`)로 펼쳐지고, 그 모양을 이 파일이 정합니다. `+batch_size` 를
+  `+batchsize` 로, 또는 Hydra 대신 argparse(`--batch-size 16`)로 바꾸는 일이 **모든 Task 에 대해
+  한 줄 수정**으로 끝납니다. (값만 넣고 싶으면 예전처럼 `{batch_size}` 를 쓰면 됩니다)
 - **학습 → 평가 이어가기** — Train 표에서 우클릭 → `▷ Create Evaluation Run from This` 를 고르면
   Evaluation 탭으로 넘어가면서 그 학습의 모델·데이터셋·서버·config group 을 그대로 채운 폼이
   열리고, 평가 명령어까지 만들어져 있습니다. 체크포인트 경로 규칙은 프로젝트마다 다르므로
@@ -132,8 +136,9 @@ config/
   servers.yaml                 서버 & GPU 인벤토리 (gitignore 대상, 직접 만들어야 함)
   servers.template.yaml        servers.yaml 을 만들 때 복사하는 예시 (git 추적)
   defaults.yaml                모든 Task 공통 선택지
-  tasks/SR.yaml                Task 별 선택지 · 지표 · 컬럼
-  tasks/DN.yaml                (Task 를 추가하면 파일도 함께 생깁니다)
+  params.yaml                  명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16)
+  tasks/SuperResolution.yaml   Task 별 선택지 · 지표 · 컬럼 · 명령어 템플릿
+  tasks/Denoising.yaml         (Task 를 추가하면 파일도 함께 생깁니다)
   tasks/...
 dl_exp_manager/
   qt.py                        PyQt6 / PySide6 바인딩 추상화
@@ -176,9 +181,10 @@ config/
   servers.yaml            서버와 GPU 인벤토리 (index / type / memory_gb) - gitignore 대상
   servers.template.yaml   servers.yaml 예시. git 에는 이것만 들어 있습니다.
   defaults.yaml           모든 Task 가 공유하는 기본 선택지
+  params.yaml             명령어에 파라미터를 적는 방식 (<batch_size> 를 어떻게 펼칠지)
   tasks/
-    SR.yaml               Task 별 options · metrics · columns
-    DN.yaml
+    SuperResolution.yaml  Task 별 options · metrics · columns · commands
+    Denoising.yaml
     ...
 ```
 
@@ -193,11 +199,12 @@ cp config/servers.template.yaml config/servers.yaml
 placeholder 서버 4개(Server 1~4)로 뜨고, 상태바에 "복사해서 쓰라"는 안내가 뜹니다. 서버 상태
 바의 + 버튼으로 서버를 하나라도 추가하면 그 시점에 `servers.yaml` 이 만들어집니다.
 
-`config/tasks/SR.yaml` 예시 — 이 한 파일이 SR 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
+`config/tasks/SuperResolution.yaml` 예시 — 이 한 파일이 그 Task 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
 
 ```yaml
-name: SR
+name: SuperResolution
 label: Super Resolution
+short: sr                      # 명령어에 쓰는 짧은 이름 → algo=sr/... (없으면 Task 이름)
 options:
   model: [Restormer, SwinIR, MambaIR, HAT, EDSR, RCAN]
   dataset: [DIV2K, DF2K, Flickr2K, Set5, Set14, Urban100]
@@ -211,29 +218,61 @@ columns:
   evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, PSNR, SSIM]
 ```
 
-`commands:` 는 실행 명령어 템플릿입니다(위 SR 예시 아래에 함께 둡니다).
+`commands:` 는 실행 명령어 템플릿입니다(위 예시 아래에 함께 둡니다).
 
 ```yaml
 commands:
-  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +batch_size={batch_size}
-  evaluation: python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +ckpt_path={checkpoint_path} +epoch={checkpoint_epoch}
+  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <batch_size> <lr> <epochs>
+  evaluation: python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch>
 ```
+
+자리표시자는 두 가지입니다.
+
+| 형태 | 결과 | 언제 |
+|---|---|---|
+| `{batch_size}` | `16` (값만) | 이름을 직접 쓰고 싶을 때 |
+| `<batch_size>` | `+batch_size=16` (인자 전체) | 표기법을 `params.yaml` 에 맡길 때 |
+
+`<...>` 는 **값이 비면 인자째 사라지므로** 선택적 파라미터를 템플릿에 늘 두어도 됩니다.
 
 | 자리표시자 | 어디서 오나 |
 |---|---|
-| `task`, `task_lower`, `work` | 지금 보고 있는 Task / Work |
+| `task`, `task_lower`, `task_short`, `work` | 지금 보고 있는 Task / Work (`task_short` = Task 파일의 `short:`) |
 | `model`, `dataset`, `dataset_path`, `result_path`, `server`, `host`, `gpus`, `cuda_devices`, `status` | 폼의 공통 필드 |
 | `epochs`, `batch_size`, `crop_size`, `lr`, `optimizer` | Train 폼 |
 | `checkpoint_path`, `checkpoint_epoch`, `device`, `input_size` | Evaluation 폼 |
 | `train_result_path`, `train_run_id`, `train_model` | Evaluation 폼에서 고른 Train Run |
 | 그 외 이름 | Task 의 `options:` 에 정의한 사용자 정의 필드 (`{algo}`, `{scale}` …) |
 
+### `config/params.yaml` — 파라미터를 적는 방식
+
+`<batch_size>` 가 실제로 어떤 글자가 되는지는 Task 파일이 아니라 이 파일 하나가 정합니다.
+학습 코드의 인자 이름을 바꿨을 때 Task 파일을 전부 열지 않아도 되게 하려는 것입니다.
+
+```yaml
+style:                          # 따로 지정하지 않은 파라미터 전부에 적용
+  prefix: '+'                   # '+' Hydra append · '' 그냥 key=value · '--' argparse
+  separator: '='                # '=' 또는 ' '(공백, argparse 스타일)
+
+params:                         # 파라미터별 예외. 왼쪽은 앱의 필드 이름
+  epochs: {name: max_epoch}                   # → +max_epoch=200
+  checkpoint_path: {name: ckpt_path}          # → +ckpt_path=/mnt/...
+  lr: {prefix: '', name: optim.lr}            # → optim.lr=0.0003  (기존 키 덮어쓰기)
+  batch_size: {prefix: '--', separator: ' ', name: batch-size}   # → --batch-size 16
+  gpus: {template: '--gpu-ids {value}'}       # 모양이 특이하면 통째로 지정
+```
+
+- 목록에 **없는 이름도 그대로 동작**합니다 — `style` + 자기 이름으로 펼쳐지므로
+  `<scale>` 은 `+scale=x4` 가 됩니다. 이름을 바꿀 것만 적으면 됩니다.
+- 공백이 든 값은 자동으로 따옴표를 씌웁니다(`+out_dir='/mnt/my runs'`).
+- 이 파일이 없으면 내장 기본값으로 뜨고, 앱이 다음 실행 때 만들어 둡니다.
+
 규칙 몇 가지:
 
 - **상속은 "대체"입니다.** Task 의 `options.model` 이 있으면 `defaults.yaml` 의 `model` 을 덮어씁니다.
   합쳐지지 않으므로 "이 항목이 왜 목록에 있지?" 가 생기지 않습니다.
-- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** SR 모델을 UI 에서 추가하면 `tasks/SR.yaml` 만 바뀝니다.
-- **파일 하나가 깨져도 나머지는 삽니다.** `tasks/DN.yaml` 에 문법 오류가 있으면 그 Task 만 빠지고
+- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** SuperResolution 모델을 UI 에서 추가하면 `tasks/SuperResolution.yaml` 만 바뀝니다.
+- **파일 하나가 깨져도 나머지는 삽니다.** `tasks/Denoising.yaml` 에 문법 오류가 있으면 그 Task 만 빠지고
   상태바에 이유가 뜹니다. 정의가 깨졌을 때 같은 이름의 내장 정의로 덮어쓰지 않습니다(원본 유실 방지).
 - **덮어쓰기 전에 `.bak` 을 남깁니다.**
 - 예전처럼 `options.yaml` 한 파일에 전부 들어 있으면 첫 실행 때 자동으로 나눠 줍니다(원본은 `.bak`).

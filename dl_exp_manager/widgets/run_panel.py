@@ -755,6 +755,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         generate_cmd_btn.setToolTip(
             "Build the command from this form using the Task's template\n"
             f"(config/tasks/<Task>.yaml → commands.{self.KIND}).\n"
+            "Argument spelling comes from config/params.yaml.\n"
             "Values left blank drop their whole argument."
         )
         generate_cmd_btn.clicked.connect(self.generate_command)
@@ -864,6 +865,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         `options:` 에 이름을 추가하면 폼에 콤보가 생기고 템플릿에서 바로 쓸 수 있다.
         """
         task = self._task_name or ""
+        task_def = self.config.task(task) if task else None
         server_name = self.server_combo.current_text()
         server = self.config.server(server_name) if server_name else None
         gpu_count = parse_gpu_count(self.gpu_selector.value())
@@ -872,6 +874,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         values: dict[str, str] = {
             "task": task,
             "task_lower": task.lower(),
+            # Task 파일의 `short:` - 표시 이름(Denoising)과 코드 경로(dn/...)를
+            # 따로 둘 수 있게 한다. 없으면 Task 이름을 그대로 쓴다.
+            "task_short": (task_def.short if task_def else "") or task,
             "work": str(work["name"]) if work else "",
             "model": self.model_combo.current_text(),
             "dataset": self.dataset_combo.current_text(),
@@ -907,7 +912,7 @@ class BaseRunPanel(QtWidgets.QWidget):
 
     def _render_command(self) -> RenderedCommand:
         template = self.config.command_template(self._task_name, self.KIND)
-        return render_command(template, self._command_values())
+        return render_command(template, self._command_values(), self.config.param_style())
 
     def _on_command_edited(self) -> None:
         # 프로그램이 채워 넣는 동안에는(_syncing_command) 손댄 것으로 치지 않는다.

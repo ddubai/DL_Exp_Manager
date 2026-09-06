@@ -5,13 +5,14 @@
       servers.yaml          서버 & GPU 인벤토리 (실서버 정보라 gitignore 대상 - 직접 만들어야 한다)
       servers.template.yaml servers.yaml 이 없을 때 복사해서 쓰는 예시 (git 추적)
       defaults.yaml         모든 Task 공통 선택지
+      params.yaml           명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16 ...)
       tasks/
-        SR.yaml             Task 별 선택지 / 지표 / 컬럼
-        DN.yaml
+        SuperResolution.yaml  Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
+        Denoising.yaml
         ...
 
 읽을 때는 전부 합쳐 하나의 딕셔너리로 보고, 쓸 때는 **그 값이 원래 있던 파일에만** 저장한다.
-(SR 모델을 추가하면 tasks/SR.yaml 만 바뀐다.)
+(SuperResolution 모델을 추가하면 tasks/SuperResolution.yaml 만 바뀐다.)
 
 - `ruamel.yaml` 이 있으면 주석과 순서를 보존하며 저장한다. 없으면 PyYAML 로 동작한다.
 - 파일 하나가 깨져도 나머지는 살리고, 무엇이 문제인지 `errors` 에 남긴다.
@@ -24,6 +25,8 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from typing import Any, Iterable
+
+from .command_builder import ParamStyle
 
 CONFIG_VERSION = 2
 
@@ -83,10 +86,26 @@ def _is_scalar(value: Any) -> bool:
     return value is None or isinstance(value, (str, int, float, bool))
 
 
-def _flowify(value: Any) -> Any:
+def _short_mapping(value: dict[str, Any]) -> bool:
+    """한 줄로 뽑아도 읽히는 매핑인가.
+
+    길이를 재는 이유는 `commands:` 때문이다. 값이 스칼라(문자열)뿐이라 형태만 보면
+    한 줄 후보지만, 명령어 템플릿은 한 줄이 150자를 넘어 오히려 못 읽게 된다.
+    """
+    if not value or not all(_is_scalar(v) for v in value.values()):
+        return False
+    return sum(len(str(k)) + len(str(v)) for k, v in value.items()) <= 60
+
+
+def _flowify(value: Any, top: bool = True) -> Any:
     """중첩 구조를 훑으며 한 줄로 뽑아도 되는 곳만 표시한다."""
     if isinstance(value, dict):
-        return {k: _flowify(v) for k, v in value.items()}
+        # 스칼라만 든 짧은 매핑은 한 줄로. `params: {epochs: {name: max_epoch}}` 가
+        # 한 항목당 세 줄이 되면 params.yaml 이 금세 안 읽히는 길이가 된다.
+        # (문서 전체를 한 줄로 만들지는 않으므로 최상위는 제외한다)
+        if not top and _short_mapping(value):
+            return _FlowDict(value)
+        return {k: _flowify(v, top=False) for k, v in value.items()}
     if isinstance(value, list):
         if value and all(_is_scalar(v) for v in value):
             return _FlowList(value)
@@ -97,7 +116,7 @@ def _flowify(value: Any) -> Any:
             #   metrics:
             #     - {key: PSNR, unit: dB, digits: 2, higher_is_better: true}
             return [_FlowDict(v) for v in value]
-        return [_flowify(v) for v in value]
+        return [_flowify(v, top=False) for v in value]
     return value
 
 
@@ -141,6 +160,7 @@ class MetricDef:
 class TaskDef:
     name: str
     label: str = ""
+    short: str = ""      # 명령어에 쓰는 짧은 이름 (hydra config group 폴더명 등)
     options: dict[str, list[str]] = field(default_factory=dict)
     metrics: list[MetricDef] = field(default_factory=list)
     columns: dict[str, list[str]] = field(default_factory=dict)
@@ -152,24 +172,44 @@ ROOT_FILE = "options.yaml"
 SERVERS_FILE = "servers.yaml"
 SERVERS_TEMPLATE_FILE = "servers.template.yaml"
 DEFAULTS_FILE = "defaults.yaml"
+PARAMS_FILE = "params.yaml"
 TASKS_DIR = "tasks"
 
 # 옵션 필드 중 DB 에 전용 컬럼이 있는 것들. 이외의 필드는 extra_json 으로 간다.
 NATIVE_OPTION_FIELDS = {"model", "dataset", "optimizer", "server"}
 
 # Task 파일에 commands 가 없을 때 쓰는 기본 템플릿 (Hydra 스타일).
+# `{name}` 은 값만, `<name>` 은 params.yaml 이 정한 인자 전체(`+batch_size=16`)다.
 # 자리표시자가 빈 값이면 그 토큰은 통째로 빠진다 - command_builder.render_command 참고.
 DEFAULT_COMMANDS: dict[str, str] = {
     "train": (
-        "python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}"
-        " model={task_lower}/{model} +batch_size={batch_size} +crop_size={crop_size}"
-        " +lr={lr} +max_epoch={epochs}"
+        "python train.py algo={task_short}/{algo} data={task_short}/{dataset}"
+        " model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>"
     ),
     "evaluation": (
-        "python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset}"
-        " model={task_lower}/{model} +ckpt_path={checkpoint_path}"
-        " +epoch={checkpoint_epoch} +out_dir={result_path}"
+        "python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset}"
+        " model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>"
     ),
+}
+
+# params.yaml 이 없을 때 쓰는 기본값. `<epochs>` -> `+max_epoch=200` 처럼
+# 앱의 필드 이름과 사용자 코드의 인자 이름을 여기서 이어 준다.
+BUILTIN_PARAMS: dict[str, Any] = {
+    "version": 1,
+    "style": {"prefix": "+", "separator": "="},
+    "params": {
+        "batch_size": {"name": "batch_size"},
+        "crop_size": {"name": "crop_size"},
+        "lr": {"name": "lr"},
+        "epochs": {"name": "max_epoch"},
+        "optimizer": {"name": "optimizer"},
+        "checkpoint_path": {"name": "ckpt_path"},
+        "checkpoint_epoch": {"name": "epoch"},
+        "result_path": {"name": "out_dir"},
+        "dataset_path": {"name": "data_root"},
+        "input_size": {"name": "input_size"},
+        "device": {"name": "device"},
+    },
 }
 
 # columns 의 "evaluation" 은 예전에 "inference" 였다. 손으로 쓴 파일을 깨뜨리지 않도록
@@ -196,8 +236,9 @@ BUILTIN: dict[str, Any] = {
         "optimizer": ["AdamW", "Adam", "SGD", "Lion"],
     },
     "tasks": {
-        "SR": {
+        "SuperResolution": {
             "label": "Super Resolution",
+            "short": "sr",
             "options": {
                 "model": ["Restormer", "SwinIR", "MambaIR", "HAT", "EDSR", "RCAN"],
                 "dataset": ["DIV2K", "DF2K", "Flickr2K", "Set5", "Set14", "Urban100"],
@@ -217,8 +258,9 @@ BUILTIN: dict[str, Any] = {
             },
             "commands": dict(DEFAULT_COMMANDS),
         },
-        "DN": {
+        "Denoising": {
             "label": "Denoising",
+            "short": "dn",
             "options": {
                 "model": ["Restormer", "NAFNet", "SCUNet", "Uformer"],
                 "dataset": ["SIDD", "DND", "BSD68", "Kodak24"],
@@ -286,13 +328,17 @@ ROOT_HEADER = """\
 #
 #   servers.yaml        Servers and GPU inventory (type / count / memory)
 #   defaults.yaml       Options shared by every Task
-#   tasks/<name>.yaml   Per-Task options, metrics, and table columns
+#   params.yaml         How parameters are spelled on the command line
+#   tasks/<name>.yaml   Per-Task options, metrics, columns, and commands
 #
 # Edit by hand or through the app UI - both write to the same files.
 # Saving is picked up by the app immediately, and a UI edit only touches
 # the file the value already lived in.
 #
 # ── How to write tasks/<name>.yaml ──────────────────────────────────────────
+#   short   : Short name used in the generated command ({task_short}), so the
+#             Task can be called Denoising in the UI while the command still
+#             says algo=dn/... . Defaults to the Task name.
 #   options : That Task's combo-box choices. A name here 'replaces' the same
 #             name in defaults.yaml. Any name other than model / dataset /
 #             optimizer becomes a custom field with its own combo box in the
@@ -308,10 +354,15 @@ ROOT_HEADER = """\
 #     custom field  any name defined under options
 #   commands: The run form's "⚙ Generate" button builds the execution command
 #             from these templates - one for train, one for evaluation.
-#             {placeholder} is filled from the form; a token whose placeholder
-#             is empty is dropped whole, so `+batch_size={batch_size}` simply
-#             disappears when no batch size was entered. Available names:
-#     everywhere  task, task_lower, work, model, dataset, dataset_path,
+#             Two placeholder forms are filled from the form:
+#               {batch_size}  the value only      ->  16
+#               <batch_size>  the whole argument  ->  +batch_size=16
+#             The `<...>` shape (prefix, spelling, separator) lives in
+#             params.yaml, so renaming an argument is one edit for every Task.
+#             A token whose placeholder is empty is dropped whole, so
+#             `<batch_size>` simply disappears when no batch size was entered.
+#             Available names:
+#     everywhere  task, task_lower, task_short, work, model, dataset, dataset_path,
 #                 result_path, server, host, gpus, cuda_devices, status,
 #                 plus every custom field under options (e.g. {algo}, {scale})
 #     train       epochs, batch_size, crop_size, lr, optimizer
@@ -337,9 +388,44 @@ DEFAULTS_HEADER = """\
 # this value. (Never merged - so it's always clear why an item is in the list.)
 """
 
+PARAMS_HEADER = """\
+# How parameters are written on the command line
+#
+# The command templates in tasks/<name>.yaml can write a parameter two ways:
+#
+#   {batch_size}   the value only       ->  16
+#   <batch_size>   the whole argument   ->  +batch_size=16
+#
+# `<...>` is assembled here, so switching every Task from `+batch_size=16` to
+# `+batchsize=16` (or `--batch-size 16`) is a one-line change in this file.
+# An empty value drops the whole argument, so optional parameters can sit in
+# the template all the time.
+#
+# style   : applied to every parameter that does not override it.
+#           prefix    '+' Hydra append · '' plain key=value · '--' argparse
+#           separator '=' or ' ' (a space, for argparse style)
+# params  : per-parameter overrides. Left side is the app's field name, and
+#           `name` is how your training code spells it.
+#             epochs: {name: max_epoch}          ->  +max_epoch=200
+#             lr: {prefix: '', name: optim.lr}   ->  optim.lr=0.0003
+#             batch_size: {prefix: '--', separator: ' ', name: batch-size}
+#                                                ->  --batch-size 16
+#           `template` takes over completely when the shape is unusual:
+#             gpus: {template: '--gpu-ids {value}'}
+#           A parameter that is not listed still works - it falls back to
+#           `style` with its own name, so <scale> becomes +scale=x4.
+#
+# Field names available to <...>: every name listed under a Task's options:
+# (model, dataset, algo, scale, ...) plus
+#   train       epochs, batch_size, crop_size, lr, optimizer
+#   evaluation  checkpoint_path, checkpoint_epoch, device, input_size
+#   both        dataset_path, result_path, server, host, gpus, cuda_devices
+"""
+
 TASK_HEADER_TEMPLATE = """\
 # Task: {name}
 # options = combo-box choices · metrics = table metric columns · columns = table layout
+# short   = short name used in the generated command ({{task_short}})
 # See the header of options.yaml for the full syntax.
 """
 
@@ -363,9 +449,11 @@ class OptionsConfig:
         self.errors: list[str] = []
         self.last_save_error: str | None = None
         self._data: dict[str, Any] = copy.deepcopy(BUILTIN)
+        self._params: dict[str, Any] = copy.deepcopy(BUILTIN_PARAMS)
         # 값의 출처: 저장할 때 어느 파일로 되돌릴지 결정한다.
         self._servers_file: str = self.servers_path
         self._defaults_file: str = self.defaults_path
+        self._params_file: str = self.params_path
         self._task_files: dict[str, str] = {}
         self._dirty: set[str] = set()
 
@@ -390,6 +478,10 @@ class OptionsConfig:
         return os.path.join(os.path.dirname(self.path), DEFAULTS_FILE)
 
     @property
+    def params_path(self) -> str:
+        return os.path.join(os.path.dirname(self.path), PARAMS_FILE)
+
+    @property
     def tasks_dir(self) -> str:
         return os.path.join(os.path.dirname(self.path), TASKS_DIR)
 
@@ -401,7 +493,7 @@ class OptionsConfig:
 
     def watch_paths(self) -> list[str]:
         """외부 편집을 감지하기 위해 지켜봐야 할 파일 목록."""
-        paths = {self.path, self._servers_file, self._defaults_file}
+        paths = {self.path, self._servers_file, self._defaults_file, self._params_file}
         paths.update(self._task_files.values())
         return sorted(p for p in paths if os.path.exists(p))
 
@@ -411,6 +503,7 @@ class OptionsConfig:
             ("진입점", self.path),
             ("서버/GPU", self._servers_file),
             ("공통 선택지", self._defaults_file),
+            ("명령어 파라미터", self._params_file),
         ]
         for name in sorted(self._task_files):
             rows.append((f"Task · {name}", self._task_files[name]))
@@ -448,6 +541,8 @@ class OptionsConfig:
         self._task_files = {}
         self._servers_file = self.servers_path
         self._defaults_file = self.defaults_path
+        self._params_file = self.params_path
+        self._params = copy.deepcopy(BUILTIN_PARAMS)
 
         root = self._read(self.path)
         if root is None and not os.path.exists(self.path):
@@ -500,7 +595,12 @@ class OptionsConfig:
         else:
             merged["defaults"] = copy.deepcopy(BUILTIN["defaults"])
 
-        # 3) Task - tasks/*.yaml 을 먼저 읽고, 진입점 인라인은 없는 것만 채운다
+        # 3) 명령어 파라미터 표기법 - 전용 파일만 본다(진입점 인라인은 없던 기능이다)
+        params_doc = self._read(self.params_path)
+        if params_doc is not None:
+            self._params = params_doc
+
+        # 4) Task - tasks/*.yaml 을 먼저 읽고, 진입점 인라인은 없는 것만 채운다
         tasks: dict[str, Any] = {}
         task_files, had_task_sources = self._read_task_files()
         for name, body, origin in task_files:
@@ -542,6 +642,11 @@ class OptionsConfig:
         # 구버전(한 파일에 전부) 이면 기능별로 나눠 준다.
         if auto_create:
             self._split_legacy_layout(root)
+            # params.yaml 은 나중에 생긴 파일이라 기존 설정 폴더에는 없다.
+            # 새로 만드는 것뿐이라 손으로 쓴 파일을 덮어쓸 위험은 없다.
+            if not os.path.exists(self.params_path):
+                self._dirty.add(self._params_file)
+                self.save()
 
     def _read_task_files(self) -> tuple[list[tuple[str, dict[str, Any], str]], bool]:
         """(읽은 Task 목록, 파일이 하나라도 있었는지)."""
@@ -568,6 +673,7 @@ class OptionsConfig:
     def _assign_default_origins(self) -> None:
         self._servers_file = self.servers_path
         self._defaults_file = self.defaults_path
+        self._params_file = self.params_path
         self._task_files = {
             name: os.path.join(self.tasks_dir, _safe_filename(name))
             for name in self._data.get("tasks", {})
@@ -641,7 +747,9 @@ class OptionsConfig:
                     allow_unicode=True,
                     sort_keys=False,
                     default_flow_style=False,
-                    width=120,
+                    # 명령어 템플릿 한 줄이 100자를 훌쩍 넘는다. 접히면 여전히 올바른
+                    # YAML 이지만 손으로 고칠 때 눈에 안 들어와서 접지 않는다.
+                    width=4096,
                 )
             else:
                 raise OSError(
@@ -660,7 +768,7 @@ class OptionsConfig:
         """
         targets = set(self._dirty)
         if force_all:
-            targets = {self.path, self._servers_file, self._defaults_file}
+            targets = {self.path, self._servers_file, self._defaults_file, self._params_file}
             targets.update(self._task_files.values())
 
         if not targets:
@@ -705,6 +813,10 @@ class OptionsConfig:
             self._write(path, {"defaults": self._data.get("defaults", {})}, DEFAULTS_HEADER)
             return
 
+        if same(path) == same(self._params_file):
+            self._write(path, dict(self._params), PARAMS_HEADER)
+            return
+
         for name, origin in self._task_files.items():
             if same(origin) == same(path):
                 body = dict(self._data["tasks"].get(name, {}))
@@ -747,6 +859,7 @@ class OptionsConfig:
         return TaskDef(
             name=str(task),
             label=str(raw.get("label") or task),
+            short=str(raw.get("short") or ""),
             options={
                 k: [str(v) for v in (vals or [])]
                 for k, vals in (raw.get("options") or {}).items()
@@ -1036,6 +1149,28 @@ class OptionsConfig:
             if template:
                 return template
         return DEFAULT_COMMANDS.get(mode, "")
+
+    def param_style(self) -> ParamStyle:
+        """`config/params.yaml` 을 `<name>` 렌더러가 쓰는 형태로."""
+        return ParamStyle.from_dict(self._params)
+
+    def param_cli_name(self, field_name: str) -> str:
+        """폼 필드 이름 -> 사용자 코드가 쓰는 인자 이름 (`epochs` -> `max_epoch`)."""
+        return self.param_style().cli_name(field_name)
+
+    def set_param_name(self, field_name: str, cli_name: str) -> None:
+        """`<epochs>` 가 쓸 인자 이름을 바꾼다. params.yaml 에만 저장된다."""
+        params = self._params.setdefault("params", {})
+        if not isinstance(params, dict):
+            params = {}
+            self._params["params"] = params
+        entry = params.get(field_name)
+        if isinstance(entry, dict):
+            entry["name"] = cli_name
+        else:
+            params[field_name] = {"name": cli_name}
+        self._dirty.add(self._params_file)
+        self.save()
 
     def set_command_template(self, task: str, mode: str, template: str) -> None:
         raw = self._task_raw(task)

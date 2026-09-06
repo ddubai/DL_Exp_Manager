@@ -20,7 +20,11 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
+
+# v8 이하에서 기본으로 심던 Task 이름 -> 지금 이름. 실행 기록은 Task 에 매달려
+# 있으므로 이름만 바꿔 준다(같은 이름이 이미 있으면 건드리지 않는다 - 아래 참고).
+_RENAMED_TASKS = {"SR": "SuperResolution", "DN": "Denoising"}
 
 DEFAULT_DB_NAME = "experiments.db"
 
@@ -250,8 +254,26 @@ class Database:
                 self.conn.execute(
                     "UPDATE run_history SET run_kind = 'evaluation' WHERE run_kind = 'inference'"
                 )
+            if current < 9:
+                self._rename_default_tasks()
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self.migrated_from = current if current < SCHEMA_VERSION else None
+
+    def _rename_default_tasks(self) -> None:
+        """v8 -> v9: 기본 Task 약칭(SR / DN)을 전체 이름으로 바꾼다.
+
+        Task 아래 Work·Run 은 id 로 매달려 있어 이름만 바꾸면 기록이 그대로 따라온다.
+        다만 사용자가 이미 같은 이름의 Task 를 손수 만들어 뒀을 수 있으므로(UNIQUE),
+        그럴 때는 합치려 들지 않고 옛 이름을 그대로 둔다 - 둘을 섞는 건 사람이 볼 일이다.
+        """
+        existing = {
+            row[0] for row in self.conn.execute("SELECT name FROM tasks").fetchall()
+        }
+        for old, new in _RENAMED_TASKS.items():
+            if old in existing and new not in existing:
+                self.conn.execute("UPDATE tasks SET name = ? WHERE name = ?", (new, old))
+                existing.discard(old)
+                existing.add(new)
 
     def _has_column(self, table: str, column: str) -> bool:
         rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()

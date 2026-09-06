@@ -1,13 +1,22 @@
 # Task: Denoising
 # options = combo-box choices · metrics = table metric columns · columns = table layout
+# short   = short name used in the generated command ({task_short})
 # See the header of options.yaml for the full syntax.
 
 name: Denoising
 label: Denoising
+short: dn
 options:
-  server: [Server 1]
-metrics: []
-columns: {}
+  model: [Restormer, NAFNet, SCUNet, Uformer]
+  dataset: [SIDD, DND, BSD68, Kodak24]
+  noise_sigma: ['15', '25', '50']
+  algo: [noise2noise]
+metrics:
+- {key: PSNR, unit: dB, digits: 2, higher_is_better: true}
+- {key: SSIM, digits: 4, higher_is_better: true}
+columns:
+  train: [status, server, gpus, model, dataset, noise_sigma, duration, PSNR, SSIM, result_path]
+  evaluation: [status, server, gpus, model, checkpoint_path, dataset, noise_sigma, latency_ms, PSNR, SSIM, result_path]
 commands:
-  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +batch_size={batch_size} +crop_size={crop_size} +lr={lr} +max_epoch={epochs}
-  evaluation: python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +ckpt_path={checkpoint_path} +epoch={checkpoint_epoch} +out_dir={result_path}
+  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
+  evaluation: python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>

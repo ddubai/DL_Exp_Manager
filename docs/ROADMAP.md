@@ -862,9 +862,12 @@ config 를 읽는 회귀 테스트(`test_parse_train_config_reads_data_train_nes
 
 ```yaml
 commands:
-  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}
-    model={task_lower}/{model} +batch_size={batch_size}
+  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset}
+    model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
 ```
+
+(`{task_short}` 와 `<batch_size>` 는 다음 세션에 생겼다 - §19 참고. 처음 버전은
+`{task_lower}` 와 `+batch_size={batch_size}` 였다.)
 
 ### 18.2 핵심 규칙 - 빈 값은 "인자째" 지운다
 
@@ -901,3 +904,80 @@ Train 표 우클릭에 `▷ Create Evaluation Run from This` 를 추가했다. �
   있다. 다음에 이 파일을 크게 건드릴 일이 생기면 **폼 다이얼로그를 먼저 떼어내는** 게 좋다.
 - 템플릿을 UI 에서 편집하는 화면은 아직 없다(`set_command_template()` API 만 있음).
   지금은 Task 파일을 직접 열어 고친다 - `Ctrl+Shift+O` 로 바로 열린다.
+
+
+## 19. 2026-09 세션 — 파라미터 표기법 분리(`params.yaml`) + Task 이름 정리
+
+§18 로 명령어는 만들어졌는데, 두 가지가 걸렸다.
+
+1. `+batch_size={batch_size}` 처럼 **인자 이름이 Task 파일마다 하드코딩**돼 있었다.
+   학습 코드가 `+batchsize` 를 쓰면 Task 파일을 전부 열어 고쳐야 한다.
+2. `config/tasks/` 에 `DN.yaml`(label: Denoising)과 `Denoising.yaml`(UI 에서 만든 것)이
+   **둘 다** 있었다. 약칭과 전체 이름이 섞여 있으니 생긴 일이다.
+
+### 19.1 자리표시자를 두 종류로 나눴다
+
+| 형태 | 결과 | 정하는 곳 |
+|---|---|---|
+| `{batch_size}` | `16` | 템플릿이 직접 |
+| `<batch_size>` | `+batch_size=16` | `config/params.yaml` |
+
+`<...>` 만 새로 생긴 것이고 `{...}` 는 그대로다 - 이미 쓰던 템플릿이 깨지지 않는다.
+`<name>` 은 `ParamStyle.render_arg()` 가 `prefix + name + separator + quote(value)` 로
+조립한다. 빈 값이면 토큰째 사라지는 §18.2 규칙은 그대로 적용된다.
+
+꺾쇠를 고른 이유: `<식별자>` 는 셸 리다이렉션(`< file`, `2>&1`, `<<EOF`)과 겹치지 않는다.
+여는 꺾쇠 **바로 뒤에** 식별자가 오고 닫는 꺾쇠로 끝나는 모양은 셸 문법에 없다.
+테스트(`test_shell_redirection_is_not_mistaken_for_a_placeholder`)로 확인해 뒀다.
+
+### 19.2 `params.yaml` 은 왜 별도 파일인가
+
+Task 파일에 넣으면 Task 마다 반복된다 - 고치려는 문제가 그대로 남는다. defaults.yaml 은
+"콤보박스 선택지"라는 뜻이 이미 있어서 성격이 다르다. 그래서 파일을 하나 더 만들었다.
+
+```yaml
+style:  {prefix: '+', separator: '='}      # 지정 안 한 파라미터 전부
+params:
+  epochs: {name: max_epoch}                # → +max_epoch=200
+  lr: {prefix: '', name: optim.lr}         # → optim.lr=0.0003 (기존 키 덮어쓰기)
+  batch_size: {prefix: '--', separator: ' ', name: batch-size}   # → --batch-size 16
+  gpus: {template: '--gpu-ids {value}'}    # 모양이 특이하면 통째로
+```
+
+**목록에 없는 이름도 동작한다**(공통 `style` + 자기 이름). 등록을 강제하면 Task 에
+`options:` 하나 추가할 때마다 params.yaml 도 고쳐야 하는데, 그건 새로운 귀찮음일 뿐이다.
+그래서 params.yaml 은 **"이름을 바꿀 것만 적는 파일"** 이다.
+
+`separator: ' '` 가 `--batch-size 16` 처럼 토큰 두 개를 만들지만, 렌더러가 토큰을 만든 뒤
+공백으로 이어 붙이므로 문제가 없다. 이 덕에 Hydra 가 아닌 argparse 프로젝트도 그대로 쓴다.
+
+기존 설정 폴더에는 이 파일이 없으므로 `load()` 끝에서 **없을 때만** 만든다. 손으로 쓴 파일을
+덮어쓸 일이 없고, 문법이 깨져 있으면 내장 기본값으로 뜨되 파일은 그대로 둔다.
+
+### 19.3 `SR`/`DN` → `SuperResolution`/`Denoising`
+
+전체 이름으로 통일했다. 코드·설정·테스트·문서 전부. 그런데 이걸 하면
+`{task_lower}` 가 `dn` → `denoising` 이 되어 **사용자의 hydra config group 경로가 깨진다**.
+
+그래서 Task 파일에 `short:` 를 뒀다. 표시 이름은 `Denoising`, 명령어 경로는 `short: dn`.
+
+```yaml
+name: Denoising
+label: Denoising
+short: dn        # → algo=dn/noise2noise
+```
+
+`{task_short}` 는 `short:` 가 없으면 Task 이름을 그대로 쓴다. 기본 템플릿을 `{task_lower}`
+에서 `{task_short}` 로 옮긴 이유가 이것이다.
+
+**DB 마이그레이션(v8 → v9)**: Task 아래 Work·Run 은 id 로 매달려 있어 `tasks.name` 만
+바꾸면 기록이 따라온다. 다만 `name` 이 UNIQUE 라서, 사용자가 이미 `Denoising` 을 손수
+만들어 둔 DB 에서는 rename 이 실패한다. **그럴 땐 합치지 않고 옛 이름을 그대로 둔다** -
+두 Task 를 병합할지는 사람이 볼 일이다(`test_task_rename_leaves_a_name_collision_alone`).
+
+### 19.4 곁다리 - YAML 출력이 세로로 길어지던 것
+
+`params: {epochs: {name: max_epoch}}` 가 항목당 세 줄로 찍혀 파일이 금세 안 읽히는
+길이가 됐다. `_flowify` 가 **스칼라만 든 짧은(60자 이하) 매핑**을 한 줄로 뽑게 했다.
+길이를 재는 건 `commands:` 때문이다 - 형태만 보면 한 줄 후보인데 명령어 템플릿은
+한 줄이 150자를 넘어 오히려 못 읽게 된다.
