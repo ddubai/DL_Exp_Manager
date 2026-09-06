@@ -557,6 +557,7 @@ class LabeledText(QtWidgets.QWidget):
         placeholder: str = "",
         mono: bool = True,
         min_height: int = 120,
+        wrap: bool = False,
     ) -> None:
         super().__init__(parent)
         self._title = title
@@ -570,7 +571,11 @@ class LabeledText(QtWidgets.QWidget):
         self.editor = QtWidgets.QPlainTextEdit(self)
         self.editor.setReadOnly(read_only)
         self.editor.setPlaceholderText(placeholder)
-        self.editor.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
+        self.editor.setLineWrapMode(
+            QtWidgets.QPlainTextEdit.LineWrapMode.WidgetWidth
+            if wrap
+            else QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap
+        )
         self.editor.setMinimumHeight(min_height)
         if mono:
             self.editor.setFont(monospace_font())

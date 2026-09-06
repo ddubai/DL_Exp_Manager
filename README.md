@@ -65,6 +65,23 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
   등록/수정 폼의 **Dataset** 콤보 자체가 이 레지스트리와 연동됩니다 — 고르면 경로가 자동으로 채워지고
   (Evaluation 은 등록해 둔 이미지 크기로 Input size 도 자동 채움, 수정 가능), 드롭다운 맨 아래
   `＋ 새 데이터셋 추가…` 로 바로 등록할 수도 있습니다.
+- **실행 명령어 자동 생성 (Hydra 등)** — Task 파일의 `commands:` 템플릿에 서버·데이터셋·모델·
+  하이퍼파라미터를 끼워 넣어 실행 명령어를 만들어 줍니다. 폼에서 값을 고르면 명령어가 따라
+  바뀌고(직접 손대는 순간 멈춥니다), `⚙ Generate` 로 언제든 다시 만들 수 있습니다.
+  **값이 빈 항목은 인자째 사라져서** `+batch_size=` 같은 깨진 인자가 남지 않습니다.
+
+  ```yaml
+  commands:
+    train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}
+      model={task_lower}/{model} +batch_size={batch_size}
+  ```
+
+  `algo` 처럼 Hydra config group 을 쓰려면 그 이름을 Task 의 `options:` 에 추가하면 됩니다 —
+  폼에 콤보박스가 자동으로 생기고 템플릿에서 `{algo}` 로 바로 쓸 수 있습니다.
+- **학습 → 평가 이어가기** — Train 표에서 우클릭 → `▷ Create Evaluation Run from This` 를 고르면
+  Evaluation 탭으로 넘어가면서 그 학습의 모델·데이터셋·서버·config group 을 그대로 채운 폼이
+  열리고, 평가 명령어까지 만들어져 있습니다. 체크포인트 경로 규칙은 프로젝트마다 다르므로
+  템플릿에서 정합니다(`+ckpt={train_result_path}/models/net_g_{checkpoint_epoch}.pth`).
 - **train.py 결과에서 자동 채우기** — 결과 폴더의 `config.yaml`(BasicSR 류 스키마 우선 시도)과
   학습 로그(`loss.log` 등)를 파싱해 Model/Dataset/Batch/LR/Optimizer/Epoch, 최근 검증 지표,
   소요 시간을 자동으로 채웁니다. 형식을 못 알아봐도 예외 없이 빈 결과만 돌려주고, 채운 값은 저장 전에
@@ -127,6 +144,7 @@ dl_exp_manager/
   editing.py                   F2 / Del / 우클릭 편집의 공통 규약
   utils.py                     탐색기 열기, 시간/숫자 포맷, CSV·TSV 직렬화, 대표 이미지 탐색
   log_parser.py                train.py 의 config.yaml / 학습 로그(loss.log 등) 파서
+  command_builder.py           Task 템플릿 + 폼 값 -> 실행 명령어 (빈 값은 인자째 제거)
   sample_data.py               예시 실험 데이터
   main_window.py               메인 윈도우, 메뉴, 설정 파일 감시
   theme/
@@ -192,6 +210,23 @@ columns:
   train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
   evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, PSNR, SSIM]
 ```
+
+`commands:` 는 실행 명령어 템플릿입니다(위 SR 예시 아래에 함께 둡니다).
+
+```yaml
+commands:
+  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +batch_size={batch_size}
+  evaluation: python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +ckpt_path={checkpoint_path} +epoch={checkpoint_epoch}
+```
+
+| 자리표시자 | 어디서 오나 |
+|---|---|
+| `task`, `task_lower`, `work` | 지금 보고 있는 Task / Work |
+| `model`, `dataset`, `dataset_path`, `result_path`, `server`, `host`, `gpus`, `cuda_devices`, `status` | 폼의 공통 필드 |
+| `epochs`, `batch_size`, `crop_size`, `lr`, `optimizer` | Train 폼 |
+| `checkpoint_path`, `checkpoint_epoch`, `device`, `input_size` | Evaluation 폼 |
+| `train_result_path`, `train_run_id`, `train_model` | Evaluation 폼에서 고른 Train Run |
+| 그 외 이름 | Task 의 `options:` 에 정의한 사용자 정의 필드 (`{algo}`, `{scale}` …) |
 
 규칙 몇 가지:
 

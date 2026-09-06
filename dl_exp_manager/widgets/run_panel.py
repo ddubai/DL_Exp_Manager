@@ -21,6 +21,7 @@ from typing import Any, Callable, Sequence
 from .. import APP_NAME, ORG_NAME
 from .. import constants as C
 from .. import editing, theme
+from ..command_builder import RenderedCommand, render_command
 from ..config_store import MetricDef, OptionsConfig
 from ..db import Database
 from ..log_parser import canonical_metric_name, parse_loss_log, parse_train_config
@@ -171,9 +172,14 @@ class BaseRunPanel(QtWidgets.QWidget):
     SHOW_SERVER: bool = True
     SHOW_GPU: bool = True
     SHOW_TRAINING_CURVE: bool = True
+    # Train 패널에서만 "이 학습으로 평가 만들기" 를 띄운다.
+    OFFERS_EVALUATION_HANDOFF: bool = False
 
     runsChanged = Signal()
     configChanged = Signal()
+    # Train 표에서 "이 학습으로 평가 만들기" 를 고르면 run id 를 실어 보낸다
+    # (받는 쪽은 main_window - Evaluation 탭으로 옮기고 폼을 채운다).
+    evaluationRequested = Signal(int)
 
     def __init__(
         self,
@@ -585,6 +591,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         # 지나면 그 값이 실수로 바뀌기 쉽다 - 이 폼 안의 모든 콤보/스핀박스에서 막는다.
         editing.disable_wheel_scrolling(container)
 
+        # 서버·데이터셋·모델 등을 고르면 실행 명령어가 따라 만들어지게 한다.
+        self._watch_command_sources()
+
         return container
 
     @staticmethod
@@ -739,12 +748,28 @@ class BaseRunPanel(QtWidgets.QWidget):
             parent,
             placeholder=self.SAMPLE_COMMAND,
             min_height=90,
+            wrap=True,  # 생성된 Hydra 명령어는 길어서 가로 스크롤보다 줄바꿈이 낫다
         )
+        generate_cmd_btn = QtWidgets.QToolButton(parent)
+        generate_cmd_btn.setText("⚙ Generate")
+        generate_cmd_btn.setToolTip(
+            "Build the command from this form using the Task's template\n"
+            f"(config/tasks/<Task>.yaml → commands.{self.KIND}).\n"
+            "Values left blank drop their whole argument."
+        )
+        generate_cmd_btn.clicked.connect(self.generate_command)
+        self.command_input.add_header_widget(generate_cmd_btn)
+
         sample_cmd_btn = QtWidgets.QToolButton(parent)
         sample_cmd_btn.setText("Sample")
         sample_cmd_btn.setToolTip("Fill in an example command.")
         sample_cmd_btn.clicked.connect(lambda: self.command_input.set_text(self.SAMPLE_COMMAND))
         self.command_input.add_header_widget(sample_cmd_btn)
+
+        # 사용자가 직접 손댄 명령어는 절대 덮어쓰지 않는다. 손대기 전까지만
+        # 폼 값이 바뀔 때마다 다시 생성해 준다(_sync_generated_command).
+        self._command_dirty = False
+        self.command_input.editor.textChanged.connect(self._on_command_edited)
 
         self.config_input = LabeledText(
             "config.yml", parent, placeholder="# Paste YAML config content here", min_height=140
@@ -828,6 +853,94 @@ class BaseRunPanel(QtWidgets.QWidget):
 
     def _dataset_path_label(self) -> str:
         return "Dataset Path"
+
+    # ==================================================================
+    # 실행 명령어 생성 (Task 의 commands 템플릿 + 지금 폼 값)
+    # ==================================================================
+    def _command_values(self) -> dict[str, str]:
+        """템플릿 자리표시자에 넣을 값들. 서브클래스가 확장한다.
+
+        사용자 정의 옵션 필드(`algo` 같은 것)도 그대로 이름을 쓴다 - Task 파일의
+        `options:` 에 이름을 추가하면 폼에 콤보가 생기고 템플릿에서 바로 쓸 수 있다.
+        """
+        task = self._task_name or ""
+        server_name = self.server_combo.current_text()
+        server = self.config.server(server_name) if server_name else None
+        gpu_count = parse_gpu_count(self.gpu_selector.value())
+        work = self.db.get_work(self._work_id) if self._work_id else None
+
+        values: dict[str, str] = {
+            "task": task,
+            "task_lower": task.lower(),
+            "work": str(work["name"]) if work else "",
+            "model": self.model_combo.current_text(),
+            "dataset": self.dataset_combo.current_text(),
+            "dataset_path": self.dataset_path_edit.path(),
+            "result_path": self.result_path_edit.path(),
+            "server": server_name,
+            "host": server.host if server else "",
+            "gpus": str(gpu_count) if gpu_count else "",
+            # 0,1,2... - 개수만 알고 있으므로 앞에서부터 채운 예시 값이다.
+            "cuda_devices": ",".join(str(i) for i in range(gpu_count)) if gpu_count else "",
+            "status": self.status_combo.currentData() or "",
+        }
+        values.update(
+            {name: combo.current_text() for name, combo in self._custom_widgets.items()}
+        )
+        return values
+
+    def generate_command(self) -> None:
+        """템플릿으로 명령어를 만들어 Execution Command 칸을 채운다."""
+        rendered = self._render_command()
+        self.command_input.set_text(rendered.text)
+        self._command_dirty = False
+        if rendered.unknown:
+            toast(
+                self,
+                False,
+                "The template uses placeholders this form does not know: "
+                + ", ".join(f"{{{n}}}" for n in rendered.unknown)
+                + "\n\nAdd them under this Task's `options:` (they become combo boxes), "
+                "or fix the name in `commands:`.",
+                "Generate Command",
+            )
+
+    def _render_command(self) -> RenderedCommand:
+        template = self.config.command_template(self._task_name, self.KIND)
+        return render_command(template, self._command_values())
+
+    def _on_command_edited(self) -> None:
+        # 프로그램이 채워 넣는 동안에는(_syncing_command) 손댄 것으로 치지 않는다.
+        if not getattr(self, "_syncing_command", False):
+            self._command_dirty = True
+
+    def _sync_generated_command(self) -> None:
+        """폼 값이 바뀌면 명령어를 다시 만든다 - 단, 사용자가 손대기 전까지만."""
+        if self._command_dirty:
+            return
+        rendered = self._render_command()
+        self._syncing_command = True
+        try:
+            self.command_input.set_text(rendered.text)
+        finally:
+            self._syncing_command = False
+
+    def _watch_command_sources(self) -> None:
+        """명령어에 들어가는 입력들이 바뀌면 다시 생성하도록 연결한다."""
+        for widget in self._command_source_widgets():
+            signal = getattr(widget, "currentTextChanged", None) or getattr(
+                widget, "textChanged", None
+            )
+            if signal is not None:
+                signal.connect(lambda *_: self._sync_generated_command())
+
+    def _command_source_widgets(self) -> list[QtWidgets.QWidget]:
+        widgets: list[QtWidgets.QWidget] = [
+            self.model_combo, self.dataset_combo, self.server_combo,
+            self.status_combo, self.dataset_path_edit.edit, self.result_path_edit.edit,
+        ]
+        widgets.extend(self._custom_widgets.values())
+        return widgets
 
     @staticmethod
     def _section(title: str, parent: QtWidgets.QWidget) -> QtWidgets.QLabel:
@@ -1051,6 +1164,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         has_fields = bool(fields)
         self._custom_section.setVisible(has_fields)
         self._custom_host.setVisible(has_fields)
+        for combo in self._custom_widgets.values():
+            combo.currentTextChanged.connect(lambda *_: self._sync_generated_command())
 
     def _refresh_extra_combo_sources(self) -> None:
         """Subclasses refresh their own combo sources here."""
@@ -1236,6 +1351,12 @@ class BaseRunPanel(QtWidgets.QWidget):
                 menu.addAction("📈 Training Curve", self.view_curve)
             menu.addAction(icons.icon("edit", theme.color("text.secondary")), "Edit This Run", self.open_edit_dialog)
             menu.addAction("⎘ Duplicate", self.duplicate_selected)
+            if self.OFFERS_EVALUATION_HANDOFF:
+                action = menu.addAction("▷ Create Evaluation Run from This")
+                action.setToolTip("Open the Evaluation form prefilled from this training run.")
+                action.triggered.connect(
+                    lambda _=False, rid=int(row["id"]): self.evaluationRequested.emit(rid)
+                )
             menu.addSeparator()
 
         menu.addAction("⇄ Compare Selected (2-3)", self.compare_selected)
@@ -1624,6 +1745,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._reset_extra_fields()
         self._refresh_work_combo()
         self._update_form_buttons()
+        # 빈 폼에서 시작하므로 명령어도 다시 만들어 준다 (사용자가 손대면 그때부터 멈춘다).
+        self._command_dirty = False
+        self._sync_generated_command()
 
     def _reset_extra_fields(self) -> None:
         """Subclasses reset their own fields here."""
@@ -1651,7 +1775,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.dataset_path_edit.set_path(row.get("dataset_path"))
         self.result_path_edit.set_path(row.get("result_path"))
         self.metrics_editor.set_metrics(loads_metrics(row.get("metrics_json")))
+        # 저장된 명령어는 "실제로 돌린 것"의 기록이다 - 폼 값이 바뀌어도 덮어쓰지 않는다.
         self.command_input.set_text(row.get("exec_command"))
+        self._command_dirty = True
         self.config_input.set_text(row.get("config_yaml"))
         self.notes_input.set_text(row.get("notes"))
         self.tags_edit.setText(str(row.get("tags") or ""))
@@ -1847,6 +1973,7 @@ class TrainPanel(BaseRunPanel):
     """Train dashboard."""
 
     KIND = "train"
+    OFFERS_EVALUATION_HANDOFF = True
     SAMPLE_COMMAND = C.SAMPLE_TRAIN_CMD
     METRIC_PRESETS = C.TRAIN_METRIC_PRESETS
     DETAIL_PATHS = (
@@ -1871,6 +1998,25 @@ class TrainPanel(BaseRunPanel):
         self.form_layout.addRow("Crop size:", self.crop_size_edit)
         self.form_layout.addRow("Learning rate:", self.lr_edit)
         self.form_layout.addRow("Optimizer:", self.optimizer_combo)
+
+    def _command_values(self) -> dict[str, str]:
+        values = super()._command_values()
+        values.update(
+            {
+                "epochs": self.epochs_edit.text().strip(),
+                "batch_size": self.batch_edit.text().strip(),
+                "crop_size": self.crop_size_edit.text().strip(),
+                "lr": self.lr_edit.text().strip(),
+                "optimizer": self.optimizer_combo.current_text(),
+            }
+        )
+        return values
+
+    def _command_source_widgets(self) -> list[QtWidgets.QWidget]:
+        return super()._command_source_widgets() + [
+            self.epochs_edit, self.batch_edit, self.crop_size_edit,
+            self.lr_edit, self.optimizer_combo,
+        ]
 
     def _refresh_extra_combo_sources(self) -> None:
         self.optimizer_combo.reload()
@@ -2030,6 +2176,61 @@ class EvaluationPanel(BaseRunPanel):
         run = self.db.get_run("train", int(run_id))
         if run:
             self.model_combo.set_text(run.get("model"))
+            self._sync_generated_command()
+
+    def _command_values(self) -> dict[str, str]:
+        values = super()._command_values()
+        train_run = self._source_train_run()
+        values.update(
+            {
+                "checkpoint_path": self.checkpoint_edit.path(),
+                "checkpoint_epoch": self.checkpoint_epoch_edit.text().strip(),
+                "device": self.device_combo.current_text(),
+                "input_size": self.input_size_edit.text().strip(),
+                # 고른 Train Run 에서 끌어오는 값들 - 체크포인트 경로 규칙이
+                # 프로젝트마다 달라서, 앱이 추측하지 않고 템플릿이 정하게 둔다.
+                # 예: +ckpt_path={train_result_path}/models/net_g_{checkpoint_epoch}.pth
+                "train_result_path": str(train_run.get("result_path") or "") if train_run else "",
+                "train_run_id": str(train_run["id"]) if train_run else "",
+                "train_model": str(train_run.get("model") or "") if train_run else "",
+            }
+        )
+        return values
+
+    def _source_train_run(self) -> dict[str, Any] | None:
+        run_id = self.source_run_combo.currentData()
+        if run_id is None:
+            return None
+        return self.db.get_run("train", int(run_id))
+
+    def _command_source_widgets(self) -> list[QtWidgets.QWidget]:
+        return super()._command_source_widgets() + [
+            self.checkpoint_edit.edit, self.checkpoint_epoch_edit,
+            self.device_combo, self.input_size_edit,
+        ]
+
+    def start_evaluation_for(self, train_run_id: int) -> None:
+        """Train 표에서 고른 실행을 바탕으로 새 Evaluation 폼을 연다.
+
+        모델·데이터셋·서버를 그 학습에서 그대로 가져오고(평가는 보통 같은 서버에서
+        같은 데이터 계열로 돌린다), 명령어까지 만들어 둔 상태로 폼을 띄운다.
+        """
+        self.open_new_run_dialog()
+        index = self.source_run_combo.findData(int(train_run_id))
+        if index >= 0:
+            self.source_run_combo.setCurrentIndex(index)
+        run = self.db.get_run("train", int(train_run_id))
+        if run:
+            self.server_combo.set_text(run.get("server"))
+            self.dataset_combo.set_text(run.get("dataset"))
+            self.dataset_path_edit.set_path(run.get("dataset_path"))
+            # algo/scale 같은 사용자 정의 필드는 Hydra config group 인 경우가 많다 -
+            # 같은 학습을 평가하는 것이므로 그대로 물려받아야 명령어가 맞는다.
+            extra = self._row_extra(run)
+            for name, combo in self._custom_widgets.items():
+                if extra.get(name):
+                    combo.set_text(str(extra[name]))
+        self._sync_generated_command()
 
     def _reset_extra_fields(self) -> None:
         self._refresh_source_run_combo(keep=None)

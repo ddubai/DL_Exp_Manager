@@ -100,6 +100,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.nav.selectionChanged.connect(self._on_scope_changed)
         self.train_panel.runsChanged.connect(self._on_runs_changed)
         self.evaluation_panel.runsChanged.connect(self._on_runs_changed)
+        self.train_panel.evaluationRequested.connect(self._start_evaluation_for)
         self.train_panel.configChanged.connect(self._on_config_changed)
         self.evaluation_panel.configChanged.connect(self._on_config_changed)
         self.server_bar.configChanged.connect(self._on_config_changed)
@@ -222,6 +223,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.scope_label.setText(f"{task['name']}  (All)")
                 return
         self.scope_label.setText("Select a Task / Work on the left.")
+
+    def _start_evaluation_for(self, train_run_id: int) -> None:
+        """Train 표의 "이 학습으로 평가 만들기" - 탭을 옮기고 폼을 채워 띄운다."""
+        self.tabs.setCurrentWidget(self.evaluation_panel)
+        self.evaluation_panel.start_evaluation_for(int(train_run_id))
 
     def _on_runs_changed(self) -> None:
         self.server_bar.refresh()

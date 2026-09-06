@@ -387,3 +387,25 @@ def test_save_return_value_reflects_success():
     assert config.save() is True  # nothing dirty -> trivially true
     assert config.add_option("SR", "model", "X") is True
     assert config.last_save_error is None
+
+
+def test_command_templates_are_per_task_and_editable():
+    config = make_config()
+    template = config.command_template("DN", "train")
+    assert "{model}" in template and "train.py" in template
+
+    config.set_command_template("DN", "train", "python mytrain.py model={model}")
+    assert config.command_template("DN", "train") == "python mytrain.py model={model}"
+    # 파일로 저장되고, 다른 Task 는 그대로여야 한다.
+    reloaded = OptionsConfig(config.path)
+    assert reloaded.command_template("DN", "train") == "python mytrain.py model={model}"
+    assert reloaded.command_template("SR", "train") != "python mytrain.py model={model}"
+
+
+def test_command_template_falls_back_to_builtin_when_task_has_none():
+    from dl_exp_manager.config_store import DEFAULT_COMMANDS
+
+    config = make_config()
+    config.ensure_task("Segmentation")  # commands 를 안 쓴 새 Task
+    assert config.command_template("Segmentation", "evaluation") == DEFAULT_COMMANDS["evaluation"]
+    assert config.command_template(None, "train") == DEFAULT_COMMANDS["train"]

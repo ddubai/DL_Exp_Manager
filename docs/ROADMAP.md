@@ -841,3 +841,63 @@ Panel 인스턴스가 메모리에만 들고 있던 상태는 새 인스턴스�
 
 기존 BasicSR config 테스트는 그대로 통과하고(우선순위가 안 바뀜), `data: train: imagesize` 형태의
 config 를 읽는 회귀 테스트(`test_parse_train_config_reads_data_train_nested_yaml`)를 추가했다.
+
+---
+
+## 18. 2026-09 세션 — 실행 명령어 생성 (Hydra) + 학습 → 평가 이어가기
+
+`exec_command` 는 지금까지 **자유 텍스트**였다. 재현성의 핵심인데 앱이 구조를 전혀 몰라서,
+매번 터미널 히스토리에서 복사해 오거나 손으로 고쳐 적어야 했다. Hydra 처럼 `key=value` 를
+나열하는 CLI 를 쓰면 이 노동이 특히 크다(같은 명령어에서 dataset 하나만 바꾸는 일이 대부분).
+
+### 18.1 설계 - 템플릿은 Task 파일에, 값은 폼에서
+
+새 개념을 최소로 하려고 **이미 있는 것 두 개를 그대로 이었다**:
+
+- 값의 출처 = **폼 필드**. `model`/`dataset`/`server`/`batch_size` 는 이미 폼에 있고,
+  `algo` 같은 Hydra config group 은 **Task 의 `options:` 에 이름만 추가**하면 콤보박스가
+  자동으로 생긴다(`_rebuild_custom_fields`). 명령어 생성을 위해 새로 만든 입력 위젯은 없다.
+- 템플릿의 자리 = **`config/tasks/<Task>.yaml` 의 `commands:`**. 선택지·지표·컬럼이 이미
+  거기 있으므로 명령어도 같은 파일에 두는 게 일관된다.
+
+```yaml
+commands:
+  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}
+    model={task_lower}/{model} +batch_size={batch_size}
+```
+
+### 18.2 핵심 규칙 - 빈 값은 "인자째" 지운다
+
+단순 문자열 치환이면 배치 크기를 안 적었을 때 `+batch_size=` 가 남아 **명령어가 실행되지
+않는다**. 그래서 `command_builder.render_command()` 는 템플릿을 공백으로 쪼갠 뒤
+**토큰 안의 자리표시자가 하나라도 비면 그 토큰을 통째로 버린다**. 덕분에 하나의 템플릿이
+"batch 를 지정한 실행"과 "안 한 실행" 양쪽에 다 쓰인다. 공백이 든 값은 `shlex.quote` 로
+감싸고, 앱이 모르는 이름은 빈 값 취급하되 어떤 이름이었는지 돌려줘서 UI 가 알려 준다
+(템플릿 오타가 조용히 묻히지 않게).
+
+### 18.3 언제 다시 만드는가 - `_command_dirty`
+
+- 폼 값이 바뀌면 자동으로 다시 만든다. **단 사용자가 명령어 칸을 직접 건드리기 전까지만.**
+  손댄 뒤에는 폼을 아무리 바꿔도 덮어쓰지 않는다(`_command_dirty`).
+- **기존 Run 을 폼에 불러올 때는 처음부터 dirty** 로 둔다 - 저장된 명령어는 "실제로 돌린 것"의
+  기록이라 폼 값에 맞춰 고쳐 쓰면 안 된다. 이게 이 기능에서 제일 조심해야 할 부분이라
+  테스트(`test_loading_an_existing_run_never_regenerates_its_command`)로 못 박아 뒀다.
+
+### 18.4 학습 → 평가 이어가기
+
+Train 표 우클릭에 `▷ Create Evaluation Run from This` 를 추가했다. 패널이
+`evaluationRequested(run_id)` 를 쏘면 `main_window` 가 Evaluation 탭으로 옮기고
+`start_evaluation_for()` 가 폼을 채운다 - Train Run 선택 + 모델·데이터셋·서버 +
+**`extra_json` 의 사용자 정의 필드(algo/scale 등)까지** 물려받는다. config group 이 안 딸려오면
+평가 명령어가 학습과 다른 설정을 가리키게 되므로 이게 중요하다.
+
+체크포인트 경로 규칙(`.../models/net_g_300000.pth`)은 프로젝트마다 달라서 **앱이 추측하지
+않는다**. 대신 `{train_result_path}`/`{checkpoint_epoch}` 를 자리표시자로 주고 규칙은 템플릿이
+정하게 했다.
+
+### 18.5 남은 것
+
+- `run_panel.py` 가 2100줄을 넘었다(전체의 20%). 표·상세·폼·명령어 생성·컬럼 상태가 한 클래스에
+  있다. 다음에 이 파일을 크게 건드릴 일이 생기면 **폼 다이얼로그를 먼저 떼어내는** 게 좋다.
+- 템플릿을 UI 에서 편집하는 화면은 아직 없다(`set_command_template()` API 만 있음).
+  지금은 Task 파일을 직접 열어 고친다 - `Ctrl+Shift+O` 로 바로 열린다.

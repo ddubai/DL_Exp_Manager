@@ -144,6 +144,7 @@ class TaskDef:
     options: dict[str, list[str]] = field(default_factory=dict)
     metrics: list[MetricDef] = field(default_factory=list)
     columns: dict[str, list[str]] = field(default_factory=dict)
+    commands: dict[str, str] = field(default_factory=dict)
 
 
 # --- 파일 레이아웃 ------------------------------------------------------------
@@ -155,6 +156,21 @@ TASKS_DIR = "tasks"
 
 # 옵션 필드 중 DB 에 전용 컬럼이 있는 것들. 이외의 필드는 extra_json 으로 간다.
 NATIVE_OPTION_FIELDS = {"model", "dataset", "optimizer", "server"}
+
+# Task 파일에 commands 가 없을 때 쓰는 기본 템플릿 (Hydra 스타일).
+# 자리표시자가 빈 값이면 그 토큰은 통째로 빠진다 - command_builder.render_command 참고.
+DEFAULT_COMMANDS: dict[str, str] = {
+    "train": (
+        "python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}"
+        " model={task_lower}/{model} +batch_size={batch_size} +crop_size={crop_size}"
+        " +lr={lr} +max_epoch={epochs}"
+    ),
+    "evaluation": (
+        "python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset}"
+        " model={task_lower}/{model} +ckpt_path={checkpoint_path}"
+        " +epoch={checkpoint_epoch} +out_dir={result_path}"
+    ),
+}
 
 # columns 의 "evaluation" 은 예전에 "inference" 였다. 손으로 쓴 파일을 깨뜨리지 않도록
 # 읽을 때만 이 옛 키도 받아 준다(쓸 때는 항상 새 이름으로).
@@ -199,6 +215,7 @@ BUILTIN: dict[str, Any] = {
                                "dataset", "latency_ms", "throughput_fps",
                                "PSNR", "SSIM", "LPIPS", "result_path"],
             },
+            "commands": dict(DEFAULT_COMMANDS),
         },
         "DN": {
             "label": "Denoising",
@@ -218,6 +235,7 @@ BUILTIN: dict[str, Any] = {
                                "dataset", "noise_sigma", "latency_ms", "PSNR", "SSIM",
                                "result_path"],
             },
+            "commands": dict(DEFAULT_COMMANDS),
         },
         "Clustering": {
             "label": "Unsupervised Clustering",
@@ -236,6 +254,7 @@ BUILTIN: dict[str, Any] = {
                 "evaluation": ["status", "server", "model", "checkpoint_path", "dataset",
                                "NMI", "ARI", "ACC", "result_path"],
             },
+            "commands": dict(DEFAULT_COMMANDS),
         },
         "Classification": {
             "label": "Image Classification",
@@ -253,6 +272,7 @@ BUILTIN: dict[str, Any] = {
                 "evaluation": ["status", "server", "model", "checkpoint_path", "dataset",
                                "latency_ms", "throughput_fps", "Top-1", "Top-5", "result_path"],
             },
+            "commands": dict(DEFAULT_COMMANDS),
         },
     },
 }
@@ -286,6 +306,20 @@ ROOT_HEADER = """\
 #                 latency_ms, throughput_fps, epochs, batch_size, crop_size, lr, optimizer, notes
 #     metric      any key defined under metrics
 #     custom field  any name defined under options
+#   commands: The run form's "⚙ Generate" button builds the execution command
+#             from these templates - one for train, one for evaluation.
+#             {placeholder} is filled from the form; a token whose placeholder
+#             is empty is dropped whole, so `+batch_size={batch_size}` simply
+#             disappears when no batch size was entered. Available names:
+#     everywhere  task, task_lower, work, model, dataset, dataset_path,
+#                 result_path, server, host, gpus, cuda_devices, status,
+#                 plus every custom field under options (e.g. {algo}, {scale})
+#     train       epochs, batch_size, crop_size, lr, optimizer
+#     evaluation  checkpoint_path, checkpoint_epoch, device, input_size,
+#                 train_result_path, train_run_id, train_model
+#                 (the last three come from the selected Train Run, so a
+#                  project-specific checkpoint layout stays in the template:
+#                  +ckpt={train_result_path}/models/net_g_{checkpoint_epoch}.pth)
 """
 
 SERVERS_HEADER = """\
@@ -549,6 +583,7 @@ class OptionsConfig:
             raw.setdefault("options", {})
             raw.setdefault("metrics", [])
             raw.setdefault("columns", {})
+            raw.setdefault("commands", {})
             if not isinstance(raw["options"], dict):
                 raw["options"] = {}
                 self.errors.append(f"Task '{name}' options is not a mapping; cleared it.")
@@ -557,6 +592,9 @@ class OptionsConfig:
                 self.errors.append(f"Task '{name}' metrics is not a list; cleared it.")
             if not isinstance(raw["columns"], dict):
                 raw["columns"] = {}
+            if not isinstance(raw["commands"], dict):
+                raw["commands"] = {}
+                self.errors.append(f"Task '{name}' commands is not a mapping; cleared it.")
 
     def _split_legacy_layout(self, root: dict[str, Any]) -> None:
         """options.yaml 한 파일에 전부 들어 있던 구버전을 기능별 파일로 나눈다."""
@@ -716,6 +754,9 @@ class OptionsConfig:
             metrics=[self._metric_def(m) for m in (raw.get("metrics") or []) if m],
             columns={
                 k: [str(c) for c in (v or [])] for k, v in (raw.get("columns") or {}).items()
+            },
+            commands={
+                k: str(v) for k, v in (raw.get("commands") or {}).items() if v
             },
         )
 
@@ -984,6 +1025,26 @@ class OptionsConfig:
         table[mode] = [str(c) for c in columns]
         if mode == "evaluation":
             table.pop(LEGACY_EVAL_COLUMNS_KEY, None)  # 옛 키가 남아 헷갈리지 않게 정리한다
+        self._touch_task(task)
+
+    # -- 실행 명령어 템플릿 -------------------------------------------------------
+    def command_template(self, task: str | None, mode: str) -> str:
+        """Task 의 `commands.<mode>` 템플릿. 없으면 내장 기본값(Hydra 스타일)."""
+        task_def = self.task(task)
+        if task_def is not None:
+            template = task_def.commands.get(mode)
+            if template:
+                return template
+        return DEFAULT_COMMANDS.get(mode, "")
+
+    def set_command_template(self, task: str, mode: str, template: str) -> None:
+        raw = self._task_raw(task)
+        if raw is None:
+            self.ensure_task(task)
+            raw = self._task_raw(task)
+            if raw is None:
+                return
+        raw.setdefault("commands", {})[mode] = template.strip()
         self._touch_task(task)
 
     def _drop_column_everywhere(self, task: str, column: str) -> None:

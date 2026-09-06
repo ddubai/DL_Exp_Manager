@@ -14,3 +14,6 @@ metrics:
 columns:
   train: [status, server, gpus, model, dataset, duration, NMI, ARI, ACC, result_path]
   evaluation: [status, server, model, checkpoint_path, dataset, NMI, ARI, ACC, result_path]
+commands:
+  train: python train.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +batch_size={batch_size} +crop_size={crop_size} +lr={lr} +max_epoch={epochs}
+  evaluation: python evaluate.py algo={task_lower}/{algo} data={task_lower}/{dataset} model={task_lower}/{model} +ckpt_path={checkpoint_path} +epoch={checkpoint_epoch} +out_dir={result_path}

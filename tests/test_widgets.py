@@ -1475,3 +1475,97 @@ def test_open_dataset_manager_opens_dialog_scoped_to_current_work(qapp, config, 
     panel._open_dataset_manager()
     assert opened["work_id"] == panel._work_id
     db.close()
+
+
+# --- 실행 명령어 생성 (Task commands 템플릿) -----------------------------------
+def _hydra_env(config):
+    """DN Task 에 algo 커스텀 필드(= Hydra config group)를 둔 Train 패널."""
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    config.add_option("DN", "algo", "noise2noise")
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("DN")
+    work_id = db.add_work(task_id, "N2N-Base")
+    window = QtWidgets.QMainWindow()
+    panel = TrainPanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel._test_window = window
+    panel.set_scope(task_id, work_id)
+    return db, panel, task_id, work_id
+
+
+def test_generate_builds_hydra_command_from_form(qapp, config):
+    db, panel, _task_id, _work_id = _hydra_env(config)
+    panel.reset_form()
+    panel.model_combo.set_text("UNet")
+    panel.dataset_combo.set_text("dataset1")
+    panel._custom_widgets["algo"].set_text("noise2noise")
+    panel.batch_edit.setText("16")
+
+    panel.generate_command()
+    assert panel.command_input.text() == (
+        "python train.py algo=dn/noise2noise data=dn/dataset1 model=dn/UNet +batch_size=16"
+    )
+    db.close()
+
+
+def test_command_follows_form_until_the_user_edits_it(qapp, config):
+    db, panel, _task_id, _work_id = _hydra_env(config)
+    panel.reset_form()
+    panel.model_combo.set_text("UNet")
+    assert "model=dn/UNet" in panel.command_input.text()  # 손대기 전엔 따라온다
+
+    panel.command_input.set_text("python train.py --my-own-thing")
+    panel.model_combo.set_text("NAFNet")
+    # 사용자가 직접 쓴 명령어는 폼이 바뀌어도 덮어쓰지 않는다.
+    assert panel.command_input.text() == "python train.py --my-own-thing"
+    db.close()
+
+
+def test_loading_an_existing_run_never_regenerates_its_command(qapp, config):
+    """저장된 명령어는 '실제로 돌린 것'의 기록이라 폼을 건드려도 유지돼야 한다."""
+    db, panel, _task_id, work_id = _hydra_env(config)
+    db.insert_run("train", {"work_id": work_id, "model": "UNet", "exec_command": "python legacy.py"})
+    panel.reload()
+    panel.view.selectRow(0)
+    assert panel.load_selected_into_form()
+
+    panel.model_combo.set_text("NAFNet")
+    assert panel.command_input.text() == "python legacy.py"
+    db.close()
+
+
+def test_evaluation_handoff_prefills_form_from_train_run(qapp, config):
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import EvaluationPanel
+
+    config.add_option("DN", "algo", "noise2noise")
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    task_id = db.add_task("DN")
+    work_id = db.add_work(task_id, "N2N-Base")
+    train_id = db.insert_run(
+        "train",
+        {
+            "work_id": work_id, "model": "UNet", "dataset": "dataset1",
+            "server": "Server 1", "dataset_path": "/mnt/data/dn/train",
+            "extra_json": {"algo": "noise2noise"},
+        },
+    )
+    window = QtWidgets.QMainWindow()
+    panel = EvaluationPanel(db, config, parent=window)
+    window.setCentralWidget(panel)
+    panel.set_scope(task_id, work_id)
+
+    panel.start_evaluation_for(train_id)
+    panel.checkpoint_epoch_edit.setText("200")
+    panel._sync_generated_command()
+
+    assert panel.server_combo.current_text() == "Server 1"
+    assert panel.dataset_combo.current_text() == "dataset1"
+    assert panel._custom_widgets["algo"].current_text() == "noise2noise"  # config group 이 딸려온다
+    command = panel.command_input.text()
+    assert command.startswith("python evaluate.py")
+    assert "algo=dn/noise2noise" in command and "model=dn/UNet" in command
+    assert "+epoch=200" in command
+    db.close()

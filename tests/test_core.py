@@ -595,3 +595,56 @@ def test_canonical_metric_name():
     assert canonical_metric_name("psnr") == "PSNR"
     assert canonical_metric_name("Top-5") == "Top-5"
     assert canonical_metric_name("SomeCustomThing") == "SomeCustomThing"
+
+
+# --- command_builder: Task 템플릿 -> 실행 명령어 -------------------------------
+def test_render_command_fills_placeholders_and_drops_empty_tokens():
+    from dl_exp_manager.command_builder import render_command
+
+    template = (
+        "python train.py algo={task_lower}/{algo} data={task_lower}/{dataset}"
+        " model={task_lower}/{model} +batch_size={batch_size} +crop_size={crop_size}"
+    )
+    result = render_command(
+        template,
+        {
+            "task_lower": "dn", "algo": "noise2noise", "dataset": "dataset1",
+            "model": "UNet", "batch_size": "16", "crop_size": "",
+        },
+    )
+    # 빈 값(crop_size)은 `+crop_size=` 를 남기지 않고 토큰째 사라져야 한다.
+    assert result.text == (
+        "python train.py algo=dn/noise2noise data=dn/dataset1 model=dn/UNet +batch_size=16"
+    )
+    assert result.dropped == ["crop_size"]
+    assert result.unknown == []
+
+
+def test_render_command_reports_unknown_placeholders():
+    from dl_exp_manager.command_builder import render_command
+
+    result = render_command("python train.py +foo={nope} model={model}", {"model": "UNet"})
+    assert result.text == "python train.py model=UNet"
+    assert result.unknown == ["nope"]
+
+
+def test_render_command_quotes_values_with_spaces():
+    from dl_exp_manager.command_builder import render_command
+
+    result = render_command(
+        "python eval.py +ckpt={checkpoint_path}", {"checkpoint_path": "/mnt/my runs/net.pth"}
+    )
+    assert result.text == "python eval.py +ckpt='/mnt/my runs/net.pth'"
+
+
+def test_render_command_empty_template_is_safe():
+    from dl_exp_manager.command_builder import render_command
+
+    assert render_command("", {"model": "UNet"}).text == ""
+    assert not render_command("   ", {})
+
+
+def test_placeholders_in_lists_names_once_in_order():
+    from dl_exp_manager.command_builder import placeholders_in
+
+    assert placeholders_in("a={x} b={y} c={x}") == ["x", "y"]

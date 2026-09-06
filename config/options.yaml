@@ -24,5 +24,16 @@
 #                 latency_ms, throughput_fps, epochs, batch_size, lr, optimizer, notes
 #     metric      any key defined under metrics
 #     custom field  any name defined under options
+#   commands: The run form's "⚙ Generate" button builds the execution command
+#             from these templates - one for train, one for evaluation.
+#             {placeholder} is filled from the form; a token whose placeholder
+#             is empty is dropped whole, so `+batch_size={batch_size}` simply
+#             disappears when no batch size was entered. Available names:
+#     everywhere  task, task_lower, work, model, dataset, dataset_path,
+#                 result_path, server, host, gpus, cuda_devices, status,
+#                 plus every custom field under options (e.g. {algo}, {scale})
+#     train       epochs, batch_size, crop_size, lr, optimizer
+#     evaluation  checkpoint_path, checkpoint_epoch, device, input_size,
+#                 train_result_path, train_run_id, train_model
 
 version: 2
