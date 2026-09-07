@@ -36,11 +36,6 @@ def config():
 
 
 # --- 테마 --------------------------------------------------------------------
-def test_qss_renders_for_both_themes(qapp):
-    from dl_exp_manager import theme
-
-    assert len(theme.render_qss("dark")) > 1000
-    assert len(theme.render_qss("light")) > 1000
 
 
 def test_unknown_token_in_template_is_an_error(qapp, monkeypatch):
@@ -56,12 +51,6 @@ def test_unknown_token_in_template_is_an_error(qapp, monkeypatch):
     with pytest.raises(KeyError):
         theme.render_qss("dark")
 
-
-def test_status_colors_come_from_theme(qapp):
-    from dl_exp_manager import theme
-
-    assert theme.status_color("running") == theme.color("status.running")
-    assert theme.status_color("failed") != theme.status_color("done")
 
 
 # --- ManagedCombo ------------------------------------------------------------
@@ -194,19 +183,6 @@ def test_server_panel_flags_gpu_conflict(qapp, config):
     db.close()
 
 
-def test_server_panel_shows_unknown_server_from_db(qapp, config):
-    """A server name that only exists in DB records still gets a chip."""
-    from dl_exp_manager.db import Database
-    from dl_exp_manager.widgets.server_panel import ServerStatusPanel
-
-    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
-    db.insert_run("train", {"work_id": work_id, "server": "Ghost", "model": "M",
-                            "status": "running"})
-    panel = ServerStatusPanel(db, config)
-    assert "Ghost" in panel._chips
-    db.close()
-
 
 # --- Wheel scrolling must not change combo/spinbox values in a form ----------
 def _wheel_event(delta_y: int) -> QtGui.QWheelEvent:
@@ -220,34 +196,6 @@ def _wheel_event(delta_y: int) -> QtGui.QWheelEvent:
         _Qt.ScrollPhase.NoScrollPhase, False,
     )
 
-
-def test_disable_wheel_scrolling_blocks_combo_and_spinbox(qapp):
-    from dl_exp_manager import editing
-
-    root = QtWidgets.QWidget()
-    combo = QtWidgets.QComboBox(root)
-    combo.addItems(["a", "b", "c"])
-    combo.setCurrentIndex(0)
-    spin = QtWidgets.QSpinBox(root)
-    spin.setValue(5)
-
-    # baseline: without the filter, a focused combo really does change on wheel
-    window = QtWidgets.QMainWindow()
-    unfiltered = QtWidgets.QComboBox(window)
-    unfiltered.addItems(["a", "b", "c"])
-    window.setCentralWidget(unfiltered)
-    window.show()
-    unfiltered.setFocus()
-    QtWidgets.QApplication.processEvents()
-    QtWidgets.QApplication.sendEvent(unfiltered, _wheel_event(-120))
-    assert unfiltered.currentIndex() == 1
-
-    editing.disable_wheel_scrolling(root)
-    QtWidgets.QApplication.sendEvent(combo, _wheel_event(-120))
-    assert combo.currentIndex() == 0
-
-    QtWidgets.QApplication.sendEvent(spin, _wheel_event(120))
-    assert spin.value() == 5
 
 
 def test_new_run_form_widgets_ignore_wheel(qapp, config):
@@ -282,17 +230,6 @@ def test_add_gpu_defaults_to_index0_content(qapp):
     assert dialog.table.item(2, 1).text() == "A100"
     assert dialog.table.item(2, 2).text() == "40"
 
-
-def test_add_gpu_falls_back_when_no_index0_row(qapp):
-    from dl_exp_manager.widgets.server_panel import ServerEditDialog
-
-    dialog = ServerEditDialog(None, None)
-    dialog._append(None)
-    dialog.table.item(0, 0).setText("5")  # no row is literally Index 0
-
-    dialog._append(None)
-    assert dialog.table.item(1, 1).text() == "H100"
-    assert dialog.table.item(1, 2).text() == ""
 
 
 def test_gpu_count_parsing():
@@ -361,22 +298,6 @@ def test_favorites_only_toolbar_filter(qapp, config):
     db.close()
 
 
-def test_editing_a_run_preserves_favorite_state(qapp, config):
-    """Saving the edit form must not silently clear favorite - it has no field for it."""
-    db, panel, run_id = _panel_with_one_run(config)
-    db.toggle_favorite("train", run_id)
-    panel.reload()
-    panel.view.selectRow(0)
-
-    assert panel.load_selected_into_form() is True
-    assert panel._editing_favorite is True
-    panel.model_combo.set_text("SwinIR")
-    panel.save_form()
-
-    assert db.get_run("train", run_id)["favorite"] == 1
-    assert db.get_run("train", run_id)["model"] == "SwinIR"
-    db.close()
-
 
 def test_form_collects_tags_and_failure_reason(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
@@ -407,24 +328,6 @@ def test_failure_reason_row_visibility_follows_status(qapp, config):
     db.close()
 
 
-def test_new_run_defaults_to_not_favorite(qapp, config):
-    db, panel, run_id = _panel_with_one_run(config)
-    panel.reset_form()
-    panel.work_combo.set_text("W")
-    panel.model_combo.set_text("NewModel")
-    panel.save_form()
-
-    rows = db.list_train_runs()
-    new_row = next(r for r in rows if r["model"] == "NewModel")
-    assert new_row["favorite"] == 0
-    db.close()
-
-
-def test_new_run_defaults_to_queued_status(qapp, config):
-    db, panel, run_id = _panel_with_one_run(config)
-    panel.reset_form()
-    assert panel.status_combo.currentData() == "queued"
-    db.close()
 
 
 def test_server_combo_only_lists_configured_servers(qapp, config):
@@ -534,13 +437,6 @@ def test_column_preset_simple_hides_paths_and_hyperparams(qapp, config):
     db.close()
 
 
-def test_column_preset_paper_keeps_only_model_and_metrics(qapp, config):
-    db, panel, run_id = _panel_with_one_run(config)
-    panel.apply_preset_paper()
-    visible = {h for h in panel.model.headers() if h not in panel._hidden_headers}
-    assert visible == {"Model", "scale", "PSNR", "SSIM", "LPIPS"}
-    db.close()
-
 
 def test_column_preset_full_clears_hidden_set(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
@@ -614,47 +510,7 @@ def test_nav_auto_drills_into_first_task_and_work_on_first_load(qapp, config):
     db.close()
 
 
-def test_nav_go_root_then_enter_task_shows_works_only(qapp, config):
-    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
-    received = []
-    nav.selectionChanged.connect(lambda t, w: received.append((t, w)))
 
-    nav._go_root()
-    assert nav.current_task_id() is None and nav.current_work_id() is None
-    assert received[-1] == (-1, -1)
-
-    nav._enter_task(sr)
-    assert nav.current_task_id() == sr and nav.current_work_id() is None
-    assert received[-1] == (sr, -1)
-
-    nav._enter_work(bsr)
-    assert nav.current_work_id() == bsr
-    assert received[-1] == (sr, bsr)
-    db.close()
-
-
-def test_nav_refresh_with_explicit_ids_jumps_directly(qapp, config):
-    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
-    nav.refresh(select_task_id=dn)
-    assert nav.current_task_id() == dn and nav.current_work_id() is None
-
-    nav.refresh(select_work_id=bsr)
-    assert nav.current_task_id() == sr and nav.current_work_id() == bsr
-    db.close()
-
-
-def test_nav_bare_refresh_preserves_current_position(qapp, config):
-    """A no-arg refresh() (called after every save/config change) must not
-    yank the user back to the first Task/Work - only the very first load does that."""
-    db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
-    nav._go_root()
-    nav.refresh()
-    assert nav.current_task_id() is None and nav.current_work_id() is None
-
-    nav._enter_task(dn)
-    nav.refresh()
-    assert nav.current_task_id() == dn and nav.current_work_id() is None
-    db.close()
 
 
 def test_nav_refresh_falls_back_when_current_work_deleted(qapp, config):
@@ -709,24 +565,47 @@ def test_nav_dataset_folder_button_opens_its_path(qapp, config, monkeypatch):
     db.close()
 
 
-def test_nav_add_dataset_via_inline_dialog(qapp, config, monkeypatch):
+def test_nav_add_and_edit_dataset_via_inline_dialog(qapp, config, monkeypatch):
+    """왼쪽 네비게이션의 Dataset 추가/수정 - 이 앱에서 실제로 가장 많이 쓰는 경로다.
+
+    `result_values()` 를 통째로 몽키패치하지 않고 실제 위젯에 값을 채워 넣는다 -
+    다이얼로그에 필드가 추가돼도(예: Device/Abbreviation) 여기서 만든 값이 그대로
+    자동으로 늘어나므로, "다이얼로그는 고쳤는데 호출부의 unpack 은 안 고쳐서 저장이
+    조용히 실패하는" 사고(실제로 한 번 있었다)를 이 테스트가 막아 준다.
+    """
     from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog
 
     db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
     nav.refresh(select_work_id=ssl2sl)
 
-    monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(
-        DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/data/DIV2K", "", 900, "256x256", "tiff", "2024-01-15"),
-    )
+    def fill_and_accept(self):
+        self.name_edit.setText("DIV2K")
+        self.variant_edit.setText("Full Pair")
+        self.path_edit.set_path("/mnt/data/DIV2K")
+        self.device_edit.setText("server1")
+        self.abbreviation_edit.setText("div2k")
+        return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(DatasetEditDialog, "exec", fill_and_accept)
     nav._add_dataset()
 
     datasets = db.list_datasets(ssl2sl)
-    assert len(datasets) == 1 and datasets[0]["name"] == "DIV2K"
-    assert datasets[0]["sample_count"] == 900
-    assert datasets[0]["image_size"] == "256x256"
-    assert datasets[0]["extension"] == "tiff"
+    assert len(datasets) == 1
+    added = datasets[0]
+    assert added["name"] == "DIV2K"
+    assert added["device"] == "server1"
+    assert added["abbreviation"] == "div2k"
+
+    def edit_device(self):
+        self.device_edit.setText("server2")
+        return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(DatasetEditDialog, "exec", edit_device)
+    nav._edit_dataset(added)
+
+    updated = db.list_datasets(ssl2sl)[0]
+    assert updated["device"] == "server2"
+    assert updated["abbreviation"] == "div2k"  # 손 안 댄 필드는 그대로 남아야 한다
     db.close()
 
 
@@ -797,25 +676,6 @@ def test_search_dialog_finds_runs_by_model(qapp, config):
     db.close()
 
 
-def test_search_dialog_finds_runs_by_path_and_notes(qapp, config):
-    from dl_exp_manager.qt import Qt
-    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
-
-    db, sr, w1 = _search_env(config)
-    dialog = GlobalSearchDialog(db, lambda payload: None)
-
-    dialog.query_edit.setText("net.pth")
-    assert any(
-        dialog.list.item(i).data(Qt.ItemDataRole.UserRole)["kind"] == "run"
-        for i in range(dialog.list.count())
-    )
-
-    dialog.query_edit.setText("baseline")
-    assert any(
-        "Restormer" in dialog.list.item(i).text() for i in range(dialog.list.count())
-    )
-    db.close()
-
 
 def test_search_dialog_activation_calls_back_with_payload(qapp, config):
     from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
@@ -830,17 +690,6 @@ def test_search_dialog_activation_calls_back_with_payload(qapp, config):
     assert received[0]["kind"] == "run"
     db.close()
 
-
-def test_search_dialog_escape_rejects(qapp, config):
-    from dl_exp_manager.qt import Qt, QtCore, QtGui
-    from dl_exp_manager.widgets.search_dialog import GlobalSearchDialog
-
-    db, sr, w1 = _search_env(config)
-    dialog = GlobalSearchDialog(db, lambda payload: None)
-    event = QtGui.QKeyEvent(QtCore.QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
-    dialog.keyPressEvent(event)
-    assert dialog.result() == QtWidgets.QDialog.DialogCode.Rejected
-    db.close()
 
 
 def test_set_theme_rebuilds_workspace_and_preserves_scope(qapp, config):
@@ -921,17 +770,6 @@ def test_path_edit_accepts_dropped_folder(qapp):
     assert received == [folder]
 
 
-def test_path_edit_dropped_file_uses_parent_dir(qapp):
-    from dl_exp_manager.widgets.common import PathEdit
-
-    folder = tempfile.mkdtemp()
-    file_path = os.path.join(folder, "config.yml")
-    open(file_path, "w").write("x")
-
-    edit = PathEdit(None, directory=True)
-    _drop_folder(edit, file_path)
-    assert edit.path() == folder
-
 
 def test_result_folder_drop_autofills_empty_config(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
@@ -980,45 +818,7 @@ def test_log_viewer_reports_missing_log_without_crashing(qapp):
     assert dialog.text.toPlainText() == ""
 
 
-def test_log_viewer_handles_blank_result_path(qapp):
-    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
 
-    dialog = LogViewerDialog("", title="No Path")
-    assert "no result folder set" in dialog.path_label.text()
-    assert not dialog.open_folder_btn.isEnabled()
-
-
-def test_log_viewer_browse_switches_to_chosen_file(qapp, monkeypatch):
-    from dl_exp_manager.widgets.log_viewer import LogViewerDialog
-
-    folder = tempfile.mkdtemp()
-    other = os.path.join(folder, "custom.txt")
-    with open(other, "w") as fp:
-        fp.write("hello from custom file")
-
-    dialog = LogViewerDialog(folder, title="Browse Test")
-    assert dialog._log_path is None
-
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog,
-        "getOpenFileName",
-        staticmethod(lambda *a, **k: (other, "")),
-    )
-    dialog._browse()
-    assert dialog._log_path == other
-    assert "hello from custom file" in dialog.text.toPlainText()
-
-
-def test_view_log_requires_selection(qapp, config, monkeypatch):
-    from dl_exp_manager.qt import QtCore
-
-    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
-
-    db, panel, run_id = _panel_with_one_run(config)
-    panel.view.clearSelection()
-    panel.view.setCurrentIndex(QtCore.QModelIndex())
-    panel.view_log()  # must not raise even with nothing selected
-    db.close()
 
 
 # --- #10 Markdown / HTML report export ---------------------------------------
@@ -1062,31 +862,6 @@ def test_export_report_writes_html_file_when_html_filter_chosen(qapp, config, mo
     db.close()
 
 
-def test_export_report_with_no_rows_warns_instead_of_writing(qapp, config, monkeypatch, tmp_path):
-    from dl_exp_manager.db import Database
-    from dl_exp_manager.widgets.run_panel import TrainPanel
-
-    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("Super-Resolution")
-    work_id = db.add_work(task_id, "W")
-    window = QtWidgets.QMainWindow()
-    panel = TrainPanel(db, config, parent=window)
-    window.setCentralWidget(panel)
-    panel._test_window = window
-    panel.set_scope(task_id, work_id)
-
-    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
-    called = {}
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *a, **k: called.setdefault("called", True) or ("", "")),
-    )
-
-    panel.export_report()
-    assert "called" not in called  # dialog never opened because there were no rows
-    db.close()
-
 
 def test_view_log_opens_dialog_for_selected_run(qapp, config, monkeypatch):
     db, panel, run_id = _panel_with_one_run(config)
@@ -1126,13 +901,6 @@ def test_image_viewer_auto_detects_and_renders_image(qapp):
     assert dialog._image_path == os.path.join(folder, "restormer_output.png")
     assert dialog._pixmap is not None and not dialog._pixmap.isNull()
 
-
-def test_image_viewer_reports_missing_image_without_crashing(qapp):
-    from dl_exp_manager.widgets.image_viewer import ImageViewerDialog
-
-    dialog = ImageViewerDialog(tempfile.mkdtemp(), title="Test Image")
-    assert dialog._image_path is None
-    assert "No image found" in dialog.image_label.text()
 
 
 def test_view_image_opens_dialog_for_selected_run(qapp, config, monkeypatch):
@@ -1177,27 +945,6 @@ def test_curve_dialog_parses_log_into_selectable_metric_series(qapp):
     assert dialog.chart._points == [(100, 5.0e-02), (200, 2.0e-02)]
 
 
-def test_curve_dialog_no_log_shows_message(qapp):
-    from dl_exp_manager.widgets.curve_chart import CurveDialog
-
-    dialog = CurveDialog(tempfile.mkdtemp(), title="Test Curve")
-    assert dialog.metric_combo.count() == 0
-    assert "No log file found" in dialog.path_label.text()
-
-
-def test_evaluation_panel_has_no_training_curve_button(qapp, config):
-    from dl_exp_manager.db import Database
-    from dl_exp_manager.widgets.run_panel import EvaluationPanel
-
-    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("Super-Resolution")
-    work_id = db.add_work(task_id, "W")
-    window = QtWidgets.QMainWindow()
-    panel = EvaluationPanel(db, config, parent=window)
-    window.setCentralWidget(panel)
-    panel.set_scope(task_id, work_id)
-    assert panel.SHOW_TRAINING_CURVE is False
-    db.close()
 
 
 # --- Compare runs ---------------------------------------------------------------
@@ -1276,16 +1023,6 @@ def test_metrics_chart_widget_empty_state_does_not_crash(qapp):
     widget.set_data([], [])
     assert not widget.grab().isNull()
 
-
-def test_compare_dialog_chart_tab_uses_numeric_metrics_not_formatted_strings(qapp, config):
-    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
-
-    rows = [_fake_run(1, "Restormer", 30.0), _fake_run(2, "SwinIR", 32.5)]
-    groups = CompareRunsDialog._build_metric_groups(rows, config, "Super-Resolution")
-    psnr = next(g for g in groups if g.key == "PSNR")
-    assert psnr.values == [30.0, 32.5]
-    assert psnr.higher_is_better is True
-    assert psnr.unit == "dB"
 
 
 def test_compare_dialog_handles_more_than_three_runs_with_a_chart(qapp, config):

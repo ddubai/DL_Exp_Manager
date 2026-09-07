@@ -445,11 +445,13 @@ class NavigationPanel(QtWidgets.QWidget):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
+        (name, variant, path, notes, sample_count, image_size, extension, registered_at,
+         device, abbreviation) = dialog.result_values()
         if not name:
             return
         self.db.add_dataset(
-            self._work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at
+            self._work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at,
+            device, abbreviation
         )
         self._render()
 
@@ -461,11 +463,13 @@ class NavigationPanel(QtWidgets.QWidget):
         dialog = DatasetEditDialog(self, dataset)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
+        (name, variant, path, notes, sample_count, image_size, extension, registered_at,
+         device, abbreviation) = dialog.result_values()
         if not name:
             return
         self.db.update_dataset(
-            dataset["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at
+            dataset["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at,
+            device, abbreviation
         )
         self._render()
 

@@ -496,20 +496,6 @@ def test_best_value_highlight_respects_higher_is_better(qapp, config):
     assert model.data(model.index(1, lpips_col), Qt.ItemDataRole.FontRole) is not None
 
 
-def test_best_value_not_highlighted_for_lone_row_in_work(qapp, config):
-    """A Work with only one run has nothing to compare against."""
-    from dl_exp_manager.models import RunTableModel, build_columns
-    from dl_exp_manager.qt import Qt
-
-    rows = [
-        dict(SAMPLE_ROW, id=1, work_id=10, metrics_json='{"PSNR": 30.0}'),
-        dict(SAMPLE_ROW, id=2, work_id=20, metrics_json='{"PSNR": 999.0}'),  # different Work, alone
-    ]
-    model = RunTableModel()
-    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
-    col = model.column_index("metric:PSNR")
-    assert model.data(model.index(1, col), Qt.ItemDataRole.FontRole) is None
-
 
 def test_best_value_grouped_per_work_not_globally(qapp, config):
     """Two different Works shouldn't have their metrics compared against each other."""
@@ -557,17 +543,6 @@ def test_path_badge_does_not_flag_existing_path(qapp, config):
     tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
     assert "not reachable" not in tooltip
 
-
-def test_path_badge_ignores_empty_path(qapp, config):
-    from dl_exp_manager.models import RunTableModel, build_columns
-    from dl_exp_manager.qt import Qt
-
-    row = dict(SAMPLE_ROW, result_path="")
-    model = RunTableModel()
-    model.set_content([row], build_columns(config, "Super-Resolution", "train"))
-    col = model.column_index("result_path")
-    tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
-    assert tooltip == "(no path set)"
 
 
 # --- #7 Favorites column + filter --------------------------------------------

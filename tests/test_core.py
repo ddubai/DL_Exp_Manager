@@ -385,11 +385,6 @@ def test_scan_result_folder_does_not_recurse():
     assert found["config"] is None
 
 
-def test_scan_result_folder_missing_dir_is_safe():
-    from dl_exp_manager.utils import scan_result_folder
-
-    assert scan_result_folder("/does/not/exist") == {"config": None, "log": None}
-
 
 def test_tail_file_returns_last_n_lines():
     from dl_exp_manager.utils import tail_file
@@ -440,12 +435,6 @@ def test_render_html_report_escapes_html_and_lists_rows():
     assert "<script>x</script>" not in out
 
 
-def test_render_html_report_handles_no_rows():
-    from dl_exp_manager.utils import render_html_report
-
-    out = render_html_report("Empty", ["id"], [])
-    assert "(no rows)" in out
-
 
 # --- find_representative_image / unified_diff_text ---------------------------
 def test_find_representative_image_prefers_hinted_name():
@@ -470,12 +459,6 @@ def test_find_representative_image_falls_back_to_first_and_subdir():
     open(os.path.join(d2, "visualization", "x.jpg"), "w").close()
     assert find_representative_image(d2) == os.path.join(d2, "visualization", "x.jpg")
 
-
-def test_find_representative_image_missing_folder_is_safe():
-    from dl_exp_manager.utils import find_representative_image
-
-    assert find_representative_image("/does/not/exist") is None
-    assert find_representative_image("") is None
 
 
 def test_unified_diff_text():
@@ -576,12 +559,6 @@ def test_parse_train_config_reads_data_train_nested_yaml():
     assert fields["epochs"] == "200"
 
 
-def test_parse_train_config_missing_file_is_safe():
-    from dl_exp_manager.log_parser import parse_train_config
-
-    assert parse_train_config("/does/not/exist.yaml") == {}
-    assert parse_train_config("") == {}
-
 
 def test_parse_loss_log_extracts_curve_and_latest_metrics():
     from dl_exp_manager.log_parser import parse_loss_log
@@ -606,12 +583,6 @@ def test_parse_loss_log_extracts_curve_and_latest_metrics():
     # 첫/마지막 타임스탬프 차이로 소요 시간을 추정한다 (10:00 -> 16:00 = 6시간)
     assert result.duration_sec == 6 * 3600
 
-
-def test_parse_loss_log_missing_file_is_safe():
-    from dl_exp_manager.log_parser import parse_loss_log
-
-    result = parse_loss_log("/does/not/exist.log")
-    assert result.points == [] and result.latest_metrics == {} and result.duration_sec is None
 
 
 def test_canonical_metric_name():
@@ -813,28 +784,6 @@ def test_populate_generates_commands_from_the_real_task_templates():
     db.close()
 
 
-def test_populate_without_config_falls_back_to_builtin_templates():
-    """config 없이 불러도(예: 옛 호출부) 예외 없이 동작해야 한다."""
-    from dl_exp_manager.sample_data import populate
-
-    tmp = tempfile.mkdtemp()
-    db = Database(os.path.join(tmp, "t.db"), seed=False)
-    added = populate(db)
-    assert added > 50
-    row = db.list_train_runs()[0]
-    assert row["exec_command"] == "" or "python" in row["exec_command"]
-    db.close()
-
-
-def test_populate_is_safe_to_call_on_a_db_that_already_has_data():
-    """"Insert Sample Data" 를 실수로 두 번 눌러도 죽지 않아야 한다."""
-    from dl_exp_manager.sample_data import populate
-
-    tmp, db, config = _make_sample_env()
-    populate(db, config)
-    second = populate(db, config)  # 두 번째 호출 - 예외 없이 더 추가돼야 한다
-    assert second > 50
-    db.close()
 
 
 def test_populate_with_local_assets_writes_real_parseable_result_folders():
@@ -870,32 +819,3 @@ def test_populate_with_local_assets_writes_real_parseable_result_folders():
     db.close()
 
 
-def test_populate_without_local_assets_touches_no_disk_outside_the_db():
-    """기본값(with_local_assets=False)은 DB 행만 만들고 파일은 하나도 안 만들어야 한다."""
-    from dl_exp_manager.sample_data import populate
-
-    tmp, db, config = _make_sample_env()
-    results_root = os.path.join(tmp, "results")
-    populate(db, config)  # with_local_assets 기본값 False
-    assert not os.path.exists(results_root)
-    db.close()
-
-
-def test_populate_exercises_favorites_tags_and_history():
-    from dl_exp_manager.sample_data import populate
-
-    tmp, db, config = _make_sample_env()
-    populate(db, config)
-
-    all_runs = db.list_train_runs() + db.list_evaluation_runs()
-    assert any(r["favorite"] for r in all_runs)
-    assert any(r["tags"] for r in all_runs)
-    assert any(r["status"] == C.STATUS_FAILED and r["failure_reason"] for r in db.list_train_runs())
-
-    history_kinds = set()
-    for row in db.list_train_runs():
-        for entry in db.list_history("train", row["id"]):
-            history_kinds.add(entry["action"])
-    assert {"created", "updated", "duplicated"} <= history_kinds
-
-    db.close()

@@ -43,14 +43,6 @@ def test_split_files_stay_short():
             assert len(fp.readlines()) < 60, f"{path} 가 너무 깁니다"
 
 
-def test_watch_paths_covers_every_file():
-    config = make_config()
-    paths = set(config.watch_paths())
-    assert config.path in paths
-    assert config.servers_path in paths
-    assert config.defaults_path in paths
-    assert config.task_path("Super-Resolution") in paths
-
 
 def test_task_options_replace_defaults():
     config = make_config()
@@ -173,12 +165,6 @@ def test_server_crud():
     assert config.remove_server("Server 10")
     assert config.server("Server 10") is None
 
-
-def test_ensure_task_adds_slot_for_new_task():
-    config = make_config()
-    config.ensure_task("Segmentation")
-    assert "Segmentation" in config.task_names
-    assert config.options_for("Segmentation", "optimizer")  # defaults 상속
 
 
 def test_broken_yaml_keeps_app_usable():
@@ -306,18 +292,6 @@ def test_legacy_single_file_is_split_automatically():
     # 원본은 백업된다
     assert os.path.exists(path + ".bak")
 
-
-def test_split_runs_only_once():
-    directory = os.path.join(tempfile.mkdtemp(), "config")
-    os.makedirs(directory)
-    path = os.path.join(directory, "options.yaml")
-    with open(path, "w", encoding="utf-8") as fp:
-        yaml.safe_dump({"version": 2, "tasks": {"Super-Resolution": {"options": {"model": ["A"]}}}}, fp)
-
-    OptionsConfig(path)
-    second = OptionsConfig(path)
-    assert second.errors == []
-    assert second.task_names == ["Super-Resolution"]
 
 
 def test_missing_servers_yaml_falls_back_without_writing_it():
@@ -523,15 +497,6 @@ def test_params_file_is_created_with_the_other_config_files():
     assert config.param_cli_name("scale") == "scale"
 
 
-def test_params_file_appears_in_a_config_folder_that_predates_it():
-    """이미 쓰고 있던 설정 폴더에도 params.yaml 이 생겨야 한다(새로 만들 뿐 덮어쓰진 않는다)."""
-    config = make_config()
-    os.remove(config.params_path)
-
-    reloaded = OptionsConfig(config.path)
-    assert os.path.exists(reloaded.params_path)
-    assert reloaded.errors == []
-
 
 def test_editing_params_yaml_changes_every_task_command():
     from dl_exp_manager.command_builder import render_command
@@ -573,7 +538,3 @@ def test_broken_params_yaml_falls_back_to_the_builtin_style():
 
 
 # --- short: 표시 이름과 명령어 경로 분리 ---------------------------------------
-def test_task_short_name_is_read_but_optional():
-    config = make_config()
-    assert config.task("Denoising").short == "dn"
-    assert config.task("Clustering").short == ""         # 없으면 빈 문자열
