@@ -205,7 +205,7 @@ def test_non_mapping_task_is_dropped_with_error():
 
 
 def test_external_edit_is_picked_up_on_reload():
-    """에디터로 tasks/SuperResolution.yaml 을 고치면 다시 읽었을 때 반영돼야 한다."""
+    """에디터로 task-defs/SuperResolution.yaml 을 고치면 다시 읽었을 때 반영돼야 한다."""
     config = make_config()
     path = config.task_path("SuperResolution")
     with open(path, encoding="utf-8") as fp:
@@ -297,7 +297,7 @@ def test_legacy_single_file_is_split_automatically():
     config = OptionsConfig(path)
     assert os.path.exists(os.path.join(directory, "servers.yaml"))
     assert os.path.exists(os.path.join(directory, "defaults.yaml"))
-    assert os.path.exists(os.path.join(directory, "tasks", "SuperResolution.yaml"))
+    assert os.path.exists(os.path.join(directory, "task-defs", "SuperResolution.yaml"))
     # 내용이 그대로 살아 있어야 한다
     assert config.options_for("SuperResolution", "model") == ["LegacyNet"]
     assert config.metric_keys("SuperResolution") == ["PSNR"]
@@ -347,7 +347,7 @@ def _write(path: str, text: str) -> None:
 def test_options_defaults_params_are_seeded_from_their_templates():
     """git clone 직후(template 만 있고 실제 파일은 없는) 상태를 흉내낸다."""
     directory = os.path.join(tempfile.mkdtemp(), "config")
-    tasks_dir = os.path.join(directory, "tasks")
+    tasks_dir = os.path.join(directory, "task-defs")
     os.makedirs(tasks_dir)
     path = os.path.join(directory, "options.yaml")
 
@@ -377,7 +377,7 @@ def test_options_defaults_params_are_seeded_from_their_templates():
 
 def test_task_yaml_is_seeded_from_its_template_including_custom_options():
     directory = os.path.join(tempfile.mkdtemp(), "config")
-    tasks_dir = os.path.join(directory, "tasks")
+    tasks_dir = os.path.join(directory, "task-defs")
     os.makedirs(tasks_dir)
     _write(os.path.join(directory, "options.template.yaml"), "version: 2\n")
     _write(
@@ -398,7 +398,7 @@ def test_task_yaml_is_seeded_from_its_template_including_custom_options():
 def test_template_files_are_not_read_as_task_definitions():
     """`Foo.template.yaml` 자체가 "Foo" 라는 Task 정의로 잘못 읽히면 안 된다."""
     directory = os.path.join(tempfile.mkdtemp(), "config")
-    tasks_dir = os.path.join(directory, "tasks")
+    tasks_dir = os.path.join(directory, "task-defs")
     os.makedirs(tasks_dir)
     _write(os.path.join(directory, "options.template.yaml"), "version: 2\n")
     _write(

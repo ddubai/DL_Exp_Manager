@@ -1190,3 +1190,29 @@ Python 코드 안의 `BUILTIN`/`BUILTIN_PARAMS` 상수를 그대로 template 으
   파일이 이미 있으면 절대 덮어쓰지 않는다.
 - 새 테스트 5개 추가(template 시딩, template 파일이 Task 로 안 읽히는 것,
   servers.yaml 만 예외인 것, 기존 실제 파일을 안 덮어쓰는 것). 전체 240개 통과.
+
+## 23. 2026-09 세션 — config/tasks/ -> config/task-defs/ (Ansible 오탐 근본 해결)
+
+§22 에서 `$schema=none` 모드라인으로 VSCode 의 Ansible 확장 오탐을 막아 봤지만
+여전히 빨간줄이 남았다 - YAML 언어 서버가 스키마를 **경로 글롭**으로 매칭해서,
+`files.associations` 로 언어 모드를 yaml 로 바꿔도 스키마 검사 자체는 별개로
+계속 붙는 경우가 있었다(정확한 원인은 확실치 않지만, Ansible 확장이 language
+모드와 무관하게 경로만 보고 자체 검증기를 붙였을 가능성이 크다).
+
+모드라인도 못 끄는 매칭 앞에서 더 파고들기보다, 애초에 트리거 자체를 없앴다 -
+`config/tasks/` -> `config/task-defs/`. Ansible 이 자동 인식하는 패턴은
+`**/tasks/*.yml` 처럼 폴더 이름이 정확히 "tasks" 일 때만 걸리므로, 이름만
+바꾸면 그 어떤 도구의 휴리스틱과도 더 이상 안 부딪힌다.
+
+바꾼 것: `config_store.py` 의 `TASKS_DIR` 상수 하나, 그리고 그 값을 문자열로
+언급하던 곳들(에러 메시지, options.yaml/defaults.yaml/params.yaml 에 박히는
+헤더 주석, 앱의 "⚙ Generate" 툴팁, README, 테스트). §22 의 `$schema=none`
+모드라인은 지우지 않고 안전망으로 남겨 뒀다 - 폴더 이름을 또 바꿀 일이야
+없겠지만, 다른 경로 기반 휴리스티과 우연히 부딪힐 가능성은 항상 있다.
+
+`.vscode/settings.json` 의 `files.associations` 항목은 이제 필요 없어져서
+지웠다 - 근본 원인(폴더 이름)이 없어졌으니 남겨 둬 봐야 죽은 설정이다.
+
+`config/tasks/` 라는 이름이 언급된 이전 섹션(§1-22)들은 고치지 않았다 -
+ROADMAP 은 그 시점의 상태를 그대로 남기는 날짜별 기록이라, 지금 와서
+과거 항목을 현재 이름으로 바꾸면 오히려 "그때 실제로 뭐였는지"가 헷갈린다.

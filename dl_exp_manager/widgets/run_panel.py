@@ -765,7 +765,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         generate_cmd_btn.setText("⚙ Generate")
         generate_cmd_btn.setToolTip(
             "Build the command from this form using the Task's template\n"
-            f"(config/tasks/<Task>.yaml → commands.{self.KIND}).\n"
+            f"(config/task-defs/<Task>.yaml → commands.{self.KIND}).\n"
             "Argument spelling comes from config/params.yaml.\n"
             "Values left blank drop their whole argument."
         )

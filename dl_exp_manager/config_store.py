@@ -9,7 +9,7 @@
       defaults.template.yaml
       params.yaml             명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16 ...)
       params.template.yaml
-      tasks/
+      task-defs/
         SuperResolution.yaml           Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
         SuperResolution.template.yaml
         Denoising.yaml
@@ -24,7 +24,7 @@
 Python 상수로 마지막 안전망을 둔다.
 
 읽을 때는 전부 합쳐 하나의 딕셔너리로 보고, 쓸 때는 **그 값이 원래 있던 파일에만** 저장한다.
-(SuperResolution 모델을 추가하면 tasks/SuperResolution.yaml 만 바뀐다.)
+(SuperResolution 모델을 추가하면 task-defs/SuperResolution.yaml 만 바뀐다.)
 
 - `ruamel.yaml` 이 있으면 주석과 순서를 보존하며 저장한다. 없으면 PyYAML 로 동작한다.
 - 파일 하나가 깨져도 나머지는 살리고, 무엇이 문제인지 `errors` 에 남긴다.
@@ -185,7 +185,11 @@ SERVERS_FILE = "servers.yaml"
 SERVERS_TEMPLATE_FILE = "servers.template.yaml"
 DEFAULTS_FILE = "defaults.yaml"
 PARAMS_FILE = "params.yaml"
-TASKS_DIR = "tasks"
+# 예전엔 "tasks" 였다 - VSCode 의 Ansible 확장이 "tasks/*.yml" 을 Ansible 태스크 목록
+# 스키마로 자동 인식해서(폴더 이름만 보고 판단한다), 이 폴더 안 아무 관련 없는 YAML
+# 에도 전부 빨간줄이 떴다. `$schema=none` 모드라인(TASK_HEADER_TEMPLATE)으로도 못
+# 끄는 매칭이 있어서, 근본적으로 폴더 이름 자체를 바꿨다.
+TASKS_DIR = "task-defs"
 
 # "<name>.yaml" -> "<name>.template.yaml". config/ 아래 실제로 쓰는 YAML 은 전부
 # 로컬 전용(gitignore)이고, git 에는 이 접미사가 붙은 template 만 들어간다 - 실제
@@ -351,13 +355,13 @@ ROOT_HEADER = """\
 #   servers.yaml        Servers and GPU inventory (type / count / memory)
 #   defaults.yaml       Options shared by every Task
 #   params.yaml         How parameters are spelled on the command line
-#   tasks/<name>.yaml   Per-Task options, metrics, columns, and commands
+#   task-defs/<name>.yaml   Per-Task options, metrics, columns, and commands
 #
 # Edit by hand or through the app UI - both write to the same files.
 # Saving is picked up by the app immediately, and a UI edit only touches
 # the file the value already lived in.
 #
-# ── How to write tasks/<name>.yaml ──────────────────────────────────────────
+# ── How to write task-defs/<name>.yaml ───────────────────────────────────────
 #   short   : Short name used in the generated command ({task_short}), so the
 #             Task can be called Denoising in the UI while the command still
 #             says algo=dn/... . Defaults to the Task name.
@@ -406,14 +410,14 @@ SERVERS_HEADER = """\
 
 DEFAULTS_HEADER = """\
 # Options shared by every Task
-# If tasks/<name>.yaml defines the same name under options, that 'replaces'
+# If task-defs/<name>.yaml defines the same name under options, that 'replaces'
 # this value. (Never merged - so it's always clear why an item is in the list.)
 """
 
 PARAMS_HEADER = """\
 # How parameters are written on the command line
 #
-# The command templates in tasks/<name>.yaml can write a parameter two ways:
+# The command templates in task-defs/<name>.yaml can write a parameter two ways:
 #
 #   {batch_size}   the value only       ->  16
 #   <batch_size>   the whole argument   ->  +batch_size=16
@@ -446,10 +450,9 @@ PARAMS_HEADER = """\
 
 TASK_HEADER_TEMPLATE = """\
 # yaml-language-server: $schema=none
-# ↑ 이 폴더 이름이 "tasks" 라서, VSCode 의 Ansible 확장이 파일 경로만 보고 Ansible
-#   태스크 목록 스키마를 잘못 붙인다(Ansible 과 무관한 파일이다). 이 한 줄로 그 스키마
-#   검사를 파일 단위로 끈다 - .vscode/settings.json 의 files.associations 와 별개로,
-#   에디터/워크스페이스 설정 없이도 이 파일만 열면 항상 적용된다.
+# ↑ 폴더 이름을 tasks -> task-defs 로 바꿔서 Ansible 확장의 오탐은 근본적으로
+#   없앴지만, 혹시 다른 도구가 같은 식으로(경로만 보고) 스키마를 잘못 붙이는 걸
+#   대비한 안전망이다. 파일 자체에 붙어 있어 워크스페이스 설정과 무관하게 적용된다.
 # Task: {name}
 # options = combo-box choices · metrics = table metric columns · columns = table layout
 # short   = short name used in the generated command ({{task_short}})
@@ -665,7 +668,7 @@ class OptionsConfig:
         if params_doc is not None:
             self._params = params_doc
 
-        # 4) Task - tasks/*.yaml 을 먼저 읽고, 진입점 인라인은 없는 것만 채운다
+        # 4) Task - task-defs/*.yaml 을 먼저 읽고, 진입점 인라인은 없는 것만 채운다
         tasks: dict[str, Any] = {}
         task_files, had_task_sources = self._read_task_files()
         for name, body, origin in task_files:
@@ -678,7 +681,7 @@ class OptionsConfig:
             for name, body in inline.items():
                 if name in tasks:
                     self.errors.append(
-                        f"Task '{name}' is defined in both options.yaml and tasks/; using tasks/."
+                        f"Task '{name}' is defined in both options.yaml and task-defs/; using task-defs/."
                     )
                     continue
                 if not isinstance(body, dict):
@@ -786,7 +789,7 @@ class OptionsConfig:
             return
         self.errors.append(
             "Split the settings that used to live in options.yaml into "
-            "servers.yaml / defaults.yaml / tasks/."
+            "servers.yaml / defaults.yaml / task-defs/."
         )
 
     # -- 쓰기 ----------------------------------------------------------------

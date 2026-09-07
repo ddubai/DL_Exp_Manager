@@ -54,7 +54,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ### 주요 기능
 
 - **선택지를 설정 파일로 관리** — 콤보박스 항목·평가 지표·표 컬럼을 `config/` 아래에서 관리합니다.
-  **기능별로 파일이 나뉘어 있어** Super Resolution 을 고치려면 `config/tasks/SuperResolution.yaml`(약 20줄) 하나만 열면 됩니다.
+  **기능별로 파일이 나뉘어 있어** Super Resolution 을 고치려면 `config/task-defs/SuperResolution.yaml`(약 20줄) 하나만 열면 됩니다.
   손으로 편집해도 되고 UI 에서 바꿔도 되며, 두 경로가 같은 파일을 씁니다.
   앱에서 바꾼 값은 **그 값이 있던 파일에만** 저장되고, 외부 편집기로 저장하면 앱이 즉시 반영합니다.
 - **Task 별 구성** — SuperResolution 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
@@ -146,10 +146,10 @@ config/                        아래 <name>.yaml 은 전부 로컬 전용(gitig
   defaults.template.yaml
   params.yaml                  명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16)
   params.template.yaml
-  tasks/SuperResolution.yaml   Task 별 선택지 · 지표 · 컬럼 · 명령어 템플릿
-  tasks/SuperResolution.template.yaml
-  tasks/Denoising.yaml         (Task 를 추가하면 파일도 함께 생깁니다)
-  tasks/...
+  task-defs/SuperResolution.yaml   Task 별 선택지 · 지표 · 컬럼 · 명령어 템플릿
+  task-defs/SuperResolution.template.yaml
+  task-defs/Denoising.yaml         (Task 를 추가하면 파일도 함께 생깁니다)
+  task-defs/...
 dl_exp_manager/
   qt.py                        PySide6 바인딩 - 유일한 Qt import 지점
   constants.py                 상태값, 기본 Task, 샘플 config 텍스트
@@ -196,12 +196,16 @@ config/
   defaults.template.yaml
   params.yaml                명령어에 파라미터를 적는 방식 (<batch_size> 를 어떻게 펼칠지)
   params.template.yaml
-  tasks/
+  task-defs/
     SuperResolution.yaml            Task 별 options · metrics · columns · commands
     SuperResolution.template.yaml
     Denoising.yaml
     ...
 ```
+
+(폴더 이름이 `tasks` 가 아니라 `task-defs` 인 건 VSCode 의 Ansible 확장이 `tasks/*.yml`
+을 자기네 태스크 목록으로 오인해 빨간줄을 긋는 걸 피하기 위해서입니다 - 이 폴더는
+Ansible 과 아무 관계가 없습니다.)
 
 **`config/` 아래 "실제로 쓰는" YAML(`<name>.yaml`)은 전부 gitignore 대상입니다.** git 에는
 `<name>.template.yaml` 만 커밋되고, 실제 파일이 없으면 앱이 그 자리에서 template 을 그대로
@@ -219,7 +223,7 @@ cp config/servers.template.yaml config/servers.yaml
 placeholder 서버 4개(Server 1~4)로 뜨고, 상태바에 "복사해서 쓰라"는 안내가 뜹니다. 서버 상태
 바의 + 버튼으로 서버를 하나라도 추가하면 그 시점에 `servers.yaml` 이 만들어집니다.
 
-`config/tasks/SuperResolution.yaml` 예시 — 이 한 파일이 그 Task 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
+`config/task-defs/SuperResolution.yaml` 예시 — 이 한 파일이 그 Task 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
 
 ```yaml
 name: SuperResolution
@@ -291,15 +295,15 @@ params:                         # 파라미터별 예외. 왼쪽은 앱의 필�
 
 - **상속은 "대체"입니다.** Task 의 `options.model` 이 있으면 `defaults.yaml` 의 `model` 을 덮어씁니다.
   합쳐지지 않으므로 "이 항목이 왜 목록에 있지?" 가 생기지 않습니다.
-- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** SuperResolution 모델을 UI 에서 추가하면 `tasks/SuperResolution.yaml` 만 바뀝니다.
-- **파일 하나가 깨져도 나머지는 삽니다.** `tasks/Denoising.yaml` 에 문법 오류가 있으면 그 Task 만 빠지고
+- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** SuperResolution 모델을 UI 에서 추가하면 `task-defs/SuperResolution.yaml` 만 바뀝니다.
+- **파일 하나가 깨져도 나머지는 삽니다.** `task-defs/Denoising.yaml` 에 문법 오류가 있으면 그 Task 만 빠지고
   상태바에 이유가 뜹니다. 정의가 깨졌을 때 같은 이름의 내장 정의로 덮어쓰지 않습니다(원본 유실 방지).
 - **덮어쓰기 전에 `.bak` 을 남깁니다.**
 - 예전처럼 `options.yaml` 한 파일에 전부 들어 있으면 첫 실행 때 자동으로 나눠 줍니다(원본은 `.bak`).
 - `ruamel.yaml` 을 설치하면 주석과 순서를 보존하며 저장합니다. 없으면 PyYAML 로 동작합니다.
 - **실제 파일이 없으면 `<name>.template.yaml` 을 그대로 복사해 만듭니다** (servers.yaml 은
-  예외 - 위 참고). Task 를 추가하고 싶으면 `tasks/<Task>.template.yaml` 을 만들어 두는 것도
-  방법입니다 - 다음 실행 때 `tasks/<Task>.yaml` 로 그대로 복사됩니다.
+  예외 - 위 참고). Task 를 추가하고 싶으면 `task-defs/<Task>.template.yaml` 을 만들어 두는 것도
+  방법입니다 - 다음 실행 때 `task-defs/<Task>.yaml` 로 그대로 복사됩니다.
 
 ## 데이터베이스 스키마
 
