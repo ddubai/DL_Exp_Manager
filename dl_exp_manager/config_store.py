@@ -269,6 +269,7 @@ BUILTIN: dict[str, Any] = {
             "label": "Super Resolution",
             "short": "sr",
             "options": {
+                "algo": [],
                 "model": ["Restormer", "SwinIR", "MambaIR", "HAT", "EDSR", "RCAN"],
                 "dataset": ["DIV2K", "DF2K", "Flickr2K", "Set5", "Set14", "Urban100"],
                 "scale": ["x2", "x3", "x4"],
@@ -291,6 +292,9 @@ BUILTIN: dict[str, Any] = {
             "label": "Denoising",
             "short": "dn",
             "options": {
+                # 실제 Denoising task-defs 파일은 이미 algo: [noise2noise] 를 쓰고 있다 -
+                # 여기(설정 파일이 아예 없을 때의 마지막 안전망)도 맞춰 둔다.
+                "algo": ["noise2noise"],
                 "model": ["Restormer", "NAFNet", "SCUNet", "Uformer"],
                 "dataset": ["SIDD", "DND", "BSD68", "Kodak24"],
                 "noise_sigma": ["15", "25", "50"],
@@ -311,6 +315,7 @@ BUILTIN: dict[str, Any] = {
         "Clustering": {
             "label": "Unsupervised Clustering",
             "options": {
+                "algo": [],
                 "model": ["DeepCluster", "SCAN", "SwAV"],
                 "dataset": ["CIFAR-10", "STL-10", "ImageNet-50"],
             },
@@ -330,6 +335,7 @@ BUILTIN: dict[str, Any] = {
         "Classification": {
             "label": "Image Classification",
             "options": {
+                "algo": [],
                 "model": ["ResNet-50", "ViT-B/16", "ConvNeXt-T", "Swin-T"],
                 "dataset": ["ImageNet-1k", "CIFAR-100", "Food-101"],
             },

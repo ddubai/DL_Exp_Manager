@@ -10,6 +10,7 @@
 name: Clustering
 label: Unsupervised Clustering
 options:
+  algo: []
   model: [DeepCluster, SCAN, SwAV]
   dataset: [CIFAR-10, STL-10, ImageNet-50]
 metrics:

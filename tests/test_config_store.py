@@ -76,8 +76,10 @@ def test_columns_differ_per_task():
 
 def test_custom_fields_are_non_native_options():
     config = make_config()
-    assert config.custom_fields("Super-Resolution") == ["scale"]
-    assert config.custom_fields("Denoising") == ["noise_sigma"]
+    # algo 는 모든 내장 Task 에 있다(값 목록은 Denoising 만 채워져 있고 나머지는
+    # 비어 있다 - Run 폼에서는 Model 위에 항상 뜨는 고정 필드라 값이 없어도 된다).
+    assert config.custom_fields("Super-Resolution") == ["algo", "scale"]
+    assert config.custom_fields("Denoising") == ["algo", "noise_sigma"]
 
 
 def test_add_option_task_scope_and_global_scope():
