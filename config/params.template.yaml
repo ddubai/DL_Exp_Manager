@@ -1,27 +1,47 @@
-params:
-  batch_size:
-    name: batch-size
-  checkpoint_epoch:
-    name: epoch
-  checkpoint_path:
-    name: ckpt_path
-  crop_size:
-    name: crop_size
-  dataset_path:
-    name: data_root
-  device:
-    name: device
-  epochs:
-    name: max_epoch
-  input_size:
-    name: input_size
-  lr:
-    name: lr
-  optimizer:
-    name: optimizer
-  result_path:
-    name: out_dir
-style:
-  prefix: --
-  separator: ' '
+# How parameters are written on the command line
+#
+# The command templates in task-defs/<name>.yaml can write a parameter two ways:
+#
+#   {batch_size}   the value only       ->  16
+#   <batch_size>   the whole argument   ->  +batch_size=16
+#
+# `<...>` is assembled here, so switching every Task from `+batch_size=16` to
+# `+batchsize=16` (or `--batch-size 16`) is a one-line change in this file.
+# An empty value drops the whole argument, so optional parameters can sit in
+# the template all the time.
+#
+# style   : applied to every parameter that does not override it.
+#           prefix    '+' Hydra append · '' plain key=value · '--' argparse
+#           separator '=' or ' ' (a space, for argparse style)
+# params  : per-parameter overrides. Left side is the app's field name, and
+#           `name` is how your training code spells it.
+#             epochs: {name: max_epoch}          ->  +max_epoch=200
+#             lr: {prefix: '', name: optim.lr}   ->  optim.lr=0.0003
+#             batch_size: {prefix: '--', separator: ' ', name: batch-size}
+#                                                ->  --batch-size 16
+#           `template` takes over completely when the shape is unusual:
+#             gpus: {template: '--gpu-ids {value}'}
+#           A parameter that is not listed still works - it falls back to
+#           `style` with its own name, so <scale> becomes +scale=x4.
+#
+# Field names available to <...>: every name listed under a Task's options:
+# (model, dataset, algo, scale, ...) plus
+#   train       epochs, batch_size, crop_size, lr, optimizer
+#   evaluation  checkpoint_path, checkpoint_epoch, device, input_size
+#   both        dataset_path, dataset_device, dataset_abbr, result_path,
+#               server, host, gpus, cuda_devices
+
 version: 1
+style: {prefix: +, separator: '='}
+params:
+  batch_size: {name: batch_size}
+  crop_size: {name: crop_size}
+  lr: {name: lr}
+  epochs: {name: max_epoch}
+  optimizer: {name: optimizer}
+  checkpoint_path: {name: ckpt_path}
+  checkpoint_epoch: {name: epoch}
+  result_path: {name: out_dir}
+  dataset_path: {name: data_root}
+  input_size: {name: input_size}
+  device: {name: device}
