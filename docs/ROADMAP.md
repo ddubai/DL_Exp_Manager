@@ -981,3 +981,92 @@ short: dn        # → algo=dn/noise2noise
 길이가 됐다. `_flowify` 가 **스칼라만 든 짧은(60자 이하) 매핑**을 한 줄로 뽑게 했다.
 길이를 재는 건 `commands:` 때문이다 - 형태만 보면 한 줄 후보인데 명령어 템플릿은
 한 줄이 150자를 넘어 오히려 못 읽게 된다.
+
+## 20. 2026-09 세션 — 예시 데이터 대량 생성 + 비교용 막대 그래프
+
+### 20.1 문제 - 도구는 두터운데 안에 든 게 없었다
+
+`experiments.db` 를 열어 보니 실제 실행 기록은 2건뿐이었다(둘 다 `exec_command: '~~~'`).
+표·필터·비교·리포트 내보내기 같은 기능은 다 만들어져 있는데, 그걸 실제로 눌러 볼
+데이터가 없으면 "이게 되는지" 확인할 방법이 없다. 그래서 이번 세션의 절반은
+`sample_data.py` 를 다시 써서 4개 Task · 8개 Work · 57건(Train 33 + Evaluation 24)의
+예시 기록을 만들고, 나머지 절반은 그걸로 실제 기능을 오프스크린으로 눌러 보며 버그를
+찾는 데 썼다.
+
+### 20.2 `sample_data.py` - 손으로 쓴 문자열이 아니라 실제 기능으로 만든다
+
+예전 버전은 `exec_command` 를 손으로 쓴 문자열로 채웠다. 이번엔 §18/§19 에서 만든
+`config.command_template()` + `command_builder.render_command()` 를 그대로 통과시킨다 -
+Task 파일의 `commands:` 를 고치면 예시 데이터의 명령어도 그대로 따라 바뀐다. Evaluation
+은 `source_train_run_id`/`checkpoint_epoch` 로 Train Run 에 연결해 "이 학습으로 평가
+만들기" 이후의 상태를 재현했고, `duplicate_run`/`update_run`/`toggle_favorite` 도 실제로
+한 번씩 호출해 History 탭에 created/updated/duplicated 가 고르게 남게 했다.
+
+`with_local_assets=True` 를 주면 대표 Run 3개(SR/DN/Classification 각 1개)에는 **실제로
+디스크에 존재하는** 결과 폴더(config.yaml + 학습 로그 + 결과 이미지)를 만든다 -
+⇪ Parse / 📈 Training Curve / 🖼 View Image 가 가짜 경로가 아니라 진짜 파일을 상대로
+동작하는지 직접 확인할 수 있었다. 이미지는 Pillow 를 새로 넣는 대신 PNG 를 손으로
+인코딩했다(`_write_gradient_png` - IHDR/IDAT/IEND 청크만 있으면 되는 8비트 RGB 라
+`zlib.compress` 하나면 충분했다) - `sample_data.py` 는 Qt 를 포함해 여전히 아무 의존성도
+없는 순수 데이터 계층이다.
+
+기본값은 `with_local_assets=False` 로 뒀다. "Insert Sample Data" 메뉴/‑‑sample 플래그는
+지금까지처럼 DB 행만 만들고, 실제 폴더를 까는 건 데모를 만들 때만 켠다.
+
+### 20.3 검증하다가 걸린 것들 - 다 실제 버그였다
+
+1. **`main.py --sample` 가 빈 DB 에서 죽었다.** `Database.summary()` 를
+   `inference`→`evaluation` 으로 바꾼 세션(§15)에서 `main.py` 안의 체크를 놓쳐
+   `summary["inference"]` 로 `KeyError`. `should_populate_sample_data()` 로 분리해 Qt 없이
+   테스트해 뒀다(`tests/test_main.py`) - 다음에 `summary()` 의 키가 또 바뀌면 여기서 먼저
+   깨진다.
+2. **`db.get_run()` 이 돌려주는 행은 `metrics_json`/`extra_json` 이 아직 JSON 문자열이다.**
+   예시 데이터를 만들며 이 행을 재사용하는 헬퍼(`_sr_eval`, `_make_local_asset`)에서
+   `.get()` 을 dict 처럼 호출하다 걸렸다 - `json.loads` 로 파싱한 뒤 다시 쓰게 고쳤다.
+   폼에 채울 때만 파싱된 dict 라는 걸 까먹기 쉬운 지점이라 주석으로 남겨 뒀다.
+3. **`toast(ok=False, ...)` 는 상태바가 있어도 항상 블로킹 `QMessageBox` 로 떨어진다**
+   (`ok=True` 일 때만 상태바를 씀 - `common.toast` 참고). Compare 상한을 넘겨 선택하는
+   테스트가 여기 걸려 pytest 가 멈췄다(§12.6 의 교훈과 같은 종류, 이번엔 `ok=False` 경로).
+   `run_panel_module.toast` 를 가짜로 바꿔 통과시켰다.
+
+### 20.4 비교용 막대 그래프 (`metrics_chart.py`)
+
+ROADMAP §16.7 의 판단(의존성 0 유지, `curve_chart.py` 처럼 QPainter 로 직접 그린다)을
+그대로 이었다. 핵심 설계는 **지표를 하나로 묶은 축을 안 쓰는 것** - PSNR(~30)과
+SSIM(~0.9)을 같은 y축에 놓으면 한쪽이 안 보인다. 대신 지표마다 그 지표 안에서만
+정규화한 작은 막대 묶음을 지표 개수만큼 나란히 그리고, 값은 막대 위에 라벨로 바로
+붙인다. `higher_is_better` 방향으로 제일 좋은 막대는 `metric.best` 색 테두리로
+강조한다(표에서 최고값을 강조하는 것과 같은 토큰).
+
+`CompareRunsDialog` 에 "📊 Chart" 탭으로 얹었다. config.yaml diff 는 2개를 비교할 때만
+의미가 있어(그 이상은 "누가 기준인지"가 애매하다) 그대로 뒀지만, 지표 표/막대 그래프는
+몇 개를 골라도 늘어나므로 선택 상한을 3 -> **8**(`BaseRunPanel.COMPARE_LIMIT`)로 올렸다.
+많이 쌓아 두고 한눈에 비교하는 용도로는 3개가 너무 좁았다.
+
+**실제로 겪은 버그 둘**(스크린샷으로 확인하다 발견):
+
+- **범례가 잘렸다.** 위젯 폭을 막대 기하학만 보고 계산해서(`n * bar_w + gaps`), Run 이
+  적고 라벨이 길면(`#101 · Restormer-Large-Variant`) 범례 글자가 막대보다 넓어져
+  잘려 나갔다. `_legend_width()` 로 `QFontMetrics` 기반 폭을 따로 재서, 막대 폭과
+  범례 폭 중 큰 쪽을 최종 폭으로 쓰게 고쳤다.
+- **값이 없는 지표 표시가 사실상 안 보였다.** "빈 자리"를 맨 아래 1px 가로선으로
+  그렸는데, 어두운 배경 위에서 스크린샷으로도 거의 안 잡혔다. 값 라벨 자리에 "–" 를
+  놓고 그 아래 짧은 세로 점선을 그리는 걸로 바꿨다 - 있는 막대와 없는 막대가 한눈에
+  구분된다.
+
+두 문제 다 오프스크린 렌더만으로는 못 잡았다 - `widget.grab().save()` 로 실제
+스크린샷을 찍어 눈으로 본 다음에야 드러났다. `test_metrics_chart_widget_*` 로
+치수 계산과 데이터 매핑은 테스트해 뒀지만, 텍스트가 "보이는지"는 여전히 눈으로
+확인해야 하는 영역이다.
+
+### 20.5 데모 DB - 실서버 설정과 진짜 파일이 딸린 sample_experiments.db
+
+`sample_experiments.db`(+ `sample_results/`)를 프로젝트 루트에 만들어 뒀다(둘 다
+gitignore 대상). `experiments.db` 는 건드리지 않는다 - 대량의 가짜 데이터를 사용자의
+실제 실험 기록에 섞어 넣지 않으려고 처음부터 별도 DB로 갈랐다. `config/options.yaml`
+은 실제 프로젝트 설정(사용자의 진짜 `servers.yaml` 포함)을 그대로 참조해서, 서버 상태
+바에 진짜 서버 이름이 뜨고 명령어도 실제 Task 템플릿으로 생성된다 - "가짜인데 진짜처럼
+동작하는" 데모가 아니라 "진짜 설정 위에 가짜 실행 기록만 얹은" 데모다.
+
+`python main.py --db sample_experiments.db` 로 열어 보면 된다.
+

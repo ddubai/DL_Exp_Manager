@@ -1222,7 +1222,8 @@ def test_compare_dialog_highlights_differing_fields(qapp, config):
     assert table.item(optimizer_row, 1).background().style() == Qt.BrushStyle.NoBrush
 
     tabs = dialog.findChild(QtWidgets.QTabWidget)
-    assert tabs.tabText(1) == "config.yaml Diff"
+    assert tabs.tabText(1) == "📊 Chart"
+    assert tabs.tabText(2) == "config.yaml Diff"
 
 
 def test_compare_dialog_three_runs_shows_separate_config_tabs(qapp, config):
@@ -1232,7 +1233,59 @@ def test_compare_dialog_three_runs_shows_separate_config_tabs(qapp, config):
     dialog = CompareRunsDialog(rows, config, "SuperResolution")
     tabs = dialog.findChild(QtWidgets.QTabWidget)
     tab_labels = [tabs.tabText(i) for i in range(tabs.count())]
-    assert tab_labels == ["Metrics / Params", "#1 config.yaml", "#2 config.yaml", "#3 config.yaml"]
+    assert tab_labels == [
+        "Metrics / Params", "📊 Chart", "#1 config.yaml", "#2 config.yaml", "#3 config.yaml",
+    ]
+
+
+def test_metrics_chart_widget_normalizes_per_metric_and_marks_the_best_bar(qapp):
+    from dl_exp_manager.widgets.metrics_chart import MetricGroup, MetricsChartWidget
+
+    widget = MetricsChartWidget()
+    widget.set_data(
+        ["#1 · Restormer", "#2 · SwinIR", "#3 · MambaIR"],
+        [
+            MetricGroup(key="PSNR", unit="dB", higher_is_better=True, values=[32.41, 32.72, None]),
+            MetricGroup(key="LPIPS", unit="", higher_is_better=False, values=[0.121, 0.118, 0.130]),
+        ],
+    )
+    # 값이 있으면 위젯이 스스로 필요한 최소 폭을 계산해 QScrollArea 가 가로로만 늘어나게 한다.
+    assert widget.minimumWidth() > 0
+    assert widget.sizeHint().width() == widget.minimumWidth()
+
+    # paintEvent 가 실제로 예외 없이 도는지 - 오프스크린 렌더로 확인한다.
+    pixmap = widget.grab()
+    assert not pixmap.isNull()
+
+
+def test_metrics_chart_widget_empty_state_does_not_crash(qapp):
+    from dl_exp_manager.widgets.metrics_chart import MetricsChartWidget
+
+    widget = MetricsChartWidget()
+    widget.set_data([], [])
+    assert not widget.grab().isNull()
+
+
+def test_compare_dialog_chart_tab_uses_numeric_metrics_not_formatted_strings(qapp, config):
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+
+    rows = [_fake_run(1, "Restormer", 30.0), _fake_run(2, "SwinIR", 32.5)]
+    groups = CompareRunsDialog._build_metric_groups(rows, config, "SuperResolution")
+    psnr = next(g for g in groups if g.key == "PSNR")
+    assert psnr.values == [30.0, 32.5]
+    assert psnr.higher_is_better is True
+    assert psnr.unit == "dB"
+
+
+def test_compare_dialog_handles_more_than_three_runs_with_a_chart(qapp, config):
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+
+    rows = [_fake_run(i, f"Model{i}", 30.0 + i) for i in range(1, 6)]  # 5개 - 예전엔 3개가 상한이었다
+    dialog = CompareRunsDialog(rows, config, "SuperResolution")
+    tabs = dialog.findChild(QtWidgets.QTabWidget)
+    tab_labels = [tabs.tabText(i) for i in range(tabs.count())]
+    assert tab_labels[:2] == ["Metrics / Params", "📊 Chart"]
+    assert len(tab_labels) == 2 + 5  # + Run 별 config.yaml 탭 5개
 
 
 def test_compare_selected_opens_dialog_for_two_or_three_rows(qapp, config, monkeypatch):
@@ -1258,6 +1311,48 @@ def test_compare_selected_opens_dialog_for_two_or_three_rows(qapp, config, monke
     monkeypatch.setattr(CompareRunsDialog, "exec", fake_exec)
     panel.compare_selected()
     assert opened["columns"] == 3  # Field + 2 selected runs
+    db.close()
+
+
+def test_compare_selected_allows_up_to_the_raised_limit(qapp, config, monkeypatch):
+    """3개로 막던 것을 늘렸다 - COMPARE_LIMIT(기본 8)까지는 열리고, 그 초과는 거절돼야 한다."""
+    from dl_exp_manager.qt import QtCore
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+    import dl_exp_manager.widgets.run_panel as run_panel_module
+
+    db, panel, run_id = _panel_with_one_run(config)
+    for _ in range(panel.COMPARE_LIMIT):  # 원본 포함 COMPARE_LIMIT + 1 개
+        db.duplicate_run("train", run_id)
+    panel.reload()
+
+    def select_first_n(n):
+        panel.view.clearSelection()
+        for row in range(n):
+            panel.view.selectionModel().select(
+                panel.proxy.index(row, 0),
+                QtCore.QItemSelectionModel.SelectionFlag.Select | QtCore.QItemSelectionModel.SelectionFlag.Rows,
+            )
+
+    opened = {"count": 0}
+    monkeypatch.setattr(CompareRunsDialog, "exec", lambda self: opened.__setitem__("count", opened["count"] + 1))
+    # 상한을 넘긴 선택은 toast(ok=False) 로 거절되는데, 이는 상태바 유무와 무관하게
+    # 항상 블로킹 QMessageBox 로 떨어진다(common.toast) - offscreen 에선 응답할 사람이
+    # 없어 멈춘다. run_panel 이 참조하는 toast 만 가짜로 바꿔 통과시킨다.
+    rejected = {"count": 0}
+    monkeypatch.setattr(
+        run_panel_module, "toast",
+        lambda *a, **k: rejected.__setitem__("count", rejected["count"] + 1),
+    )
+
+    select_first_n(panel.COMPARE_LIMIT)
+    panel.compare_selected()
+    assert opened["count"] == 1  # 상한 그대로는 열려야 한다
+    assert rejected["count"] == 0
+
+    select_first_n(panel.COMPARE_LIMIT + 1)
+    panel.compare_selected()
+    assert opened["count"] == 1  # 상한을 넘기면 다이얼로그가 늘지 않아야 한다
+    assert rejected["count"] == 1  # 대신 거절 토스트가 한 번 떴어야 한다
     db.close()
 
 

@@ -733,3 +733,144 @@ def test_shell_redirection_is_not_mistaken_for_a_placeholder():
     result = render_command("python train.py <model> 2>&1 | tee log.txt", {"model": "UNet"})
     assert result.text == "python train.py +model=UNet 2>&1 | tee log.txt"
     assert result.unknown == []
+
+
+# --- sample_data: 예시 데이터 생성기 --------------------------------------------
+def _make_sample_env():
+    from dl_exp_manager.config_store import OptionsConfig
+
+    tmp = tempfile.mkdtemp()
+    db = Database(os.path.join(tmp, "t.db"), seed=False)
+    config = OptionsConfig(os.path.join(tmp, "config", "options.yaml"))
+    return tmp, db, config
+
+
+def test_populate_fills_all_four_tasks_with_linked_train_and_eval_runs():
+    from dl_exp_manager.sample_data import populate
+
+    tmp, db, config = _make_sample_env()
+    added = populate(db, config)
+    assert added > 50  # "많이" - 최소한 수동으로 넣던 5건보다 훨씬 많아야 한다
+
+    summary = db.summary()
+    assert summary["train"] > 25
+    assert summary["evaluation"] > 15
+    assert {t["name"] for t in db.list_tasks()} == {
+        "SuperResolution", "Denoising", "Clustering", "Classification",
+    }
+
+    evaluations = db.list_evaluation_runs()
+    linked = [r for r in evaluations if r["source_train_run_id"]]
+    assert linked  # 최소 하나는 Train Run 에 연결돼 있어야 한다("이 학습으로 평가 만들기" 재현)
+    for row in linked:
+        source = db.get_run("train", row["source_train_run_id"])
+        assert source is not None  # 링크가 실제로 존재하는 Train Run 을 가리켜야 한다
+
+    db.close()
+
+
+def test_populate_generates_commands_from_the_real_task_templates():
+    """손으로 쓴 문자열이 아니라 config.command_template() 로 실제 생성된 명령어여야 한다."""
+    from dl_exp_manager.sample_data import populate
+
+    tmp, db, config = _make_sample_env()
+    populate(db, config)
+
+    denoising_runs = [r for r in db.list_train_runs() if r["task_name"] == "Denoising"]
+    assert denoising_runs
+    for row in denoising_runs:
+        if row["status"] == C.STATUS_QUEUED:
+            continue  # queued 는 batch_size 등이 비어 있을 수 있어 명령어가 짧아도 된다
+        assert row["exec_command"].startswith("python train.py")
+        assert "model=dn/" in row["exec_command"]  # short: dn 이 반영돼야 한다
+        assert "algo=dn/noise2noise" in row["exec_command"]  # Denoising 은 algo 옵션이 있다
+
+    db.close()
+
+
+def test_populate_without_config_falls_back_to_builtin_templates():
+    """config 없이 불러도(예: 옛 호출부) 예외 없이 동작해야 한다."""
+    from dl_exp_manager.sample_data import populate
+
+    tmp = tempfile.mkdtemp()
+    db = Database(os.path.join(tmp, "t.db"), seed=False)
+    added = populate(db)
+    assert added > 50
+    row = db.list_train_runs()[0]
+    assert row["exec_command"] == "" or "python" in row["exec_command"]
+    db.close()
+
+
+def test_populate_is_safe_to_call_on_a_db_that_already_has_data():
+    """"Insert Sample Data" 를 실수로 두 번 눌러도 죽지 않아야 한다."""
+    from dl_exp_manager.sample_data import populate
+
+    tmp, db, config = _make_sample_env()
+    populate(db, config)
+    second = populate(db, config)  # 두 번째 호출 - 예외 없이 더 추가돼야 한다
+    assert second > 50
+    db.close()
+
+
+def test_populate_with_local_assets_writes_real_parseable_result_folders():
+    from dl_exp_manager.log_parser import parse_loss_log, parse_train_config
+    from dl_exp_manager.sample_data import populate
+    from dl_exp_manager.utils import find_representative_image, scan_result_folder
+
+    tmp, db, config = _make_sample_env()
+    results_root = os.path.join(tmp, "results")
+    populate(db, config, with_local_assets=True, results_root=results_root)
+
+    found_any = False
+    for row in db.list_train_runs():
+        if not row["result_path"].startswith(results_root):
+            continue
+        found_any = True
+        scanned = scan_result_folder(row["result_path"])
+        assert scanned["config"] and scanned["log"]
+
+        parsed = parse_train_config(scanned["config"])
+        assert parsed.get("model") == row["model"]
+
+        log_result = parse_loss_log(scanned["log"])
+        assert len(log_result.points) > 5
+        assert log_result.latest_metrics  # 검증 체크포인트가 최소 하나는 파싱돼야 한다
+
+        image = find_representative_image(row["result_path"])
+        assert image and os.path.isfile(image)
+        with open(image, "rb") as fp:
+            assert fp.read(8) == b"\x89PNG\r\n\x1a\n"  # 진짜 PNG 여야 한다
+
+    assert found_any  # with_local_assets=True 인데 실제 폴더가 하나도 없으면 이 옵션이 죽어 있는 것
+    db.close()
+
+
+def test_populate_without_local_assets_touches_no_disk_outside_the_db():
+    """기본값(with_local_assets=False)은 DB 행만 만들고 파일은 하나도 안 만들어야 한다."""
+    from dl_exp_manager.sample_data import populate
+
+    tmp, db, config = _make_sample_env()
+    results_root = os.path.join(tmp, "results")
+    populate(db, config)  # with_local_assets 기본값 False
+    assert not os.path.exists(results_root)
+    db.close()
+
+
+def test_populate_exercises_favorites_tags_and_history():
+    from dl_exp_manager.sample_data import populate
+
+    tmp, db, config = _make_sample_env()
+    populate(db, config)
+
+    all_runs = db.list_train_runs() + db.list_evaluation_runs()
+    assert any(r["favorite"] for r in all_runs)
+    assert any(r["tags"] for r in all_runs)
+    assert any(r["status"] == C.STATUS_FAILED and r["failure_reason"] for r in db.list_train_runs())
+
+    history_kinds = set()
+    for row in db.list_train_runs():
+        for entry in db.list_history("train", row["id"]):
+            history_kinds.add(entry["action"])
+    assert {"created", "updated", "duplicated"} <= history_kinds
+
+    db.close()

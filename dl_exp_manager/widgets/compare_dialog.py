@@ -1,7 +1,12 @@
-"""2~3개 Run 을 나란히 비교 - 지표/하이퍼파라미터 표 + config.yaml diff.
+"""여러 Run 을 나란히 비교 - 지표/하이퍼파라미터 표 + 막대 그래프 + config.yaml diff.
 
 실험 관리에서 제일 자주 하는 동작인데("이번에 뭘 바꿔서 좋아졌지?") 지금까지는
-Run 을 하나씩 열어 눈으로 대조해야 했다. 표에서 2~3개를 고르면 바로 뜬다.
+Run 을 하나씩 열어 눈으로 대조해야 했다. 표에서 여러 개를 고르면 바로 뜬다.
+
+config.yaml diff 는 두 개를 비교할 때만 의미가 있어(그 이상은 "누가 기준인지"가
+애매해진다) 2개면 unified diff 한 장, 그 이상이면 Run 별 config 를 따로 탭으로 보여준다.
+반면 지표 표와 막대 그래프(`metrics_chart.py`)는 몇 개를 골라도 그대로 늘어나므로,
+"많이 돌려 놓고 한눈에 비교" 용도로는 선택 개수를 넉넉히 열어 둔다(호출부의 RUN_LIMIT).
 """
 from __future__ import annotations
 
@@ -10,9 +15,10 @@ from typing import Any, Callable, Sequence
 
 from .. import theme
 from ..config_store import OptionsConfig
-from ..qt import QtGui, QtWidgets
+from ..qt import Qt, QtGui, QtWidgets
 from ..utils import format_duration, format_number, loads_metrics, parse_gpu_count, unified_diff_text
 from .common import monospace_font
+from .metrics_chart import MetricGroup, MetricsChartWidget
 
 
 class CompareRunsDialog(QtWidgets.QDialog):
@@ -57,6 +63,18 @@ class CompareRunsDialog(QtWidgets.QDialog):
 
         tabs = QtWidgets.QTabWidget(self)
         tabs.addTab(table, "Metrics / Params")
+
+        chart = MetricsChartWidget(self)
+        chart.set_data(
+            [f"#{r['id']} · {r.get('model') or '-'}" for r in rows],
+            self._build_metric_groups(rows, config, task_name),
+        )
+        chart_scroll = QtWidgets.QScrollArea(self)
+        chart_scroll.setWidget(chart)
+        chart_scroll.setWidgetResizable(False)  # 막대 묶음이 넓어지면 가로로만 스크롤한다
+        chart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        chart_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tabs.addTab(chart_scroll, "📊 Chart")
 
         if len(rows) == 2:
             diff_view = QtWidgets.QPlainTextEdit(self)
@@ -137,3 +155,40 @@ class CompareRunsDialog(QtWidgets.QDialog):
             out.append((field_name, values))
 
         return out
+
+    @staticmethod
+    def _build_metric_groups(
+        rows: Sequence[dict[str, Any]], config: OptionsConfig, task_name: str | None
+    ) -> list[MetricGroup]:
+        """지표 표(§ `_build_field_rows`)와 같은 키 순서를, 문자열이 아니라 숫자로 뽑는다.
+
+        표는 사람이 읽을 형식이 필요해서 포맷팅한 문자열을 쓰지만, 막대 그래프는
+        직접 비교·정규화해야 하므로 `loads_metrics` 가 돌려주는 원래 숫자를 그대로 쓴다.
+        """
+        metric_keys = list(
+            dict.fromkeys(
+                list(config.metric_keys(task_name) if task_name else [])
+                + [key for row in rows for key in loads_metrics(row.get("metrics_json"))]
+            )
+        )
+        groups: list[MetricGroup] = []
+        for key in metric_keys:
+            metric_def = config.metric_def(task_name, key) if task_name else None
+            values: list[float | None] = []
+            for row in rows:
+                metrics = loads_metrics(row.get("metrics_json"))
+                raw = metrics.get(key)
+                try:
+                    values.append(float(raw) if raw is not None else None)
+                except (TypeError, ValueError):
+                    values.append(None)
+            if any(v is not None for v in values):
+                groups.append(
+                    MetricGroup(
+                        key=key,
+                        unit=metric_def.unit if metric_def else "",
+                        higher_is_better=metric_def.higher_is_better if metric_def else True,
+                        values=values,
+                    )
+                )
+        return groups

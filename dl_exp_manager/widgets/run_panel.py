@@ -174,6 +174,10 @@ class BaseRunPanel(QtWidgets.QWidget):
     SHOW_TRAINING_CURVE: bool = True
     # Train 패널에서만 "이 학습으로 평가 만들기" 를 띄운다.
     OFFERS_EVALUATION_HANDOFF: bool = False
+    # Compare 에서 고를 수 있는 최대 Run 수. config.yaml diff 는 2개일 때만 unified diff
+    # 로 합쳐지고(그 이상은 Run 별 탭) 지표 표/막대 그래프는 몇 개든 늘어나므로,
+    # "많이 쌓아 두고 한눈에 비교"가 되도록 넉넉히 잡는다.
+    COMPARE_LIMIT: int = 8
 
     runsChanged = Signal()
     configChanged = Signal()
@@ -280,7 +284,10 @@ class BaseRunPanel(QtWidgets.QWidget):
 
         compare_btn = QtWidgets.QToolButton(container)
         compare_btn.setText("⇄ Compare")
-        compare_btn.setToolTip("Compare 2-3 selected runs side by side (Ctrl/Cmd-click rows).")
+        compare_btn.setToolTip(
+            f"Compare 2-{self.COMPARE_LIMIT} selected runs: metrics table, bar chart, "
+            "config.yaml diff (Ctrl/Cmd-click rows)."
+        )
         compare_btn.clicked.connect(self.compare_selected)
 
         del_btn = QtWidgets.QToolButton(container)
@@ -497,10 +504,14 @@ class BaseRunPanel(QtWidgets.QWidget):
     def compare_selected(self) -> None:
         rows = self._selected_rows()
         if len(rows) < 2:
-            toast(self, False, "Select 2-3 runs to compare (Ctrl/Cmd-click rows).", "Compare")
+            toast(
+                self, False,
+                f"Select 2-{self.COMPARE_LIMIT} runs to compare (Ctrl/Cmd-click rows).",
+                "Compare",
+            )
             return
-        if len(rows) > 3:
-            toast(self, False, "Pick at most 3 runs to compare.", "Compare")
+        if len(rows) > self.COMPARE_LIMIT:
+            toast(self, False, f"Pick at most {self.COMPARE_LIMIT} runs to compare.", "Compare")
             return
         dialog = CompareRunsDialog(rows, self.config, self._task_name, self)
         dialog.exec()
@@ -1364,7 +1375,7 @@ class BaseRunPanel(QtWidgets.QWidget):
                 )
             menu.addSeparator()
 
-        menu.addAction("⇄ Compare Selected (2-3)", self.compare_selected)
+        menu.addAction(f"⇄ Compare Selected (2-{self.COMPARE_LIMIT})", self.compare_selected)
         menu.addAction("Copy Selected Rows (TSV)", lambda: self.copy_table(selected_only=True))
         menu.addAction("Export Entire Table to CSV", self.export_csv)
         menu.addAction("Export Report (Markdown/HTML)", self.export_report)

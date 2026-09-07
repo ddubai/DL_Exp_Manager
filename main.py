@@ -48,6 +48,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def should_populate_sample_data(summary: dict[str, int]) -> bool:
+    """`--sample` 이 주어졌을 때 채워도 되는 상태인가 - 이미 기록이 있으면 건드리지 않는다.
+
+    `Database.summary()` 의 키 이름( `db.py` )과 여기가 어긋나면(예: 예전에
+    `inference`->`evaluation` 이름을 바꾸며 여기를 놓쳤던 것처럼) `--sample` 이
+    빈 DB에서도 조용히 죽는다 - 그래서 그 계약을 이 작은 함수 하나로 분리해 Qt
+    없이도 테스트한다.
+    """
+    return summary.get("train", 0) == 0 and summary.get("evaluation", 0) == 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -68,14 +79,12 @@ def main(argv: list[str] | None = None) -> int:
 
     window = MainWindow(args.db, args.config)
 
-    if args.sample:
-        summary = window.db.summary()
-        if summary["train"] == 0 and summary["inference"] == 0:
-            from dl_exp_manager.sample_data import populate
+    if args.sample and should_populate_sample_data(window.db.summary()):
+        from dl_exp_manager.sample_data import populate
 
-            populate(window.db)
-            window.nav.refresh()
-            window.refresh_all()
+        populate(window.db, window.config)
+        window.nav.refresh()
+        window.refresh_all()
 
     window.show()
     return app.exec()

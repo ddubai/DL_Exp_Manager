@@ -321,7 +321,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if answer != QtWidgets.QMessageBox.StandardButton.Yes:
             return
-        added = populate(self.db)
+        added = populate(self.db, self.config)
         self.nav.refresh()
         self.refresh_all()
         toast(self, True, f"Added {added} sample record(s).")

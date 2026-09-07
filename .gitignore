@@ -17,6 +17,13 @@ backups/
 *.sqlite
 exports/
 
+# 예시 데이터 데모용 - sample_data.populate(with_local_assets=True) 가 만든다.
+sample_experiments.db
+sample_experiments.db-journal
+sample_experiments.db-wal
+sample_experiments.db-shm
+sample_results/
+
 # 설정 파일 백업/임시본 (config/options.yaml 자체는 추적한다)
 config/*.yaml.bak
 config/*.yaml.tmp
