@@ -1,31 +1,21 @@
-"""Qt 바인딩 추상화 레이어.
+"""Qt 바인딩 - PySide6 (LGPL).
 
-PyQt6 를 우선 사용하고, 없으면 PySide6 로 폴백한다.
-두 바인딩의 API 차이(signal 데코레이터 이름, exec 반환 등)는 여기서 흡수한다.
+예전엔 PyQt6 를 우선 쓰고 PySide6 로 폴백했다. GPLv3/상용 라이선스인 PyQt6 대신
+Qt 공식 배포판이자 LGPL 인 PySide6 하나로 정리했다 - 사내 서버 IP·실험 메타데이터가
+들어가는 이 앱을 동료에게 그대로 넘겨도 라이선스 문제가 없어야 하기 때문이다.
+
+이 파일이 유일한 import 지점이라는 원칙은 그대로 유지한다 - 나머지 코드는 전부
+`from .qt import QtCore, QtWidgets, ...` 로만 Qt 를 참조하고, `PySide6` 를 직접
+import 하지 않는다. 다시 바인딩을 바꿔야 할 일이 생기면 이 파일만 고치면 된다.
 """
 from __future__ import annotations
 
-QT_BINDING: str
+from PySide6 import QtCore, QtGui, QtWidgets
 
-try:  # pragma: no cover - 환경에 따라 분기
-    from PyQt6 import QtCore, QtGui, QtWidgets  # type: ignore
-
-    QT_BINDING = "PyQt6"
-    Signal = QtCore.pyqtSignal
-    Slot = QtCore.pyqtSlot
-    Property = QtCore.pyqtProperty
-except ImportError:  # pragma: no cover
-    try:
-        from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
-            "PyQt6 or PySide6 is required.  Run `pip install -r requirements.txt`."
-        ) from exc
-
-    QT_BINDING = "PySide6"
-    Signal = QtCore.Signal
-    Slot = QtCore.Slot
-    Property = QtCore.Property
+QT_BINDING = "PySide6"
+Signal = QtCore.Signal
+Slot = QtCore.Slot
+Property = QtCore.Property
 
 Qt = QtCore.Qt
 

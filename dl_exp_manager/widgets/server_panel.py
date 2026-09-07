@@ -151,6 +151,7 @@ class ServerStatusPanel(QtWidgets.QWidget):
         self.config = config
         self._chips: dict[str, QtWidgets.QToolButton] = {}
         self._state: dict[str, dict[str, Any]] = {}
+        self._context_menu_wired: set[str] = set()  # 우클릭 메뉴를 이미 연결한 서버 이름
 
         self.chips_layout = QtWidgets.QHBoxLayout()
         self.chips_layout.setContentsMargins(0, 0, 0, 0)
@@ -199,6 +200,7 @@ class ServerStatusPanel(QtWidgets.QWidget):
             if name not in current_names:
                 self._chips.pop(name).deleteLater()
                 self._state.pop(name, None)
+                self._context_menu_wired.discard(name)
 
         for position, server in enumerate(servers):
             jobs: list[dict[str, Any]] = []
@@ -255,13 +257,17 @@ class ServerStatusPanel(QtWidgets.QWidget):
         chip.setMenu(self._build_menu(name))
 
         chip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        try:
+        # refresh() 가 기존 칩을 재사용하면서 이 메서드를 다시 부르므로, 람다가 최신
+        # name/chip 을 가리키도록 매번 다시 연결한다. "일단 disconnect 해보고 안 되면
+        # 넘어간다"는 PyQt6 에서는 TypeError 로 잡히지만 PySide6 에서는 예외 없이
+        # RuntimeWarning 만 찍혀서 잡을 수 없다 - 그래서 실제로 연결된 적이 있을 때만
+        # disconnect 한다.
+        if name in self._context_menu_wired:
             chip.customContextMenuRequested.disconnect()
-        except TypeError:
-            pass
         chip.customContextMenuRequested.connect(
             lambda pos, n=name, c=chip: self._management_menu(n).exec(c.mapToGlobal(pos))
         )
+        self._context_menu_wired.add(name)
 
     def _tooltip_text(self, name: str) -> str:
         state = self._state[name]

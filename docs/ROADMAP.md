@@ -1070,3 +1070,60 @@ gitignore 대상). `experiments.db` 는 건드리지 않는다 - 대량의 가�
 
 `python main.py --db sample_experiments.db` 로 열어 보면 된다.
 
+## 21. 2026-09 세션 — PyQt6 -> PySide6 전환
+
+### 21.1 왜 - 라이선스
+
+이전 스택 검토(§20 이전 세션의 기술 스택 리뷰)에서 지적된 것: PyQt6 는 GPLv3 아니면
+상용 라이선스다. 사내 서버 IP 와 실험 메타데이터가 들어가는 도구를 동료에게 그대로
+넘기는 순간 곤란해진다. PySide6 는 Qt 공식 배포판이자 LGPL 이라 이 문제가 없다.
+`dl_exp_manager/qt.py` 가 유일한 import 지점이라는 원칙을 §1(초기 설계)부터 지켜
+왔으므로, 전환 자체는 그 파일 하나 + 실제로 갈라지는 지점 몇 개만 고치면 됐다.
+
+### 21.2 실제로 고친 것 - 예상보다 적었다
+
+- `qt.py` : PyQt6 우선 시도 + PySide6 폴백 로직을 지우고 PySide6 단일 import 로.
+- `server_panel.py` : `chip.customContextMenuRequested.disconnect()` 를 "일단 해보고
+  안 되면 넘어간다"(`except TypeError`) 로 짜 뒀었는데, PyQt6 는 연결 안 된 신호를
+  disconnect 하면 `TypeError` 를 던져서 잡히지만 **PySide6 는 예외 없이
+  `RuntimeWarning` 만 찍는다** - `except` 로 못 잡는다. 실제로 연결한 적이 있을 때만
+  disconnect 하도록 `_context_menu_wired: set[str]` 로 상태를 직접 추적하게 고쳤다.
+- `models.py` : `invalidateFilter()` 가 이 Qt 버전(6.11)에서 deprecated. 그 대체로
+  알려진 `invalidateRowsFilter()` 로 바꿨더니 **그것도 deprecated** 였다(Qt 문서가
+  가리키는 대체재가 버전마다 계속 바뀌는 듯하다) - 결국 필터 전용으로 좁히려 하지
+  않고 `invalidate()` 로 정착했다. 정렬까지 다시 계산하지만 이 프록시 규모에서는
+  문제 되지 않는다.
+- `tests/test_widgets.py`, `tests/test_columns_and_migration.py` : 최상단에서
+  `pytest.importorskip("PyQt6.QtWidgets", ...)` 로 바인딩을 하드코딩하고 있었다.
+  `qt.py` 가 "PyQt6 든 PySide6 든 흡수한다"고 문서화해 놨지만, 테스트가 PyQt6 를
+  직접 골라 썼으니 **PySide6 폴백 경로는 이 세션 전까지 한 번도 테스트를 통과한
+  적이 없었다**. `dl_exp_manager.qt` 를 거치도록 고쳐서, 이제는 실제로 쓰는
+  바인딩이 무엇이든 그걸 테스트한다.
+
+### 21.3 순서 의존 버그 하나를 우연히 찾았다
+
+바인딩을 바꾸고 전체 테스트를 돌렸더니 66% 지점(`test_disable_wheel_scrolling_...`)
+에서 멈췄다. 범인은 그 앞의 `test_activating_sentinel_restores_previous_value` -
+콤보박스 센티넬("+ 새 항목 추가…")을 고르면 `ManagedCombo._on_activated` 가
+`QTimer.singleShot(0, self.add_item)` 로 **다음 이벤트 루프 틱에** `add_item` 을
+예약한다. 테스트는 이 콜백이 실행되도록 이벤트 루프를 한 번도 돌리지 않고 끝나서,
+예약이 그대로 QApplication 큐에 남았다 - 그리고 하필 그다음 테스트가 wheel 테스트라
+`QApplication.processEvents()` 를 부르는 첫 번째 테스트였고, 그 순간 예약이 fire 돼
+`add_item()` 이 진짜 `AddOptionDialog.exec()` 를 열어버렸다. offscreen 에는 응답할
+사람이 없으니 그대로 멈춘다.
+
+이 메커니즘 자체는 바인딩과 무관하다 - PyQt6 에서도 이론적으로 똑같이 걸려야
+하는데, 이전 세션(§20)의 235개 전체 실행에서는 안 걸렸다. 정확한 이유는 못
+밝혔지만(두 바인딩의 QTimer/이벤트 루프 처리 순서 차이로 추정), **테스트 자체가
+운에 기대고 있었다는 사실은 바뀌지 않는다.** 고친 방식: `combo.add_item = lambda:
+None` 으로 예약될 콜백을 미리 무해하게 바꿔 둔다 - 테스트가 실제로 확인하려는 건
+"센티넬을 고르면 직전 값으로 되돌아간다"는 것뿐이고, 그 뒤에 열리는 다이얼로그는
+이 테스트의 관심사가 아니다.
+
+### 21.4 검증
+
+`.venv` 에서 PyQt6 를 지우고 PySide6 만 남긴 상태로 `pytest -q` 235개 전부 통과,
+`-W error::DeprecationWarning` 로 경고를 에러로 승격해도 통과(경고 0개). 실제
+`MainWindow` 를 오프스크린으로 띄워 서버 바 새로고침을 5번 반복해도(`_paint_chip`
+의 disconnect/connect 경로) `-W error::RuntimeWarning` 아래에서 조용했다.
+

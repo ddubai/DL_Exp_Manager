@@ -186,8 +186,8 @@ def disable_wheel_scrolling(root: QtWidgets.QWidget) -> None:
     필터 인스턴스를 `root` 의 자식으로 부모 지정해 두어, `root` 가 없어질 때 함께
     정리되고 그 전까지는 파이썬 쪽에서 참조가 사라져도 가비지컬렉션되지 않는다.
 
-    PyQt6 의 `findChildren` 은 타입 튜플을 받지만 PySide6 는 한 번에 한 타입만
-    받으므로(튜플을 주면 TypeError), 두 바인딩 모두에서 되도록 타입별로 따로 부른다.
+    PySide6 의 `findChildren` 은 타입 튜플을 받지 못하고 한 번에 한 타입만 받으므로
+    (튜플을 주면 TypeError), 타입별로 따로 부른다.
     """
     blocker = _NoWheelFilter(root)
     widgets: list[QtWidgets.QWidget] = [

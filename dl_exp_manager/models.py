@@ -448,7 +448,14 @@ class RunTableModel(QtCore.QAbstractTableModel):
 
 
 class RunFilterProxy(QtCore.QSortFilterProxyModel):
-    """모든 컬럼 대상 대소문자 무시 부분일치 + 상태 필터."""
+    """모든 컬럼 대상 대소문자 무시 부분일치 + 상태 필터.
+
+    필터 조건이 바뀌면 `invalidate()` 로 다시 계산한다 - `invalidateFilter()` 와 그
+    후속으로 옮겨 탔던 `invalidateRowsFilter()` 둘 다 이 Qt 버전에서 deprecated 라
+    (문서가 가리키는 대체재가 계속 바뀐다), 필터 전용으로 좁히려 하지 않고 정렬까지
+    함께 다시 계산하는 `invalidate()` 로 정착했다. 이 프록시는 정렬 Role 이 고정이라
+    여분의 재정렬 비용이 문제 될 규모가 아니다.
+    """
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
@@ -460,15 +467,15 @@ class RunFilterProxy(QtCore.QSortFilterProxyModel):
 
     def set_text_filter(self, text: str) -> None:
         self._text = (text or "").strip().lower()
-        self.invalidateFilter()
+        self.invalidate()
 
     def set_status_filter(self, status: str) -> None:
         self._status = (status or "").strip().lower()
-        self.invalidateFilter()
+        self.invalidate()
 
     def set_favorites_only(self, enabled: bool) -> None:
         self._favorites_only = bool(enabled)
-        self.invalidateFilter()
+        self.invalidate()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QtCore.QModelIndex) -> bool:  # noqa: N802
         model = self.sourceModel()

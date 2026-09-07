@@ -1,10 +1,6 @@
 # --- Required ---------------------------------------------------------------
-PyQt6>=6.5
-PyYAML>=6.0          # config/options.yaml 읽기/쓰기
-
-# PySide6 를 쓰고 싶다면 PyQt6 줄을 지우고 아래 줄의 주석을 해제하세요.
-# 코드가 자동으로 PyQt6 -> PySide6 순서로 바인딩을 찾습니다. (dl_exp_manager/qt.py)
-# PySide6>=6.5
+PySide6>=6.5   # Qt 바인딩 (LGPL). dl_exp_manager/qt.py 가 유일한 import 지점.
+PyYAML>=6.0    # config/options.yaml 읽기/쓰기
 
 # --- Optional ---------------------------------------------------------------
 # options.yaml 을 손으로 편집하면서 주석을 유지하고 싶다면 설치하세요.

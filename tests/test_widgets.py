@@ -10,8 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-QtWidgets = pytest.importorskip("PyQt6.QtWidgets", reason="Qt 바인딩 필요")
-QtGui = pytest.importorskip("PyQt6.QtGui", reason="Qt 바인딩 필요")
+try:
+    # dl_exp_manager.qt 를 거쳐야 실제로 쓰는 바인딩(PyQt6 든 PySide6 든)을 그대로
+    # 테스트한다 - 예전에 여기가 "PyQt6.QtWidgets" 를 직접 골라 쓰던 탓에, qt.py 가
+    # 문서상 지원한다던 PySide6 폴백 경로는 실은 한 번도 테스트를 통과한 적이 없었다.
+    from dl_exp_manager.qt import QtGui, QtWidgets
+except ImportError:
+    pytest.skip("Qt 바인딩 필요", allow_module_level=True)
 
 from dl_exp_manager.config_store import OptionsConfig
 
@@ -95,6 +100,12 @@ def test_activating_sentinel_restores_previous_value(qapp, config):
 
     combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "SuperResolution")
     combo.set_text("SwinIR")
+    # 센티넬을 고르면 add_item 이 QTimer.singleShot(0, ...) 으로 예약된다(_on_activated
+    # 참고) - 그 콜백은 이 테스트가 신경 쓰는 부분(직전 값 복원)이 아니라 실제
+    # AddOptionDialog.exec() 를 여는 모달 다이얼로그다. 예약을 없애지 않으면 이 콜백이
+    # QApplication 이벤트 큐에 그대로 남아, 나중에 다른 아무 테스트가 processEvents() 를
+    # 부르는 순간 offscreen 에서 응답할 사람이 없는 모달이 열려 그 테스트가 멈춘다.
+    combo.add_item = lambda: None
     combo._on_activated(combo.count() - 1)
     assert combo.current_text() == "SwinIR"
 

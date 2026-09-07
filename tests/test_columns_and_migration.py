@@ -12,9 +12,11 @@ import pytest
 
 from dl_exp_manager.config_store import OptionsConfig
 
-QtWidgets = pytest.importorskip("PyQt6.QtWidgets", reason="Qt 바인딩 필요")
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+try:
+    from dl_exp_manager.qt import QtWidgets
+except ImportError:
+    pytest.skip("Qt 바인딩 필요", allow_module_level=True)
 
 
 @pytest.fixture(scope="module")
