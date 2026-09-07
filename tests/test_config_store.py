@@ -24,12 +24,12 @@ def test_creates_split_files_with_builtin_defaults():
     assert os.path.exists(config.servers_path)
     assert os.path.exists(config.defaults_path)
     assert os.path.isdir(config.tasks_dir)
-    assert set(config.task_names) >= {"SuperResolution", "Denoising", "Clustering", "Classification"}
+    assert set(config.task_names) >= {"Super-Resolution", "Denoising", "Clustering", "Classification"}
 
 
 def test_each_task_gets_its_own_file():
     config = make_config()
-    for name in ("SuperResolution", "Denoising", "Classification"):
+    for name in ("Super-Resolution", "Denoising", "Classification"):
         path = config.task_path(name)
         assert os.path.exists(path)
         assert os.path.basename(path) == f"{name}.yaml"
@@ -49,60 +49,60 @@ def test_watch_paths_covers_every_file():
     assert config.path in paths
     assert config.servers_path in paths
     assert config.defaults_path in paths
-    assert config.task_path("SuperResolution") in paths
+    assert config.task_path("Super-Resolution") in paths
 
 
 def test_task_options_replace_defaults():
     config = make_config()
     # SR 은 model 을 직접 정의하므로 defaults 를 대체한다.
-    assert "HAT" in config.options_for("SuperResolution", "model")
+    assert "HAT" in config.options_for("Super-Resolution", "model")
     # optimizer 는 SR 에 없으므로 defaults 를 상속한다.
-    assert config.options_for("SuperResolution", "optimizer") == config.options_for("Denoising", "optimizer")
+    assert config.options_for("Super-Resolution", "optimizer") == config.options_for("Denoising", "optimizer")
     # Task 마다 목록이 다르다.
-    assert config.options_for("SuperResolution", "model") != config.options_for("Classification", "model")
+    assert config.options_for("Super-Resolution", "model") != config.options_for("Classification", "model")
 
 
 def test_metrics_differ_per_task():
-    assert [m.key for m in make_config().metrics_for("SuperResolution")] == ["PSNR", "SSIM", "LPIPS"]
+    assert [m.key for m in make_config().metrics_for("Super-Resolution")] == ["PSNR", "SSIM", "LPIPS"]
     assert [m.key for m in make_config().metrics_for("Classification")] == ["Top-1", "Top-5"]
 
 
 def test_metric_definition_carries_display_rules():
-    psnr = make_config().metric_def("SuperResolution", "PSNR")
+    psnr = make_config().metric_def("Super-Resolution", "PSNR")
     assert psnr is not None
     assert (psnr.unit, psnr.digits, psnr.higher_is_better) == ("dB", 2, True)
-    lpips = make_config().metric_def("SuperResolution", "LPIPS")
+    lpips = make_config().metric_def("Super-Resolution", "LPIPS")
     assert lpips is not None and lpips.higher_is_better is False
 
 
 def test_columns_differ_per_task():
     config = make_config()
-    assert "LPIPS" in config.columns_for("SuperResolution", "train")
+    assert "LPIPS" in config.columns_for("Super-Resolution", "train")
     assert "Top-1" in config.columns_for("Classification", "train")
     assert "LPIPS" not in config.columns_for("Classification", "train")
 
 
 def test_custom_fields_are_non_native_options():
     config = make_config()
-    assert config.custom_fields("SuperResolution") == ["scale"]
+    assert config.custom_fields("Super-Resolution") == ["scale"]
     assert config.custom_fields("Denoising") == ["noise_sigma"]
 
 
 def test_add_option_task_scope_and_global_scope():
     config = make_config()
-    assert config.add_option("SuperResolution", "model", "MyNet")
-    assert "MyNet" in config.options_for("SuperResolution", "model")
+    assert config.add_option("Super-Resolution", "model", "MyNet")
+    assert "MyNet" in config.options_for("Super-Resolution", "model")
     assert "MyNet" not in config.options_for("Denoising", "model")
 
     assert config.add_option(None, "optimizer", "Adan")
-    assert "Adan" in config.options_for("SuperResolution", "optimizer")
+    assert "Adan" in config.options_for("Super-Resolution", "optimizer")
     assert "Adan" in config.options_for("Denoising", "optimizer")
 
 
 def test_add_option_is_idempotent():
     config = make_config()
-    assert config.add_option("SuperResolution", "model", "Dup")
-    assert not config.add_option("SuperResolution", "model", "Dup")
+    assert config.add_option("Super-Resolution", "model", "Dup")
+    assert not config.add_option("Super-Resolution", "model", "Dup")
 
 
 def test_first_task_scoped_edit_seeds_from_defaults():
@@ -115,44 +115,44 @@ def test_first_task_scoped_edit_seeds_from_defaults():
 
 def test_rename_and_remove_option():
     config = make_config()
-    config.add_option("SuperResolution", "model", "A")
-    assert config.rename_option("SuperResolution", "model", "A", "B")
-    assert "B" in config.options_for("SuperResolution", "model")
-    assert config.remove_option("SuperResolution", "model", "B")
-    assert "B" not in config.options_for("SuperResolution", "model")
-    assert not config.remove_option("SuperResolution", "model", "NotThere")
+    config.add_option("Super-Resolution", "model", "A")
+    assert config.rename_option("Super-Resolution", "model", "A", "B")
+    assert "B" in config.options_for("Super-Resolution", "model")
+    assert config.remove_option("Super-Resolution", "model", "B")
+    assert "B" not in config.options_for("Super-Resolution", "model")
+    assert not config.remove_option("Super-Resolution", "model", "NotThere")
 
 
 def test_metric_removal_cleans_columns():
     config = make_config()
-    assert "LPIPS" in config.columns_for("SuperResolution", "train")
-    assert config.remove_metric("SuperResolution", "LPIPS")
-    assert "LPIPS" not in config.columns_for("SuperResolution", "train")
-    assert "LPIPS" not in config.columns_for("SuperResolution", "evaluation")
+    assert "LPIPS" in config.columns_for("Super-Resolution", "train")
+    assert config.remove_metric("Super-Resolution", "LPIPS")
+    assert "LPIPS" not in config.columns_for("Super-Resolution", "train")
+    assert "LPIPS" not in config.columns_for("Super-Resolution", "evaluation")
 
 
 def test_metric_rename_updates_columns():
     config = make_config()
-    assert config.rename_metric("SuperResolution", "PSNR", "PSNR-Y")
-    assert "PSNR-Y" in config.metric_keys("SuperResolution")
-    assert "PSNR-Y" in config.columns_for("SuperResolution", "train")
-    assert "PSNR" not in config.columns_for("SuperResolution", "train")
+    assert config.rename_metric("Super-Resolution", "PSNR", "PSNR-Y")
+    assert "PSNR-Y" in config.metric_keys("Super-Resolution")
+    assert "PSNR-Y" in config.columns_for("Super-Resolution", "train")
+    assert "PSNR" not in config.columns_for("Super-Resolution", "train")
 
 
 def test_update_metric_display_rules():
     config = make_config()
-    assert config.update_metric("SuperResolution", "SSIM", digits=2, unit="x")
-    updated = config.metric_def("SuperResolution", "SSIM")
+    assert config.update_metric("Super-Resolution", "SSIM", digits=2, unit="x")
+    updated = config.metric_def("Super-Resolution", "SSIM")
     assert updated is not None and updated.digits == 2 and updated.unit == "x"
 
 
 def test_changes_persist_to_disk():
     config = make_config()
-    config.add_option("SuperResolution", "model", "Persisted")
-    config.add_metric("SuperResolution", MetricDef("NIQE", digits=3, higher_is_better=False))
+    config.add_option("Super-Resolution", "model", "Persisted")
+    config.add_metric("Super-Resolution", MetricDef("NIQE", digits=3, higher_is_better=False))
     reloaded = OptionsConfig(config.path)
-    assert "Persisted" in reloaded.options_for("SuperResolution", "model")
-    assert "NIQE" in reloaded.metric_keys("SuperResolution")
+    assert "Persisted" in reloaded.options_for("Super-Resolution", "model")
+    assert "NIQE" in reloaded.metric_keys("Super-Resolution")
 
 
 def test_servers_and_gpu_inventory():
@@ -198,30 +198,30 @@ def test_non_mapping_task_is_dropped_with_error():
     """
     path = os.path.join(tempfile.mkdtemp(), "odd.yaml")
     with open(path, "w", encoding="utf-8") as fp:
-        yaml.safe_dump({"tasks": {"SuperResolution": ["not", "a", "mapping"]}, "defaults": {}, "servers": []}, fp)
+        yaml.safe_dump({"tasks": {"Super-Resolution": ["not", "a", "mapping"]}, "defaults": {}, "servers": []}, fp)
     config = OptionsConfig(path, auto_create=False)
     assert config.errors
-    assert "SuperResolution" not in config.task_names
+    assert "Super-Resolution" not in config.task_names
 
 
 def test_external_edit_is_picked_up_on_reload():
-    """에디터로 task-defs/SuperResolution.yaml 을 고치면 다시 읽었을 때 반영돼야 한다."""
+    """에디터로 task-defs/Super-Resolution.yaml 을 고치면 다시 읽었을 때 반영돼야 한다."""
     config = make_config()
-    path = config.task_path("SuperResolution")
+    path = config.task_path("Super-Resolution")
     with open(path, encoding="utf-8") as fp:
         data = yaml.safe_load(fp)
     data["options"]["model"].append("HandEdited")
     with open(path, "w", encoding="utf-8") as fp:
         yaml.safe_dump(data, fp, allow_unicode=True, sort_keys=False)
     config.load()
-    assert "HandEdited" in config.options_for("SuperResolution", "model")
+    assert "HandEdited" in config.options_for("Super-Resolution", "model")
 
 
 def test_save_keeps_backup():
     config = make_config()
-    config.add_option("SuperResolution", "model", "One")
-    config.add_option("SuperResolution", "model", "Two")
-    assert os.path.exists(config.task_path("SuperResolution") + ".bak")
+    config.add_option("Super-Resolution", "model", "One")
+    config.add_option("Super-Resolution", "model", "Two")
+    assert os.path.exists(config.task_path("Super-Resolution") + ".bak")
 
 
 # --- 기능별 분할 -------------------------------------------------------------
@@ -238,8 +238,8 @@ def test_task_edit_touches_only_that_task_file():
     config = make_config()
     time.sleep(0.02)
     before = _mtimes(config)
-    config.add_option("SuperResolution", "model", "OnlyHere")
-    assert _changed(config, before) == {"SuperResolution.yaml"}
+    config.add_option("Super-Resolution", "model", "OnlyHere")
+    assert _changed(config, before) == {"Super-Resolution.yaml"}
 
 
 def test_global_option_edit_touches_only_defaults_file():
@@ -283,8 +283,8 @@ def test_legacy_single_file_is_split_automatically():
         "servers": [{"name": "Old1", "host": "1.1.1.1", "gpus": [{"index": 0, "type": "V100"}]}],
         "defaults": {"optimizer": ["AdamW"]},
         "tasks": {
-            "SuperResolution": {
-                "label": "SuperResolution",
+            "Super-Resolution": {
+                "label": "Super-Resolution",
                 "options": {"model": ["LegacyNet"]},
                 "metrics": [{"key": "PSNR", "digits": 2}],
                 "columns": {"train": ["status", "model", "PSNR"]},
@@ -297,12 +297,12 @@ def test_legacy_single_file_is_split_automatically():
     config = OptionsConfig(path)
     assert os.path.exists(os.path.join(directory, "servers.yaml"))
     assert os.path.exists(os.path.join(directory, "defaults.yaml"))
-    assert os.path.exists(os.path.join(directory, "task-defs", "SuperResolution.yaml"))
+    assert os.path.exists(os.path.join(directory, "task-defs", "Super-Resolution.yaml"))
     # 내용이 그대로 살아 있어야 한다
-    assert config.options_for("SuperResolution", "model") == ["LegacyNet"]
-    assert config.metric_keys("SuperResolution") == ["PSNR"]
+    assert config.options_for("Super-Resolution", "model") == ["LegacyNet"]
+    assert config.metric_keys("Super-Resolution") == ["PSNR"]
     assert [s.name for s in config.servers] == ["Old1"]
-    assert config.options_for("SuperResolution", "optimizer") == ["AdamW"]
+    assert config.options_for("Super-Resolution", "optimizer") == ["AdamW"]
     # 원본은 백업된다
     assert os.path.exists(path + ".bak")
 
@@ -312,12 +312,12 @@ def test_split_runs_only_once():
     os.makedirs(directory)
     path = os.path.join(directory, "options.yaml")
     with open(path, "w", encoding="utf-8") as fp:
-        yaml.safe_dump({"version": 2, "tasks": {"SuperResolution": {"options": {"model": ["A"]}}}}, fp)
+        yaml.safe_dump({"version": 2, "tasks": {"Super-Resolution": {"options": {"model": ["A"]}}}}, fp)
 
     OptionsConfig(path)
     second = OptionsConfig(path)
     assert second.errors == []
-    assert second.task_names == ["SuperResolution"]
+    assert second.task_names == ["Super-Resolution"]
 
 
 def test_missing_servers_yaml_falls_back_without_writing_it():
@@ -446,8 +446,8 @@ def test_broken_task_file_does_not_break_the_rest():
         fp.write("options: [\n  broken: :\n")
     reloaded = OptionsConfig(config.path)
     assert any("Denoising.yaml" in e for e in reloaded.errors)
-    assert "SuperResolution" in reloaded.task_names
-    assert reloaded.metric_keys("SuperResolution") == ["PSNR", "SSIM", "LPIPS"]
+    assert "Super-Resolution" in reloaded.task_names
+    assert reloaded.metric_keys("Super-Resolution") == ["PSNR", "SSIM", "LPIPS"]
 
 
 def test_task_file_name_key_wins_over_filename():
@@ -477,9 +477,9 @@ def test_save_without_backend_does_not_raise(monkeypatch):
     monkeypatch.setattr(config_store, "_BACKEND", "none")
     monkeypatch.setattr(config, "_yaml", None)
 
-    ok = config.add_option("SuperResolution", "model", "WontPersist")
+    ok = config.add_option("Super-Resolution", "model", "WontPersist")
     assert ok is True  # the in-memory list is still updated...
-    assert "WontPersist" in config.options_for("SuperResolution", "model")
+    assert "WontPersist" in config.options_for("Super-Resolution", "model")
     assert config.last_save_error is not None  # ...but the failure is recorded
     assert "YAML" in config.last_save_error or "yaml" in config.last_save_error
 
@@ -487,7 +487,7 @@ def test_save_without_backend_does_not_raise(monkeypatch):
 def test_save_return_value_reflects_success():
     config = make_config()
     assert config.save() is True  # nothing dirty -> trivially true
-    assert config.add_option("SuperResolution", "model", "X") is True
+    assert config.add_option("Super-Resolution", "model", "X") is True
     assert config.last_save_error is None
 
 
@@ -501,7 +501,7 @@ def test_command_templates_are_per_task_and_editable():
     # 파일로 저장되고, 다른 Task 는 그대로여야 한다.
     reloaded = OptionsConfig(config.path)
     assert reloaded.command_template("Denoising", "train") == "python mytrain.py model={model}"
-    assert reloaded.command_template("SuperResolution", "train") != "python mytrain.py model={model}"
+    assert reloaded.command_template("Super-Resolution", "train") != "python mytrain.py model={model}"
 
 
 def test_command_template_falls_back_to_builtin_when_task_has_none():
@@ -545,7 +545,7 @@ def test_editing_params_yaml_changes_every_task_command():
         )
 
     reloaded = OptionsConfig(config.path)
-    for task in ("SuperResolution", "Denoising"):
+    for task in ("Super-Resolution", "Denoising"):
         template = reloaded.command_template(task, "train")
         text = render_command(template, {"batch_size": "16"}, reloaded.param_style()).text
         assert "--batch-size 16" in text

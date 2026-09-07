@@ -52,7 +52,7 @@ def test_columns_follow_task(qapp, config):
     from dl_exp_manager.models import RunTableModel, build_columns
 
     model = RunTableModel()
-    model.set_content([SAMPLE_ROW], build_columns(config, "SuperResolution", "train"))
+    model.set_content([SAMPLE_ROW], build_columns(config, "Super-Resolution", "train"))
     sr_headers = model.headers()
     assert "LPIPS" in sr_headers and "scale" in sr_headers
 
@@ -66,7 +66,7 @@ def test_metric_display_uses_unit_and_digits(qapp, config):
     from dl_exp_manager.models import RunTableModel, build_columns
 
     model = RunTableModel()
-    model.set_content([SAMPLE_ROW], build_columns(config, "SuperResolution", "train"))
+    model.set_content([SAMPLE_ROW], build_columns(config, "Super-Resolution", "train"))
     values = dict(zip(model.headers(), model.row_values(0)))
     assert values["PSNR"] == "32.41 dB"   # digits=2 + unit
     assert values["SSIM"] == "0.8993"     # digits=4, 단위 없음
@@ -94,7 +94,7 @@ def test_numeric_sorting_is_by_value_not_text(qapp, config):
         dict(SAMPLE_ROW, id=3, duration_sec=600, metrics_json='{"PSNR": 100.0}'),
     ]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
 
     from dl_exp_manager.models import RunFilterProxy
 
@@ -115,7 +115,7 @@ def test_running_row_shows_elapsed_when_duration_missing(qapp, config):
 
     row = dict(SAMPLE_ROW, status="running", duration_sec=None, started_at=now_iso())
     model = RunTableModel()
-    model.set_content([row], build_columns(config, "SuperResolution", "train"))
+    model.set_content([row], build_columns(config, "Super-Resolution", "train"))
     values = dict(zip(model.headers(), model.row_values(0)))
     assert values["Duration"].startswith("~")
 
@@ -142,7 +142,7 @@ def _make_v1_db(path: str) -> None:
         PRAGMA user_version = 1;
         """
     )
-    conn.execute("INSERT INTO tasks(id,name,description,created_at) VALUES (1,'SuperResolution','',datetime())")
+    conn.execute("INSERT INTO tasks(id,name,description,created_at) VALUES (1,'Super-Resolution','',datetime())")
     conn.execute(
         "INSERT INTO works(id,task_id,name,description,created_at) VALUES (1,1,'SSL2SL','',datetime())"
     )
@@ -191,7 +191,7 @@ def test_v7_inference_tables_and_history_are_renamed_to_evaluation():
 
     path = os.path.join(tempfile.mkdtemp(), "v7.db")
     db = Database(path, seed=False)
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run("evaluation", {"work_id": work_id, "model": "NAFNet"})
     db.close()
 
@@ -222,7 +222,12 @@ def test_v7_inference_tables_and_history_are_renamed_to_evaluation():
 
 
 def test_v8_default_task_abbreviations_are_renamed_and_keep_their_runs():
-    """v8 -> v9: SR / DN -> SuperResolution / Denoising. 기록은 그대로 따라온다."""
+    """v8 -> v10: SR / DN -> Super-Resolution / Denoising (v9 의 SuperResolution 을 거쳐서).
+
+    한 번에 열면 v8->v9->v10 이 같은 `_migrate()` 호출 안에서 이어서 돌기 때문에,
+    "SR" 로 시작한 Task 는 중간 이름(SuperResolution)에 머무르지 않고 최종
+    이름(Super-Resolution)까지 바로 간다.
+    """
     from dl_exp_manager.db import Database
 
     path = os.path.join(tempfile.mkdtemp(), "v8.db")
@@ -237,7 +242,7 @@ def test_v8_default_task_abbreviations_are_renamed_and_keep_their_runs():
     db = Database(path, seed=False)
     assert db.migrated_from == 8
     names = {t["name"] for t in db.list_tasks()}
-    assert names == {"Denoising", "SuperResolution"}
+    assert names == {"Denoising", "Super-Resolution"}
     rows = db.list_train_runs()
     assert len(rows) == 1 and rows[0]["task_name"] == "Denoising"
     db.close()
@@ -260,6 +265,48 @@ def test_task_rename_leaves_a_name_collision_alone():
     db.close()
 
 
+def test_v9_superresolution_is_renamed_to_hyphenated_and_keeps_its_runs():
+    """v9 -> v10: SuperResolution -> Super-Resolution (config/task-defs/ 의 실제 이름).
+
+    "SuperResolution" 은 하이픈 없는 옛 이름이라 config 쪽 Task 정의를 못 찾았다 -
+    이 마이그레이션 하나만 따로 걸어서(v9 에서 바로 시작) 확인한다.
+    """
+    from dl_exp_manager.db import Database
+
+    path = os.path.join(tempfile.mkdtemp(), "v9.db")
+    db = Database(path, seed=False)
+    work_id = db.add_work(db.add_task("SuperResolution", "Super Resolution"), "SSL2SL")
+    db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
+    db.conn.execute("PRAGMA user_version = 9")
+    db.conn.commit()
+    db.close()
+
+    db = Database(path, seed=False)
+    assert db.migrated_from == 9
+    names = {t["name"] for t in db.list_tasks()}
+    assert names == {"Super-Resolution"}
+    rows = db.list_train_runs()
+    assert len(rows) == 1 and rows[0]["task_name"] == "Super-Resolution"
+    db.close()
+
+
+def test_v9_rename_leaves_a_name_collision_alone():
+    """"Super-Resolution" 을 이미 손으로 만들어 뒀다면 합치지 않는다(UNIQUE 보호)."""
+    from dl_exp_manager.db import Database
+
+    path = os.path.join(tempfile.mkdtemp(), "sr_clash.db")
+    db = Database(path, seed=False)
+    db.add_task("SuperResolution", "Super Resolution")
+    db.add_task("Super-Resolution", "내가 만든 것")
+    db.conn.execute("PRAGMA user_version = 9")
+    db.conn.commit()
+    db.close()
+
+    db = Database(path, seed=False)
+    assert {t["name"] for t in db.list_tasks()} == {"SuperResolution", "Super-Resolution"}
+    db.close()
+
+
 def test_migration_is_idempotent():
     from dl_exp_manager.db import Database
 
@@ -275,7 +322,7 @@ def test_gpu_and_extra_round_trip():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run(
         "train",
         {"work_id": work_id, "model": "M", "gpu_indices": "0,3", "extra_json": {"scale": "x4"}},
@@ -292,7 +339,7 @@ def test_distinct_values_scoped_to_task():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    sr = db.add_task("SuperResolution")
+    sr = db.add_task("Super-Resolution")
     cls = db.add_task("Classification")
     db.insert_run("train", {"work_id": db.add_work(sr, "A"), "model": "SwinIR"})
     db.insert_run("train", {"work_id": db.add_work(cls, "B"), "model": "ResNet-50"})
@@ -307,7 +354,7 @@ def test_bulk_rename_updates_both_tables():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     db.insert_run("train", {"work_id": work_id, "model": "Old"})
     db.insert_run("evaluation", {"work_id": work_id, "model": "Old"})
     assert db.count_runs_using("model", "Old") == 2
@@ -322,7 +369,7 @@ def test_v3_columns_present_and_default():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run("train", {"work_id": work_id, "model": "M"})
     row = db.get_run("train", run_id)
     assert row["favorite"] == 0
@@ -335,7 +382,7 @@ def test_toggle_favorite_round_trips():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run("train", {"work_id": work_id, "model": "M"})
     assert db.toggle_favorite("train", run_id) is True
     assert db.get_run("train", run_id)["favorite"] == 1
@@ -349,7 +396,7 @@ def test_duplicate_resets_favorite_but_keeps_tags():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run(
         "train", {"work_id": work_id, "model": "M", "tags": "keep-me", "favorite": True}
     )
@@ -364,7 +411,7 @@ def test_search_runs_matches_notes_tags_and_names():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "SSL2SL")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "SSL2SL")
     db.insert_run("train", {"work_id": work_id, "model": "Restormer", "notes": "OOM crash here"})
     db.insert_run("train", {"work_id": work_id, "model": "SwinIR", "tags": "paper-final"})
     db.insert_run("evaluation", {"work_id": work_id, "model": "NAFNet", "checkpoint_path": "/mnt/x/net.pth"})
@@ -381,7 +428,7 @@ def test_search_runs_marks_kind():
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     db.insert_run("train", {"work_id": work_id, "model": "FindMe"})
     db.insert_run("evaluation", {"work_id": work_id, "model": "FindMe"})
     results = db.search_runs("FindMe")
@@ -437,7 +484,7 @@ def test_best_value_highlight_respects_higher_is_better(qapp, config):
         dict(SAMPLE_ROW, id=2, work_id=10, metrics_json='{"PSNR": 32.0, "LPIPS": 0.05}'),
     ]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
     psnr_col = model.column_index("metric:PSNR")
     lpips_col = model.column_index("metric:LPIPS")
 
@@ -459,7 +506,7 @@ def test_best_value_not_highlighted_for_lone_row_in_work(qapp, config):
         dict(SAMPLE_ROW, id=2, work_id=20, metrics_json='{"PSNR": 999.0}'),  # different Work, alone
     ]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
     col = model.column_index("metric:PSNR")
     assert model.data(model.index(1, col), Qt.ItemDataRole.FontRole) is None
 
@@ -476,7 +523,7 @@ def test_best_value_grouped_per_work_not_globally(qapp, config):
         dict(SAMPLE_ROW, id=4, work_id=20, metrics_json='{"PSNR": 5.0}'),
     ]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
     col = model.column_index("metric:PSNR")
     best = [
         model.data(model.index(r, col), Qt.ItemDataRole.FontRole) is not None
@@ -491,7 +538,7 @@ def test_path_badge_flags_missing_path(qapp, config):
 
     row = dict(SAMPLE_ROW, result_path="/definitely/does/not/exist/xyz")
     model = RunTableModel()
-    model.set_content([row], build_columns(config, "SuperResolution", "train"))
+    model.set_content([row], build_columns(config, "Super-Resolution", "train"))
     col = model.column_index("result_path")
     color = model.data(model.index(0, col), Qt.ItemDataRole.ForegroundRole)
     tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
@@ -505,7 +552,7 @@ def test_path_badge_does_not_flag_existing_path(qapp, config):
 
     row = dict(SAMPLE_ROW, result_path="/tmp")
     model = RunTableModel()
-    model.set_content([row], build_columns(config, "SuperResolution", "train"))
+    model.set_content([row], build_columns(config, "Super-Resolution", "train"))
     col = model.column_index("result_path")
     tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
     assert "not reachable" not in tooltip
@@ -517,7 +564,7 @@ def test_path_badge_ignores_empty_path(qapp, config):
 
     row = dict(SAMPLE_ROW, result_path="")
     model = RunTableModel()
-    model.set_content([row], build_columns(config, "SuperResolution", "train"))
+    model.set_content([row], build_columns(config, "Super-Resolution", "train"))
     col = model.column_index("result_path")
     tooltip = model.data(model.index(0, col), Qt.ItemDataRole.ToolTipRole)
     assert tooltip == "(no path set)"
@@ -529,7 +576,7 @@ def test_favorite_column_always_present_and_toggleable_display(qapp, config):
 
     rows = [dict(SAMPLE_ROW, id=1, favorite=1), dict(SAMPLE_ROW, id=2, favorite=0)]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
     assert "★" in model.headers()
     col = model.column_index("favorite")
     values = [model.data(model.index(r, col)) for r in range(2)]
@@ -542,7 +589,7 @@ def test_favorite_sorts_true_first_descending(qapp, config):
 
     rows = [dict(SAMPLE_ROW, id=1, favorite=0), dict(SAMPLE_ROW, id=2, favorite=1)]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
     proxy = RunFilterProxy()
     proxy.setSourceModel(model)
     col = model.column_index("favorite")
@@ -556,7 +603,7 @@ def test_favorites_only_filter(qapp, config):
 
     rows = [dict(SAMPLE_ROW, id=1, favorite=1), dict(SAMPLE_ROW, id=2, favorite=0)]
     model = RunTableModel()
-    model.set_content(rows, build_columns(config, "SuperResolution", "train"))
+    model.set_content(rows, build_columns(config, "Super-Resolution", "train"))
     proxy = RunFilterProxy()
     proxy.setSourceModel(model)
     assert proxy.rowCount() == 2

@@ -1,6 +1,6 @@
 """예시 실험 데이터 - 처음 실행 시 UI 를 바로 확인하거나, 기능을 눈으로 훑어볼 때 쓴다.
 
-4개 Task(SuperResolution/Denoising/Clustering/Classification) 아래 여러 Work 에 걸쳐
+4개 Task(Super-Resolution/Denoising/Clustering/Classification) 아래 여러 Work 에 걸쳐
 학습/평가 기록을 채운다. 실제 앱이 쓰는 기능을 최대한 그대로 통과시킨다:
 
 - 실행 명령어는 손으로 쓴 문자열이 아니라 `config.command_template()` +
@@ -263,23 +263,27 @@ def populate(
         count += 1
         return run_id
 
-    # == Task: SuperResolution ===============================================
-    sr = db.add_task("SuperResolution", "Super Resolution")
+    # == Task: Super-Resolution ===============================================
+    sr = db.add_task("Super-Resolution", "Super Resolution")
     ssl2sl = db.add_work(sr, "SSL2SL", "Self-supervised -> Supervised transfer experiment")
     bsr = db.add_work(sr, "BSR-x4", "Blind SR x4 baseline")
     light = db.add_work(sr, "LightSR-Mobile", "Lightweight models for on-device inference")
 
     db.add_dataset(ssl2sl, "DIV2K", path="/mnt/data/DIV2K/train", sample_count=800,
-                    image_size="varies", extension="png", created_at=_ts(20))
+                    image_size="varies", extension="png", created_at=_ts(20),
+                    device="server1", abbreviation="div2k")
     db.add_dataset(ssl2sl, "DF2K", path="/mnt/data/DF2K/train", sample_count=3450,
-                    image_size="varies", extension="png", notes="DIV2K + Flickr2K merged.", created_at=_ts(15))
+                    image_size="varies", extension="png", notes="DIV2K + Flickr2K merged.", created_at=_ts(15),
+                    device="server2", abbreviation="df2k")
     db.add_dataset(bsr, "DF2K", path="/mnt/data/DF2K/train", sample_count=3450,
-                    image_size="varies", extension="png", created_at=_ts(14))
+                    image_size="varies", extension="png", created_at=_ts(14),
+                    device="server2", abbreviation="df2k")
     db.add_dataset(light, "DIV2K", path="/mnt/data/DIV2K/train", sample_count=800,
-                    image_size="varies", extension="png", created_at=_ts(8))
+                    image_size="varies", extension="png", created_at=_ts(8),
+                    device="server1", abbreviation="div2k")
 
     sr_train = {
-        "restormer": add_train("SuperResolution", ssl2sl, "SSL2SL", {
+        "restormer": add_train("Super-Resolution", ssl2sl, "SSL2SL", {
             "server": "Server 1", "model": "Restormer", "dataset": "DIV2K",
             "gpu_indices": "0,1", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/SSL2SL/restormer_x4",
@@ -290,7 +294,7 @@ def populate(
             "notes": "Baseline. Best result at iter 285000 (val_freq 5000).",
             "favorite": 1, "tags": "baseline",
         }),
-        "swinir": add_train("SuperResolution", ssl2sl, "SSL2SL", {
+        "swinir": add_train("Super-Resolution", ssl2sl, "SSL2SL", {
             "server": "Server 2", "model": "SwinIR", "dataset": "DF2K",
             "gpu_indices": "0,1,2,3", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DF2K/train", "result_path": "/mnt/exp/SSL2SL/swinir_x4",
@@ -300,7 +304,7 @@ def populate(
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "SwinIR"),
             "notes": "Expanded to DF2K data. +0.31dB over Restormer.", "tags": "ablation,data-scale",
         }),
-        "mambair": add_train("SuperResolution", ssl2sl, "SSL2SL", {
+        "mambair": add_train("Super-Resolution", ssl2sl, "SSL2SL", {
             "server": "Server 3", "model": "MambaIR", "dataset": "DF2K",
             "gpu_indices": "0,1", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DF2K/train", "result_path": "/mnt/exp/SSL2SL/mambair_x4",
@@ -310,7 +314,7 @@ def populate(
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "MambaIR"),
             "notes": "In progress. Intermediate metrics at 220k iter.",
         }),
-        "hat": add_train("SuperResolution", ssl2sl, "SSL2SL", {
+        "hat": add_train("Super-Resolution", ssl2sl, "SSL2SL", {
             "server": "Server 4", "model": "HAT", "dataset": "DF2K",
             "gpu_indices": "0,1,2,3", "extra_json": {"scale": "x2"},
             "dataset_path": "/mnt/data/DF2K/train", "result_path": "/mnt/exp/SSL2SL/hat_x2",
@@ -321,7 +325,7 @@ def populate(
             "notes": "CUDA OOM (batch 32). Needs retry with batch 16.",
             "failure_reason": "CUDA out of memory (rank 2, batch_size_per_gpu=32).",
         }),
-        "edsr": add_train("SuperResolution", ssl2sl, "SSL2SL", {
+        "edsr": add_train("Super-Resolution", ssl2sl, "SSL2SL", {
             "server": "Server 3", "model": "EDSR", "dataset": "DIV2K",
             "gpu_indices": "2,3", "extra_json": {"scale": "x2"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/SSL2SL/edsr_x2",
@@ -331,7 +335,7 @@ def populate(
             "config_yaml": C.SAMPLE_CONFIG_YML.replace("Restormer", "EDSR"),
             "notes": "Running alongside MambaIR on Server 3 (GPU 2,3).",
         }),
-        "rcan": add_train("SuperResolution", ssl2sl, "SSL2SL", {
+        "rcan": add_train("Super-Resolution", ssl2sl, "SSL2SL", {
             "server": "Server 1", "model": "RCAN", "dataset": "DF2K",
             "gpu_indices": "1", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DF2K/train", "result_path": "/mnt/exp/SSL2SL/rcan_x4",
@@ -340,7 +344,7 @@ def populate(
             "metrics_json": {}, "notes": "Queued behind Restormer/HAT on Server 1.",
         }),
 
-        "bsr_restormer": add_train("SuperResolution", bsr, "BSR-x4", {
+        "bsr_restormer": add_train("Super-Resolution", bsr, "BSR-x4", {
             "server": "Server 2", "model": "Restormer", "dataset": "DF2K",
             "gpu_indices": "0,1", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DF2K/train", "result_path": "/mnt/exp/BSR-x4/restormer",
@@ -350,7 +354,7 @@ def populate(
             "notes": "Blind degradation model (random kernel + noise + JPEG).",
             "tags": "blind-degradation",
         }),
-        "bsr_swinir": add_train("SuperResolution", bsr, "BSR-x4", {
+        "bsr_swinir": add_train("Super-Resolution", bsr, "BSR-x4", {
             "server": "Server 4", "model": "SwinIR", "dataset": "DF2K",
             "gpu_indices": "0,1,2,3", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DF2K/train", "result_path": "/mnt/exp/BSR-x4/swinir",
@@ -359,7 +363,7 @@ def populate(
             "metrics_json": {"PSNR": 32.10, "SSIM": 0.8905, "LPIPS": 0.130},
             "notes": "Best blind-degradation result so far.", "favorite": 1,
         }),
-        "bsr_mambair": add_train("SuperResolution", bsr, "BSR-x4", {
+        "bsr_mambair": add_train("Super-Resolution", bsr, "BSR-x4", {
             "server": "Server 1", "model": "MambaIR", "dataset": "DIV2K",
             "gpu_indices": "2", "extra_json": {"scale": "x4"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/BSR-x4/mambair",
@@ -367,7 +371,7 @@ def populate(
             "epochs": "400000", "batch_size": "8", "crop_size": "192", "lr": "3e-4", "optimizer": "AdamW",
             "metrics_json": {}, "notes": "Queued - waiting for Server 1 GPU 2.",
         }),
-        "bsr_edsr": add_train("SuperResolution", bsr, "BSR-x4", {
+        "bsr_edsr": add_train("Super-Resolution", bsr, "BSR-x4", {
             "server": "Server 3", "model": "EDSR", "dataset": "DIV2K",
             "gpu_indices": "0", "extra_json": {"scale": "x2"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/BSR-x4/edsr_x2",
@@ -377,7 +381,7 @@ def populate(
             "notes": "Lighter model, quick benchmark run.",
         }),
 
-        "light_edsr": add_train("SuperResolution", light, "LightSR-Mobile", {
+        "light_edsr": add_train("Super-Resolution", light, "LightSR-Mobile", {
             "server": "Server 2", "model": "EDSR", "dataset": "DIV2K",
             "gpu_indices": "3", "extra_json": {"scale": "x2"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/LightSR-Mobile/edsr_x2",
@@ -386,7 +390,7 @@ def populate(
             "metrics_json": {"PSNR": 33.55, "SSIM": 0.9145, "LPIPS": 0.142},
             "notes": "Mobile-friendly baseline, ~1.5M params.",
         }),
-        "light_rcan": add_train("SuperResolution", light, "LightSR-Mobile", {
+        "light_rcan": add_train("Super-Resolution", light, "LightSR-Mobile", {
             "server": "Server 2", "model": "RCAN", "dataset": "DIV2K",
             "gpu_indices": "3", "extra_json": {"scale": "x2"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/LightSR-Mobile/rcan_x2",
@@ -394,7 +398,7 @@ def populate(
             "epochs": "200000", "batch_size": "16", "crop_size": "128", "lr": "2e-4", "optimizer": "Adam",
             "metrics_json": {}, "notes": "Running right after EDSR on the same GPU.",
         }),
-        "light_restormer": add_train("SuperResolution", light, "LightSR-Mobile", {
+        "light_restormer": add_train("Super-Resolution", light, "LightSR-Mobile", {
             "server": "Server 4", "model": "Restormer", "dataset": "DIV2K",
             "gpu_indices": "2", "extra_json": {"scale": "x2"},
             "dataset_path": "/mnt/data/DIV2K/train", "result_path": "/mnt/exp/LightSR-Mobile/restormer_x2",
@@ -410,7 +414,7 @@ def populate(
         source = sr_train[source_key]
         src_row = db.get_run("train", source)
         source_extra = json.loads(src_row.get("extra_json") or "{}")
-        add_eval("SuperResolution", work_id, work_name, {
+        add_eval("Super-Resolution", work_id, work_name, {
             "server": src_row["server"], "model": src_row["model"],
             "checkpoint_path": f"{src_row['result_path']}/models/net_g_{src_row['epochs']}.pth",
             "checkpoint_epoch": src_row["epochs"], "source_train_run_id": source,
@@ -444,7 +448,7 @@ def populate(
     if with_local_assets:
         row = db.get_run("train", sr_train["restormer"])
         folder = _make_local_asset(
-            results_root, "SuperResolution", "SSL2SL", row, 300000, 6,
+            results_root, "Super-Resolution", "SSL2SL", row, 300000, 6,
             curve_metrics=(("PSNR", 32.41), ("SSIM", 0.8993)),
         )
         db.update_run("train", sr_train["restormer"], {
@@ -458,11 +462,14 @@ def populate(
     real_noise = db.add_work(dn, "RealNoise-SIDD", "Real (non-synthetic) noise, high sigma regime")
 
     db.add_dataset(n2n, "SIDD", path="/mnt/data/SIDD/train", sample_count=320,
-                    image_size="varies", extension="png", created_at=_ts(18))
+                    image_size="varies", extension="png", created_at=_ts(18),
+                    device="server1", abbreviation="sidd")
     db.add_dataset(n2n, "DND", path="/mnt/data/DND/train", sample_count=50,
-                    image_size="varies", extension="png", created_at=_ts(12))
+                    image_size="varies", extension="png", created_at=_ts(12),
+                    device="server1", abbreviation="dnd")
     db.add_dataset(real_noise, "SIDD", path="/mnt/data/SIDD/train", sample_count=320,
-                    image_size="varies", extension="png", created_at=_ts(5))
+                    image_size="varies", extension="png", created_at=_ts(5),
+                    device="server2", abbreviation="sidd")
 
     dn_train = {
         "nafnet": add_train("Denoising", n2n, "N2N-Base", {
@@ -577,8 +584,10 @@ def populate(
     # == Task: Clustering ======================================================
     cl = db.add_task("Clustering", "Unsupervised Clustering")
     dc2 = db.add_work(cl, "DeepClusterV2", "Second round of unsupervised clustering baselines")
-    db.add_dataset(dc2, "CIFAR-10", path="/mnt/data/cifar10", sample_count=60000, extension="png", created_at=_ts(9))
-    db.add_dataset(dc2, "STL-10", path="/mnt/data/stl10", sample_count=13000, extension="png", created_at=_ts(9))
+    db.add_dataset(dc2, "CIFAR-10", path="/mnt/data/cifar10", sample_count=60000, extension="png", created_at=_ts(9),
+                    device="server3", abbreviation="cifar10")
+    db.add_dataset(dc2, "STL-10", path="/mnt/data/stl10", sample_count=13000, extension="png", created_at=_ts(9),
+                    device="server3", abbreviation="stl10")
 
     cl_train = {
         "deepcluster": add_train("Clustering", dc2, "DeepClusterV2", {
@@ -637,10 +646,13 @@ def populate(
     distill = db.add_work(cls, "Distillation-Study", "Knowledge distillation ablations")
 
     db.add_dataset(imagenet_base, "ImageNet-1k", path="/mnt/data/imagenet1k", sample_count=1_281_167,
+                    device="server4", abbreviation="in1k",
                     extension="jpeg", created_at=_ts(22))
     db.add_dataset(distill, "CIFAR-100", path="/mnt/data/cifar100", sample_count=50000,
+                    device="server1", abbreviation="cifar100",
                     extension="png", created_at=_ts(6))
     db.add_dataset(distill, "Food-101", path="/mnt/data/food101", sample_count=75750,
+                    device="server3", abbreviation="food101",
                     extension="jpeg", created_at=_ts(6))
 
     cls_train = {

@@ -315,7 +315,7 @@ class MainWindow(QtWidgets.QMainWindow):
         answer = QtWidgets.QMessageBox.question(
             self,
             "Sample Data",
-            "This adds example Train/Evaluation records under SuperResolution/SSL2SL etc. Continue?",
+            "This adds example Train/Evaluation records under Super-Resolution/SSL2SL etc. Continue?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )

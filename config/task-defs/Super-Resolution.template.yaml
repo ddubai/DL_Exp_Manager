@@ -2,12 +2,12 @@
 # ↑ 폴더 이름을 tasks -> task-defs 로 바꿔서 Ansible 확장의 오탐은 근본적으로
 #   없앴지만, 혹시 다른 도구가 같은 식으로(경로만 보고) 스키마를 잘못 붙이는 걸
 #   대비한 안전망이다. 파일 자체에 붙어 있어 워크스페이스 설정과 무관하게 적용된다.
-# Task: SuperResolution
+# Task: Super-Resolution
 # options = combo-box choices · metrics = table metric columns · columns = table layout
 # short   = short name used in the generated command ({task_short})
 # See the header of options.yaml for the full syntax.
 
-name: SuperResolution
+name: Super-Resolution
 label: Super Resolution
 short: sr
 options:
@@ -22,5 +22,5 @@ columns:
   train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
   evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, throughput_fps, PSNR, SSIM, LPIPS, result_path]
 commands:
-  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
-  evaluation: python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>
+  train: python train.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr} model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
+  evaluation: python evaluate.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>

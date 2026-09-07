@@ -10,8 +10,8 @@
       params.yaml             명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16 ...)
       params.template.yaml
       task-defs/
-        SuperResolution.yaml           Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
-        SuperResolution.template.yaml
+        Super-Resolution.yaml           Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
+        Super-Resolution.template.yaml
         Denoising.yaml
         Denoising.template.yaml
         ...
@@ -24,7 +24,7 @@
 Python 상수로 마지막 안전망을 둔다.
 
 읽을 때는 전부 합쳐 하나의 딕셔너리로 보고, 쓸 때는 **그 값이 원래 있던 파일에만** 저장한다.
-(SuperResolution 모델을 추가하면 task-defs/SuperResolution.yaml 만 바뀐다.)
+(Super-Resolution 모델을 추가하면 task-defs/Super-Resolution.yaml 만 바뀐다.)
 
 - `ruamel.yaml` 이 있으면 주석과 순서를 보존하며 저장한다. 없으면 PyYAML 로 동작한다.
 - 파일 하나가 깨져도 나머지는 살리고, 무엇이 문제인지 `errors` 에 남긴다.
@@ -209,11 +209,11 @@ NATIVE_OPTION_FIELDS = {"model", "dataset", "optimizer", "server"}
 # 자리표시자가 빈 값이면 그 토큰은 통째로 빠진다 - command_builder.render_command 참고.
 DEFAULT_COMMANDS: dict[str, str] = {
     "train": (
-        "python train.py algo={task_short}/{algo} data={task_short}/{dataset}"
+        "python train.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr}"
         " model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>"
     ),
     "evaluation": (
-        "python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset}"
+        "python evaluate.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr}"
         " model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>"
     ),
 }
@@ -262,7 +262,7 @@ BUILTIN: dict[str, Any] = {
         "optimizer": ["AdamW", "Adam", "SGD", "Lion"],
     },
     "tasks": {
-        "SuperResolution": {
+        "Super-Resolution": {
             "label": "Super Resolution",
             "short": "sr",
             "options": {
@@ -389,8 +389,11 @@ ROOT_HEADER = """\
 #             `<batch_size>` simply disappears when no batch size was entered.
 #             Available names:
 #     everywhere  task, task_lower, task_short, work, model, dataset, dataset_path,
-#                 result_path, server, host, gpus, cuda_devices, status,
+#                 dataset_device, dataset_abbr, result_path, server, host, gpus,
+#                 cuda_devices, status,
 #                 plus every custom field under options (e.g. {algo}, {scale})
+#                 (dataset_device/dataset_abbr come from the Dataset registry's
+#                  Device/Abbreviation fields, e.g. data=<device>/<abbr>)
 #     train       epochs, batch_size, crop_size, lr, optimizer
 #     evaluation  checkpoint_path, checkpoint_epoch, device, input_size,
 #                 train_result_path, train_run_id, train_model
@@ -445,7 +448,8 @@ PARAMS_HEADER = """\
 # (model, dataset, algo, scale, ...) plus
 #   train       epochs, batch_size, crop_size, lr, optimizer
 #   evaluation  checkpoint_path, checkpoint_epoch, device, input_size
-#   both        dataset_path, result_path, server, host, gpus, cuda_devices
+#   both        dataset_path, dataset_device, dataset_abbr, result_path,
+#               server, host, gpus, cuda_devices
 """
 
 TASK_HEADER_TEMPLATE = """\

@@ -68,7 +68,7 @@ def test_status_colors_come_from_theme(qapp):
 def test_combo_lists_task_options_with_sentinel_last(qapp, config):
     from dl_exp_manager.widgets.common import SENTINEL_TEXT, ManagedCombo
 
-    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "SuperResolution")
+    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "Super-Resolution")
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items[-1] == SENTINEL_TEXT
     assert combo._is_sentinel(combo.count() - 1)
@@ -78,7 +78,7 @@ def test_combo_lists_task_options_with_sentinel_last(qapp, config):
 def test_combo_switches_list_when_task_changes(qapp, config):
     from dl_exp_manager.widgets.common import ManagedCombo
 
-    task = {"name": "SuperResolution"}
+    task = {"name": "Super-Resolution"}
     combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: task["name"])
     assert "HAT" in [combo.itemText(i) for i in range(combo.count())]
     task["name"] = "Classification"
@@ -90,7 +90,7 @@ def test_combo_switches_list_when_task_changes(qapp, config):
 def test_sentinel_is_never_taken_as_a_value(qapp, config):
     from dl_exp_manager.widgets.common import ManagedCombo
 
-    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "SuperResolution")
+    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "Super-Resolution")
     combo.setCurrentIndex(combo.count() - 1)
     assert combo.current_text() == ""
 
@@ -98,7 +98,7 @@ def test_sentinel_is_never_taken_as_a_value(qapp, config):
 def test_activating_sentinel_restores_previous_value(qapp, config):
     from dl_exp_manager.widgets.common import ManagedCombo
 
-    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "SuperResolution")
+    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "Super-Resolution")
     combo.set_text("SwinIR")
     # 센티넬을 고르면 add_item 이 QTimer.singleShot(0, ...) 으로 예약된다(_on_activated
     # 참고) - 그 콜백은 이 테스트가 신경 쓰는 부분(직전 값 복원)이 아니라 실제
@@ -113,7 +113,7 @@ def test_activating_sentinel_restores_previous_value(qapp, config):
 def test_merge_items_keeps_sentinel_last(qapp, config):
     from dl_exp_manager.widgets.common import ManagedCombo
 
-    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "SuperResolution")
+    combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "Super-Resolution")
     combo.merge_items(["LegacyNet"])
     assert combo._is_sentinel(combo.count() - 1)
     assert "LegacyNet" in [combo.itemText(i) for i in range(combo.count())]
@@ -122,10 +122,10 @@ def test_merge_items_keeps_sentinel_last(qapp, config):
 def test_combo_scope_detection(qapp, config):
     from dl_exp_manager.widgets.common import ManagedCombo
 
-    model_combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "SuperResolution")
-    optimizer_combo = ManagedCombo("optimizer", "Optimizer", config=config, task_getter=lambda: "SuperResolution")
-    assert model_combo._is_task_scoped("SuperResolution") is True       # SR 이 직접 정의
-    assert optimizer_combo._is_task_scoped("SuperResolution") is False  # defaults 상속
+    model_combo = ManagedCombo("model", "Model", config=config, task_getter=lambda: "Super-Resolution")
+    optimizer_combo = ManagedCombo("optimizer", "Optimizer", config=config, task_getter=lambda: "Super-Resolution")
+    assert model_combo._is_task_scoped("Super-Resolution") is True       # SR 이 직접 정의
+    assert optimizer_combo._is_task_scoped("Super-Resolution") is False  # defaults 상속
 
 
 # --- GpuSelector -------------------------------------------------------------
@@ -159,7 +159,7 @@ def _panel_with_runs(config):
     from dl_exp_manager.widgets.server_panel import ServerStatusPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     db.insert_run("train", {"work_id": work_id, "server": "Server 3", "model": "MambaIR",
                             "gpu_indices": "0,1", "status": "running"})
     db.insert_run("train", {"work_id": work_id, "server": "Server 3", "model": "EDSR",
@@ -184,7 +184,7 @@ def test_server_panel_flags_gpu_conflict(qapp, config):
     from dl_exp_manager.widgets.server_panel import ServerStatusPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     for model in ("A", "B"):
         db.insert_run("train", {"work_id": work_id, "server": "Server 1", "model": model,
                                 "gpu_indices": "3", "status": "running"})
@@ -200,7 +200,7 @@ def test_server_panel_shows_unknown_server_from_db(qapp, config):
     from dl_exp_manager.widgets.server_panel import ServerStatusPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     db.insert_run("train", {"work_id": work_id, "server": "Ghost", "model": "M",
                             "status": "running"})
     panel = ServerStatusPanel(db, config)
@@ -316,7 +316,7 @@ def _panel_with_one_run(config):
     from dl_exp_manager.widgets.run_panel import TrainPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     run_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
     window = QtWidgets.QMainWindow()
@@ -346,7 +346,7 @@ def test_favorites_only_toolbar_filter(qapp, config):
     from dl_exp_manager.widgets.run_panel import TrainPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     db.insert_run("train", {"work_id": work_id, "model": "A", "favorite": True})
     db.insert_run("train", {"work_id": work_id, "model": "B", "favorite": False})
@@ -445,7 +445,7 @@ def test_metrics_are_shared_within_a_task(qapp, config):
     panel.metrics_editor.set_metrics({"CustomMetric": 12.5})
     panel.save_form()
 
-    assert "CustomMetric" in config.metric_keys("SuperResolution")
+    assert "CustomMetric" in config.metric_keys("Super-Resolution")
 
     panel.reset_form()
     assert panel.metrics_editor.metrics() == {}  # empty prefilled row isn't "set"
@@ -473,7 +473,7 @@ def test_evaluation_shows_server_but_hides_gpu_row(qapp, config):
     from dl_exp_manager.widgets.run_panel import EvaluationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     window = QtWidgets.QMainWindow()
     panel = EvaluationPanel(db, config, parent=window)
@@ -498,7 +498,7 @@ def test_evaluation_source_train_run_prefills_model(qapp, config):
     from dl_exp_manager.widgets.run_panel import EvaluationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     train_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
     window = QtWidgets.QMainWindow()
@@ -595,7 +595,7 @@ def _nav_env(config):
     from dl_exp_manager.widgets.nav_panel import NavigationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"), seed=False)
-    sr = db.add_task("SuperResolution")
+    sr = db.add_task("Super-Resolution")
     dn = db.add_task("Denoising")
     ssl2sl = db.add_work(sr, "SSL2SL", "transfer experiment")
     bsr = db.add_work(sr, "BSR-x4")
@@ -606,7 +606,7 @@ def _nav_env(config):
 
 
 def test_nav_auto_drills_into_first_task_and_work_on_first_load(qapp, config):
-    # list_tasks()/list_works() sort by name, so "Denoising" < "SuperResolution" alphabetically -
+    # list_tasks()/list_works() sort by name, so "Denoising" < "Super-Resolution" alphabetically -
     # the first Task/Work is DN / N2N-Base, not insertion order.
     db, nav, sr, dn, ssl2sl, bsr, n2n = _nav_env(config)
     assert nav.current_task_id() == dn
@@ -759,7 +759,7 @@ def _search_env(config):
     from dl_exp_manager.db import Database
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    sr = db.add_task("SuperResolution")
+    sr = db.add_task("Super-Resolution")
     w1 = db.add_work(sr, "SSL2SL")
     db.add_work(sr, "EmptyWork")  # no runs yet - should still be searchable
     db.insert_run("train", {"work_id": w1, "model": "Restormer", "notes": "baseline"})
@@ -850,7 +850,7 @@ def test_set_theme_rebuilds_workspace_and_preserves_scope(qapp, config):
     d = tempfile.mkdtemp()
     window = MainWindow(os.path.join(d, "e.db"), os.path.join(d, "options.yaml"))
     try:
-        sr = window.db.add_task("SuperResolution")
+        sr = window.db.add_task("Super-Resolution")
         work_id = window.db.add_work(sr, "SSL2SL")
         window.nav.refresh(select_work_id=work_id)
         window.tabs.setCurrentIndex(1)
@@ -881,7 +881,7 @@ def test_main_window_navigates_to_run_from_search(qapp, config):
 
     d = tempfile.mkdtemp()
     window = MainWindow(os.path.join(d, "e.db"), os.path.join(d, "options.yaml"))
-    sr = window.db.add_task("SuperResolution")
+    sr = window.db.add_task("Super-Resolution")
     work_id = window.db.add_work(sr, "SSL2SL")
     run_id = window.db.insert_run("train", {"work_id": work_id, "model": "FindThisRun"})
     window.nav.refresh()
@@ -1067,7 +1067,7 @@ def test_export_report_with_no_rows_warns_instead_of_writing(qapp, config, monke
     from dl_exp_manager.widgets.run_panel import TrainPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     window = QtWidgets.QMainWindow()
     panel = TrainPanel(db, config, parent=window)
@@ -1190,7 +1190,7 @@ def test_evaluation_panel_has_no_training_curve_button(qapp, config):
     from dl_exp_manager.widgets.run_panel import EvaluationPanel
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     window = QtWidgets.QMainWindow()
     panel = EvaluationPanel(db, config, parent=window)
@@ -1218,7 +1218,7 @@ def test_compare_dialog_highlights_differing_fields(qapp, config):
     from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
 
     rows = [_fake_run(1, "Restormer", 30.0, "a: 1\nb: 2\n"), _fake_run(2, "SwinIR", 32.0, "a: 1\nb: 3\n")]
-    dialog = CompareRunsDialog(rows, config, "SuperResolution")
+    dialog = CompareRunsDialog(rows, config, "Super-Resolution")
 
     table = dialog.findChild(QtWidgets.QTableWidget)
     labels = [table.item(r, 0).text() for r in range(table.rowCount())]
@@ -1241,7 +1241,7 @@ def test_compare_dialog_three_runs_shows_separate_config_tabs(qapp, config):
     from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
 
     rows = [_fake_run(i, f"Model{i}", 30.0 + i) for i in (1, 2, 3)]
-    dialog = CompareRunsDialog(rows, config, "SuperResolution")
+    dialog = CompareRunsDialog(rows, config, "Super-Resolution")
     tabs = dialog.findChild(QtWidgets.QTabWidget)
     tab_labels = [tabs.tabText(i) for i in range(tabs.count())]
     assert tab_labels == [
@@ -1281,7 +1281,7 @@ def test_compare_dialog_chart_tab_uses_numeric_metrics_not_formatted_strings(qap
     from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
 
     rows = [_fake_run(1, "Restormer", 30.0), _fake_run(2, "SwinIR", 32.5)]
-    groups = CompareRunsDialog._build_metric_groups(rows, config, "SuperResolution")
+    groups = CompareRunsDialog._build_metric_groups(rows, config, "Super-Resolution")
     psnr = next(g for g in groups if g.key == "PSNR")
     assert psnr.values == [30.0, 32.5]
     assert psnr.higher_is_better is True
@@ -1292,7 +1292,7 @@ def test_compare_dialog_handles_more_than_three_runs_with_a_chart(qapp, config):
     from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
 
     rows = [_fake_run(i, f"Model{i}", 30.0 + i) for i in range(1, 6)]  # 5개 - 예전엔 3개가 상한이었다
-    dialog = CompareRunsDialog(rows, config, "SuperResolution")
+    dialog = CompareRunsDialog(rows, config, "Super-Resolution")
     tabs = dialog.findChild(QtWidgets.QTabWidget)
     tab_labels = [tabs.tabText(i) for i in range(tabs.count())]
     assert tab_labels[:2] == ["Metrics / Params", "📊 Chart"]
@@ -1442,7 +1442,7 @@ def test_dataset_edit_dialog_round_trips_fields(qapp):
         dataset={
             "name": "DIV2K", "variant": "Full Pair", "path": "/a", "notes": "n",
             "sample_count": 900, "image_size": "256x256", "extension": "tiff",
-            "created_at": "2024-01-15 10:00:00",
+            "created_at": "2024-01-15 10:00:00", "device": "server1", "abbreviation": "div2k",
         }
     )
     assert dialog.name_edit.text() == "DIV2K"
@@ -1451,9 +1451,11 @@ def test_dataset_edit_dialog_round_trips_fields(qapp):
     assert dialog.sample_count_spin.value() == 900
     assert dialog.image_size_edit.text() == "256x256"
     assert dialog.extension_edit.text() == "tiff"
+    assert dialog.device_edit.text() == "server1"
+    assert dialog.abbreviation_edit.text() == "div2k"
     assert dialog.registered_edit.date().toString("yyyy-MM-dd") == "2024-01-15"
     assert dialog.result_values() == (
-        "DIV2K", "Full Pair", "/a", "n", 900, "256x256", "tiff", "2024-01-15"
+        "DIV2K", "Full Pair", "/a", "n", 900, "256x256", "tiff", "2024-01-15", "server1", "div2k"
     )
 
 
@@ -1470,7 +1472,7 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     from dl_exp_manager.widgets.dataset_dialog import DatasetEditDialog, DatasetManagerDialog
 
     db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
-    work_id = db.add_work(db.add_task("SuperResolution"), "BSR-x4")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "BSR-x4")
     window = QtWidgets.QMainWindow()
     dialog = DatasetManagerDialog(db, work_id, "BSR-x4", parent=window)
     window.setCentralWidget(dialog)
@@ -1480,7 +1482,10 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     )
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/a", "", 900, "256x256", "tiff", "2024-01-15"),
+        lambda self: (
+            "DIV2K", "Full Pair", "/mnt/a", "", 900, "256x256", "tiff", "2024-01-15",
+            "server1", "div2k",
+        ),
     )
     dialog._add()
     assert dialog.table.rowCount() == 1
@@ -1489,15 +1494,22 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     assert db.list_datasets(work_id)[0]["image_size"] == "256x256"
     assert db.list_datasets(work_id)[0]["extension"] == "tiff"
     assert db.list_datasets(work_id)[0]["created_at"] == "2024-01-15"
+    assert db.list_datasets(work_id)[0]["device"] == "server1"
+    assert db.list_datasets(work_id)[0]["abbreviation"] == "div2k"
     assert dialog.table.item(0, 3).text() == "900"
     assert dialog.table.item(0, 4).text() == "256x256"
     assert dialog.table.item(0, 5).text() == "tiff"
-    assert dialog.table.item(0, 6).text() == "2024-01-15"
+    assert dialog.table.item(0, 6).text() == "server1"
+    assert dialog.table.item(0, 7).text() == "div2k"
+    assert dialog.table.item(0, 8).text() == "2024-01-15"
 
     dialog.table.selectRow(0)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("DIV2K", "Full Pair", "/mnt/b", "moved", 1000, "512x512", "png", "2024-02-20"),
+        lambda self: (
+            "DIV2K", "Full Pair", "/mnt/b", "moved", 1000, "512x512", "png", "2024-02-20",
+            "server2", "div2k-v2",
+        ),
     )
     dialog._edit_selected()
     assert db.list_datasets(work_id)[0]["path"] == "/mnt/b"
@@ -1506,6 +1518,8 @@ def test_dataset_manager_dialog_add_edit_remove(qapp, config, monkeypatch):
     assert db.list_datasets(work_id)[0]["image_size"] == "512x512"
     assert db.list_datasets(work_id)[0]["extension"] == "png"
     assert db.list_datasets(work_id)[0]["sample_count"] == 1000
+    assert db.list_datasets(work_id)[0]["device"] == "server2"
+    assert db.list_datasets(work_id)[0]["abbreviation"] == "div2k-v2"
 
     monkeypatch.setattr("dl_exp_manager.editing.confirm_delete", lambda *a, **k: True)
     dialog.table.selectRow(0)
@@ -1553,7 +1567,10 @@ def test_dataset_combo_add_new_dataset_inline(qapp, config, monkeypatch):
     monkeypatch.setattr(DatasetEditDialog, "exec", lambda self: QtWidgets.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(
         DatasetEditDialog, "result_values",
-        lambda self: ("Flickr2K", "", "/mnt/data/Flickr2K", "", 2650, "1920x1080", "png", "2024-03-01"),
+        lambda self: (
+            "Flickr2K", "", "/mnt/data/Flickr2K", "", 2650, "1920x1080", "png", "2024-03-01",
+            "server3", "flickr2k",
+        ),
     )
     panel.dataset_combo.add_item()
 
@@ -1563,6 +1580,8 @@ def test_dataset_combo_add_new_dataset_inline(qapp, config, monkeypatch):
     assert added["sample_count"] == 2650
     assert added["image_size"] == "1920x1080"
     assert added["extension"] == "png"
+    assert added["device"] == "server3"
+    assert added["abbreviation"] == "flickr2k"
     db.close()
 
 
@@ -1602,7 +1621,10 @@ def _hydra_env(config):
 
 
 def test_generate_builds_hydra_command_from_form(qapp, config):
-    db, panel, _task_id, _work_id = _hydra_env(config)
+    db, panel, _task_id, work_id = _hydra_env(config)
+    # data=<device>/<abbreviation> 는 Dataset 레지스트리에 등록해 둔 값에서 온다 -
+    # 그냥 타이핑한 이름(예전 방식)만으로는 이제 그 자리가 비어서 토큰째 빠진다.
+    db.add_dataset(work_id, "dataset1", device="dn", abbreviation="dataset1")
     panel.reset_form()
     panel.model_combo.set_text("UNet")
     panel.dataset_combo.set_text("dataset1")
@@ -1613,6 +1635,21 @@ def test_generate_builds_hydra_command_from_form(qapp, config):
     assert panel.command_input.text() == (
         "python train.py algo=dn/noise2noise data=dn/dataset1 model=dn/UNet +batch_size=16"
     )
+    db.close()
+
+
+def test_data_placeholder_drops_when_dataset_has_no_device_or_abbreviation(qapp, config):
+    """레지스트리에 없는(그냥 타이핑한) dataset 는 data= 토큰이 통째로 빠져야 한다."""
+    db, panel, _task_id, _work_id = _hydra_env(config)
+    panel.reset_form()
+    panel.model_combo.set_text("UNet")
+    panel.dataset_combo.set_text("typed-dataset-not-registered")
+    panel._custom_widgets["algo"].set_text("noise2noise")
+
+    panel.generate_command()
+    command = panel.command_input.text()
+    assert "data=" not in command
+    assert "algo=dn/noise2noise" in command and "model=dn/UNet" in command
     db.close()
 
 

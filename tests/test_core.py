@@ -78,14 +78,14 @@ def test_csv_and_tsv(tmp_path=None):
 # --- db ---------------------------------------------------------------------
 def test_seed_creates_tasks_and_servers():
     db = make_db()
-    assert {t["name"] for t in db.list_tasks()} >= {"SuperResolution", "Denoising", "Clustering", "Classification"}
+    assert {t["name"] for t in db.list_tasks()} >= {"Super-Resolution", "Denoising", "Clustering", "Classification"}
     assert len(db.server_names()) == len(C.DEFAULT_SERVERS)
     db.close()
 
 
 def test_task_work_run_crud():
     db = make_db()
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "SSL2SL")
 
     run_id = db.insert_run(
@@ -103,7 +103,7 @@ def test_task_work_run_crud():
     assert len(rows) == 1
     assert rows[0]["duration_sec"] == 5400.0
     assert loads_metrics(rows[0]["metrics_json"]) == {"PSNR": 31.2}
-    assert rows[0]["task_name"] == "SuperResolution"
+    assert rows[0]["task_name"] == "Super-Resolution"
 
     db.update_run("train", run_id, {**rows[0], "model": "SwinIR", "duration_sec": None})
     assert db.get_run("train", run_id)["model"] == "SwinIR"
@@ -122,8 +122,8 @@ def test_task_work_run_crud():
 
 def test_duplicate_names_are_not_inserted_twice():
     db = make_db()
-    first = db.add_task("SuperResolution")
-    assert db.add_task("SuperResolution") == first
+    first = db.add_task("Super-Resolution")
+    assert db.add_task("Super-Resolution") == first
     work = db.add_work(first, "SSL2SL")
     assert db.add_work(first, "SSL2SL") == work
     db.close()
@@ -142,7 +142,7 @@ def test_delete_task_cascades_to_runs():
 
 def test_dataset_registry_is_scoped_per_work():
     db = make_db()
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work1 = db.add_work(task_id, "BSR-x4")
     work2 = db.add_work(task_id, "SSL2SL")
 
@@ -162,7 +162,7 @@ def test_dataset_registry_is_scoped_per_work():
 
 def test_dataset_add_is_idempotent_per_name_and_variant():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     first = db.add_dataset(work_id, "DIV2K", "Full Pair", "/a")
     again = db.add_dataset(work_id, "DIV2K", "Full Pair", "/b")
     assert first == again
@@ -172,7 +172,7 @@ def test_dataset_add_is_idempotent_per_name_and_variant():
 
 def test_dataset_update_and_delete():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     dataset_id = db.add_dataset(work_id, "DIV2K", path="/old/path")
 
     db.update_dataset(dataset_id, "DIV2K", "Full Pair", "/new/path", "updated notes")
@@ -189,7 +189,7 @@ def test_dataset_update_and_delete():
 
 def test_dataset_registered_date_is_editable_but_defaults_to_now():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
 
     auto_id = db.add_dataset(work_id, "DIV2K", path="/a")
     assert db.get_dataset(auto_id)["created_at"]  # now() 로 채워짐
@@ -208,7 +208,7 @@ def test_dataset_registered_date_is_editable_but_defaults_to_now():
 
 def test_dataset_sample_count_round_trip():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     dataset_id = db.add_dataset(work_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K", sample_count=900)
     row = db.get_dataset(dataset_id)
     assert row["sample_count"] == 900
@@ -222,9 +222,34 @@ def test_dataset_sample_count_round_trip():
     db.close()
 
 
+def test_dataset_device_and_abbreviation_round_trip():
+    """명령어의 data=<device>/<abbreviation> 자리에 쓰는 두 필드."""
+    db = make_db()
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
+    dataset_id = db.add_dataset(
+        work_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K", device="server1", abbreviation="div2k"
+    )
+    row = db.get_dataset(dataset_id)
+    assert row["device"] == "server1"
+    assert row["abbreviation"] == "div2k"
+
+    db.update_dataset(
+        dataset_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K", device="server2", abbreviation="div2k-v2"
+    )
+    updated = db.get_dataset(dataset_id)
+    assert updated["device"] == "server2"
+    assert updated["abbreviation"] == "div2k-v2"
+
+    # 안 주면(구버전 등록 방식) 빈 문자열 - "명령어에서 그 자리가 통째로 빠진다"의 전제
+    other_id = db.add_dataset(work_id, "DF2K")
+    other = db.get_dataset(other_id)
+    assert other["device"] == "" and other["abbreviation"] == ""
+    db.close()
+
+
 def test_dataset_image_size_and_extension_round_trip():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     dataset_id = db.add_dataset(
         work_id, "DIV2K", "Full Pair", "/mnt/data/DIV2K",
         image_size="256x256", extension="tiff",
@@ -242,7 +267,7 @@ def test_dataset_image_size_and_extension_round_trip():
 
 def test_dataset_deleted_when_work_deleted():
     db = make_db()
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     work_id = db.add_work(task_id, "W")
     db.add_dataset(work_id, "DIV2K", path="/a")
     db.delete_work(work_id)
@@ -252,7 +277,7 @@ def test_dataset_deleted_when_work_deleted():
 
 def test_count_runs_using_dataset():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     db.add_dataset(work_id, "DIV2K", "Full Pair", "/a")
     db.insert_run("train", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
     db.insert_run("evaluation", {"work_id": work_id, "model": "M", "dataset": "DIV2K · Full Pair"})
@@ -265,7 +290,7 @@ def test_count_runs_using_dataset():
 
 def test_evaluation_numeric_fields():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run(
         "evaluation",
         {"work_id": work_id, "model": "M", "latency_ms": "41.7", "throughput_fps": "", "device": "cuda:0"},
@@ -279,7 +304,7 @@ def test_evaluation_numeric_fields():
 
 def test_run_history_records_create_update_duplicate():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     run_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
 
     history = db.list_history("train", run_id)
@@ -307,7 +332,7 @@ def test_run_history_records_create_update_duplicate():
 
 def test_evaluation_source_train_run_and_epoch_round_trip():
     db = make_db()
-    work_id = db.add_work(db.add_task("SuperResolution"), "W")
+    work_id = db.add_work(db.add_task("Super-Resolution"), "W")
     train_id = db.insert_run("train", {"work_id": work_id, "model": "Restormer"})
     eval_id = db.insert_run(
         "evaluation",
@@ -326,7 +351,7 @@ def test_evaluation_source_train_run_and_epoch_round_trip():
 
 def test_task_scope_lists_runs_of_all_works():
     db = make_db()
-    task_id = db.add_task("SuperResolution")
+    task_id = db.add_task("Super-Resolution")
     for name in ("A", "B"):
         work_id = db.add_work(task_id, name)
         db.insert_run("train", {"work_id": work_id, "model": name})
@@ -756,7 +781,7 @@ def test_populate_fills_all_four_tasks_with_linked_train_and_eval_runs():
     assert summary["train"] > 25
     assert summary["evaluation"] > 15
     assert {t["name"] for t in db.list_tasks()} == {
-        "SuperResolution", "Denoising", "Clustering", "Classification",
+        "Super-Resolution", "Denoising", "Clustering", "Classification",
     }
 
     evaluations = db.list_evaluation_runs()

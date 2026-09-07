@@ -10,8 +10,11 @@ DEFAULT_SERVERS = [
 ]
 
 # --- Level 1: DL Task -------------------------------------------------------
+# "Super-Resolution" 은 하이픈이 있다 - config/task-defs/Super-Resolution.yaml 의 Task
+# 이름과 정확히 일치해야 그 파일의 옵션·컬럼·명령어 템플릿을 찾아 쓴다(db.py 의
+# _RENAMED_TASKS_V10 이 예전 DB 의 "SuperResolution" 도 여기로 옮겨 준다).
 DEFAULT_TASKS = [
-    ("SuperResolution", "Super Resolution"),
+    ("Super-Resolution", "Super Resolution"),
     ("Denoising", "Denoising"),
     ("Clustering", "Unsupervised Clustering"),
     ("Classification", "Image Classification"),
@@ -19,7 +22,7 @@ DEFAULT_TASKS = [
 
 # --- Level 2: Work ID (샘플) ------------------------------------------------
 DEFAULT_WORKS = {
-    "SuperResolution": [("SSL2SL", "Self-supervised -> Supervised transfer experiment")],
+    "Super-Resolution": [("SSL2SL", "Self-supervised -> Supervised transfer experiment")],
     "Denoising": [("N2N-Base", "Noise2Noise baseline")],
 }
 

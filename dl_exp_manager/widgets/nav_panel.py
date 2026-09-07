@@ -522,7 +522,7 @@ class NavigationPanel(QtWidgets.QWidget):
     # ==================================================================
     def add_task(self) -> None:
         name, ok = QtWidgets.QInputDialog.getText(
-            self, "Add DL Task", "Task name (e.g. SuperResolution, Denoising, Clustering, Classification):"
+            self, "Add DL Task", "Task name (e.g. Super-Resolution, Denoising, Clustering, Classification):"
         )
         if not ok or not name.strip():
             return

@@ -866,6 +866,19 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _dataset_path_label(self) -> str:
         return "Dataset Path"
 
+    def _selected_dataset_row(self) -> dict[str, Any] | None:
+        """지금 Dataset 콤보가 가리키는 레지스트리 행(device/abbreviation 포함).
+
+        선택 시점에 캐싱하지 않고 그때그때 다시 찾는다 - 폼을 다시 불러오거나
+        레지스트리를 수정한 뒤에도(콤보를 다시 안 건드려도) 항상 최신 값을 본다.
+        레지스트리에 없는 값을 직접 입력했다면(itemData 없음) None.
+        """
+        index = self.dataset_combo.currentIndex()
+        dataset_id = self.dataset_combo.itemData(index) if index >= 0 else None
+        if dataset_id is None:
+            return None
+        return self.db.get_dataset(int(dataset_id))
+
     # ==================================================================
     # 실행 명령어 생성 (Task 의 commands 템플릿 + 지금 폼 값)
     # ==================================================================
@@ -881,6 +894,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         server = self.config.server(server_name) if server_name else None
         gpu_count = parse_gpu_count(self.gpu_selector.value())
         work = self.db.get_work(self._work_id) if self._work_id else None
+        dataset_row = self._selected_dataset_row()
 
         values: dict[str, str] = {
             "task": task,
@@ -892,6 +906,11 @@ class BaseRunPanel(QtWidgets.QWidget):
             "model": self.model_combo.current_text(),
             "dataset": self.dataset_combo.current_text(),
             "dataset_path": self.dataset_path_edit.path(),
+            # Dataset 레지스트리에 등록해 둔 값 - 명령어의 data=<device>/<abbreviation>
+            # 자리에 쓴다. `device` 는 Evaluation 폼의 GPU device({device}, "cuda:0")와
+            # 이름이 겹치므로 별도 이름을 쓴다.
+            "dataset_device": dataset_row.get("device", "") if dataset_row else "",
+            "dataset_abbr": dataset_row.get("abbreviation", "") if dataset_row else "",
             "result_path": self.result_path_edit.path(),
             "server": server_name,
             "host": server.host if server else "",

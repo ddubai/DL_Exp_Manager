@@ -20,5 +20,5 @@ columns:
   train: [status, server, gpus, model, dataset, duration, NMI, ARI, ACC, result_path]
   evaluation: [status, server, model, checkpoint_path, dataset, NMI, ARI, ACC, result_path]
 commands:
-  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
-  evaluation: python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>
+  train: python train.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr} model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
+  evaluation: python evaluate.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch> <result_path>

@@ -63,6 +63,20 @@ class DatasetEditDialog(QtWidgets.QDialog):
         self.extension_edit = QtWidgets.QLineEdit(dataset.get("extension", "") if dataset else "", self)
         self.extension_edit.setPlaceholderText("optional, e.g. png, tiff, jpg")
 
+        self.device_edit = QtWidgets.QLineEdit(dataset.get("device", "") if dataset else "", self)
+        self.device_edit.setPlaceholderText("optional, e.g. server1, nas2")
+        self.device_edit.setToolTip(
+            "Used in the generated command as data=<device>/<abbreviation> "
+            "(commands: 의 {dataset_device})."
+        )
+
+        self.abbreviation_edit = QtWidgets.QLineEdit(dataset.get("abbreviation", "") if dataset else "", self)
+        self.abbreviation_edit.setPlaceholderText("optional, e.g. div2k")
+        self.abbreviation_edit.setToolTip(
+            "Used in the generated command as data=<device>/<abbreviation> "
+            "(commands: 의 {dataset_abbr})."
+        )
+
         self.registered_edit = QtWidgets.QDateEdit(self)
         self.registered_edit.setCalendarPopup(True)
         self.registered_edit.setDisplayFormat("yyyy-MM-dd")
@@ -88,6 +102,8 @@ class DatasetEditDialog(QtWidgets.QDialog):
         form.addRow("Total samples:", self.sample_count_spin)
         form.addRow("Image size:", self.image_size_edit)
         form.addRow("Extension:", self.extension_edit)
+        form.addRow("Device:", self.device_edit)
+        form.addRow("Abbreviation:", self.abbreviation_edit)
         form.addRow("Registered:", self.registered_edit)
         form.addRow("Notes:", self.notes_edit)
 
@@ -103,7 +119,7 @@ class DatasetEditDialog(QtWidgets.QDialog):
         )
         layout.addWidget(buttons)
 
-    def result_values(self) -> tuple[str, str, str, str, int | None, str, str, str]:
+    def result_values(self) -> tuple[str, str, str, str, int | None, str, str, str, str, str]:
         return (
             self.name_edit.text().strip(),
             self.variant_edit.text().strip(),
@@ -113,6 +129,8 @@ class DatasetEditDialog(QtWidgets.QDialog):
             self.image_size_edit.text().strip(),
             self.extension_edit.text().strip(),
             self.registered_edit.date().toString("yyyy-MM-dd"),
+            self.device_edit.text().strip(),
+            self.abbreviation_edit.text().strip(),
         )
 
 
@@ -135,9 +153,10 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         self.setWindowTitle(f"Manage Datasets · {work_name}")
         self.resize(900, 420)
 
-        self.table = QtWidgets.QTableWidget(0, 8, self)
+        self.table = QtWidgets.QTableWidget(0, 10, self)
         self.table.setHorizontalHeaderLabels(
-            ["Name", "Variant", "Path", "Samples", "Image Size", "Ext", "Registered", "Notes"]
+            ["Name", "Variant", "Path", "Samples", "Image Size", "Ext",
+             "Device", "Abbreviation", "Registered", "Notes"]
         )
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
@@ -147,7 +166,9 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         header.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(7, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(7, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(8, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(9, QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(220)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -212,8 +233,10 @@ class DatasetManagerDialog(QtWidgets.QDialog):
             self.table.setItem(r, 3, QtWidgets.QTableWidgetItem(_format_count(row.get("sample_count"))))
             self.table.setItem(r, 4, QtWidgets.QTableWidgetItem(row.get("image_size") or ""))
             self.table.setItem(r, 5, QtWidgets.QTableWidgetItem(row.get("extension") or ""))
-            self.table.setItem(r, 6, QtWidgets.QTableWidgetItem(_format_registered(row.get("created_at"))))
-            self.table.setItem(r, 7, QtWidgets.QTableWidgetItem(row.get("notes") or ""))
+            self.table.setItem(r, 6, QtWidgets.QTableWidgetItem(row.get("device") or ""))
+            self.table.setItem(r, 7, QtWidgets.QTableWidgetItem(row.get("abbreviation") or ""))
+            self.table.setItem(r, 8, QtWidgets.QTableWidgetItem(_format_registered(row.get("created_at"))))
+            self.table.setItem(r, 9, QtWidgets.QTableWidgetItem(row.get("notes") or ""))
 
     def _selected_row(self) -> dict[str, Any] | None:
         index = self.table.currentRow()
@@ -246,12 +269,13 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at, device, abbreviation = dialog.result_values()
         if not name:
             toast(self, False, "Enter a dataset name.", "Add Dataset")
             return
         self.db.add_dataset(
-            self.work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at
+            self.work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at,
+            device, abbreviation
         )
         self._reload()
         self.datasetsChanged.emit()
@@ -264,12 +288,13 @@ class DatasetManagerDialog(QtWidgets.QDialog):
         dialog = DatasetEditDialog(self, row)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at, device, abbreviation = dialog.result_values()
         if not name:
             toast(self, False, "Enter a dataset name.", "Edit Dataset")
             return
         self.db.update_dataset(
-            row["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at
+            row["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at,
+            device, abbreviation
         )
         self._reload()
         self.datasetsChanged.emit()
@@ -474,11 +499,12 @@ class DatasetCombo(QtWidgets.QComboBox):
         dialog = DatasetEditDialog(self)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at, device, abbreviation = dialog.result_values()
         if not name:
             return
         self.db.add_dataset(
-            self._work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at
+            self._work_id, name, variant, path, notes, sample_count, image_size, extension, registered_at,
+            device, abbreviation
         )
         row = next(
             (r for r in self.db.list_datasets(self._work_id)
@@ -500,11 +526,12 @@ class DatasetCombo(QtWidgets.QComboBox):
         dialog = DatasetEditDialog(self, row)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        name, variant, path, notes, sample_count, image_size, extension, registered_at = dialog.result_values()
+        name, variant, path, notes, sample_count, image_size, extension, registered_at, device, abbreviation = dialog.result_values()
         if not name:
             return
         self.db.update_dataset(
-            row["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at
+            row["id"], name, variant, path, notes, sample_count, image_size, extension, registered_at,
+            device, abbreviation
         )
         updated = self.db.get_dataset(row["id"])
         self.reload(keep_text=False)
