@@ -1,0 +1,11 @@
+{
+  // VSCode의 Ansible 확장(redhat.ansible)이 "tasks/" 라는 폴더 이름만 보고
+  // config/tasks/*.yaml 을 Ansible 태스크 목록으로 잘못 인식해서, name/options/
+  // metrics/columns/commands 같은 우리 키들을 전부 "Ansible 스키마에 없는 키"로
+  // 빨간줄 처리한다. 이 프로젝트의 tasks/*.yaml 은 Ansible 과 무관한 평범한 YAML
+  // 이므로, 언어 모드를 강제로 yaml 로 고정해 그 오탐을 끈다.
+  "files.associations": {
+    "**/config/tasks/*.yaml": "yaml",
+    "**/config/tasks/*.yml": "yaml"
+  }
+}

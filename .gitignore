@@ -5,8 +5,12 @@ __pycache__/
 venv/
 env/
 .idea/
-.vscode/
 .DS_Store
+
+# .vscode/settings.json 은 팀 전체가 같이 쓰는 편집기 설정(예: Ansible 확장 오탐 방지)이라
+# 추적한다. 개인 실행 설정(launch.json 등)은 계속 무시한다.
+.vscode/*
+!.vscode/settings.json
 
 # 로컬 실험 DB / 내보내기 결과
 experiments.db
