@@ -3,8 +3,12 @@
 4대의 독립된 학습 서버(Server 1~4)에서 돌린 실험을 **로컬 PC 한 곳에서 아카이빙·검색·비교**하는 PySide6 데스크톱 애플리케이션입니다.
 모든 기록은 로컬 SQLite 파일(`experiments.db`) 하나에 저장되므로 별도 서버나 계정이 필요 없습니다.
 
+> **처음 써 보신다면** 이 문서 대신 화면을 어떻게 누르는지부터 다루는
+> [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)를 먼저 보세요. 이 README 는 설정
+> 파일 구조·DB 스키마 같은 좀 더 기술적인 내용을 다룹니다.
+
 ```
-DL Task (SuperResolution / Denoising / Clustering / Classification)  ← Level 1 : 좌측 드릴다운
+DL Task (Super-Resolution / Denoising / Clustering / Classification)  ← Level 1 : 좌측 드릴다운
    └─ Work ID (SSL2SL, BSR-x4, ...)               ← Level 2 : 좌측 드릴다운
         ├─ Dataset (이름 + 위치, Work 별 등록)      ← Level 2 화면에 인라인으로
         ├─ Train      탭                          ← Level 3 : 상단 탭 (아이콘 없이 텍스트만)
@@ -54,16 +58,17 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ### 주요 기능
 
 - **선택지를 설정 파일로 관리** — 콤보박스 항목·평가 지표·표 컬럼을 `config/` 아래에서 관리합니다.
-  **기능별로 파일이 나뉘어 있어** Super Resolution 을 고치려면 `config/task-defs/SuperResolution.yaml`(약 20줄) 하나만 열면 됩니다.
+  **기능별로 파일이 나뉘어 있어** Super Resolution 을 고치려면 `config/task-defs/Super-Resolution.yaml`(약 20줄) 하나만 열면 됩니다.
   손으로 편집해도 되고 UI 에서 바꿔도 되며, 두 경로가 같은 파일을 씁니다.
   앱에서 바꾼 값은 **그 값이 있던 파일에만** 저장되고, 외부 편집기로 저장하면 앱이 즉시 반영합니다.
-- **Task 별 구성** — SuperResolution 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
+- **Task 별 구성** — Super-Resolution 은 PSNR/SSIM/LPIPS 와 `scale`, Classification 은 Top-1/Top-5 처럼
   Task 마다 선택지·지표·컬럼이 다릅니다. 좌측에서 Task 를 바꾸면 표 컬럼과 폼 필드가 함께 바뀝니다.
   평가 지표는 **같은 Task 안에서 공유**됩니다 — 어느 Run 에서든 새 지표 값을 입력하면 그 Task 의 지표로
   등록되고, 다음 New Run 부터 값 빈 상태로 미리 채워집니다. 지표마다 `higher_is_better`(높을수록/낮을수록
   좋음)를 지정할 수 있고, 같은 Work 안 최고값은 표에서 강조됩니다.
 - **Work 별 데이터셋 레지스트리** — 데이터셋을 이름 + (선택) Variant + 경로 + 총 데이터 개수 +
-  이미지 크기(예: `256x256`) + 확장자(예: `tiff`)로 등록해 둡니다.
+  이미지 크기(예: `256x256`) + 확장자(예: `tiff`) + **Device/Abbreviation**(명령어의
+  `data=<device>/<abbr>` 자리)으로 등록해 둡니다.
   같은 이름이라도 Variant 를 다르게 두면 "전체 페어"와 "특정 서브셋"을 별개 항목으로 관리할 수 있습니다
   (예: `DIV2K · Full Pair`, `DIV2K · Subset A`). 좌측 네비게이션에서 바로 추가/수정/삭제하고,
   등록/수정 폼의 **Dataset** 콤보 자체가 이 레지스트리와 연동됩니다 — 고르면 경로가 자동으로 채워지고
@@ -146,8 +151,8 @@ config/                        아래 <name>.yaml 은 전부 로컬 전용(gitig
   defaults.template.yaml
   params.yaml                  명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16)
   params.template.yaml
-  task-defs/SuperResolution.yaml   Task 별 선택지 · 지표 · 컬럼 · 명령어 템플릿
-  task-defs/SuperResolution.template.yaml
+  task-defs/Super-Resolution.yaml   Task 별 선택지 · 지표 · 컬럼 · 명령어 템플릿
+  task-defs/Super-Resolution.template.yaml
   task-defs/Denoising.yaml         (Task 를 추가하면 파일도 함께 생깁니다)
   task-defs/...
 dl_exp_manager/
@@ -180,6 +185,7 @@ dl_exp_manager/
     log_viewer.py              로그 tail 뷰어
     search_dialog.py           전역 검색 (Ctrl+K)
 tests/                         GUI 없이 도는 것 + offscreen 위젯 테스트
+docs/USER_GUIDE.md             처음 쓰는 사람을 위한 화면 사용법
 docs/STYLE_GUIDE.md            디자인 토큰과 컴포넌트 규격
 docs/ROADMAP.md                설계 배경과 진행 기록
 ```
@@ -197,8 +203,8 @@ config/
   params.yaml                명령어에 파라미터를 적는 방식 (<batch_size> 를 어떻게 펼칠지)
   params.template.yaml
   task-defs/
-    SuperResolution.yaml            Task 별 options · metrics · columns · commands
-    SuperResolution.template.yaml
+    Super-Resolution.yaml            Task 별 options · metrics · columns · commands
+    Super-Resolution.template.yaml
     Denoising.yaml
     ...
 ```
@@ -223,10 +229,10 @@ cp config/servers.template.yaml config/servers.yaml
 placeholder 서버 4개(Server 1~4)로 뜨고, 상태바에 "복사해서 쓰라"는 안내가 뜹니다. 서버 상태
 바의 + 버튼으로 서버를 하나라도 추가하면 그 시점에 `servers.yaml` 이 만들어집니다.
 
-`config/task-defs/SuperResolution.yaml` 예시 — 이 한 파일이 그 Task 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
+`config/task-defs/Super-Resolution.yaml` 예시 — 이 한 파일이 그 Task 의 콤보박스, 표 컬럼, 지표 표시를 모두 결정합니다.
 
 ```yaml
-name: SuperResolution
+name: Super-Resolution
 label: Super Resolution
 short: sr                      # 명령어에 쓰는 짧은 이름 → algo=sr/... (없으면 Task 이름)
 options:
@@ -246,9 +252,13 @@ columns:
 
 ```yaml
 commands:
-  train: python train.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <batch_size> <lr> <epochs>
-  evaluation: python evaluate.py algo={task_short}/{algo} data={task_short}/{dataset} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch>
+  train: python train.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr} model={task_short}/{model} <batch_size> <lr> <epochs>
+  evaluation: python evaluate.py algo={task_short}/{algo} data={dataset_device}/{dataset_abbr} model={task_short}/{model} <checkpoint_path> <checkpoint_epoch>
 ```
+
+`{dataset_device}`/`{dataset_abbr}` 는 New Run 폼에서 고른 Dataset 의 **Device**/
+**Abbreviation** 필드(Dataset 등록 화면에서 입력)에서 옵니다 - 둘 다 안 채운
+Dataset 을 고르면 `data=` 자리 전체가 명령어에서 빠집니다.
 
 자리표시자는 두 가지입니다.
 
@@ -262,7 +272,7 @@ commands:
 | 자리표시자 | 어디서 오나 |
 |---|---|
 | `task`, `task_lower`, `task_short`, `work` | 지금 보고 있는 Task / Work (`task_short` = Task 파일의 `short:`) |
-| `model`, `dataset`, `dataset_path`, `result_path`, `server`, `host`, `gpus`, `cuda_devices`, `status` | 폼의 공통 필드 |
+| `model`, `dataset`, `dataset_path`, `dataset_device`, `dataset_abbr`, `result_path`, `server`, `host`, `gpus`, `cuda_devices`, `status` | 폼의 공통 필드 (`dataset_device`/`dataset_abbr` 는 Dataset 등록 화면의 Device/Abbreviation) |
 | `epochs`, `batch_size`, `crop_size`, `lr`, `optimizer` | Train 폼 |
 | `checkpoint_path`, `checkpoint_epoch`, `device`, `input_size` | Evaluation 폼 |
 | `train_result_path`, `train_run_id`, `train_model` | Evaluation 폼에서 고른 Train Run |
@@ -295,7 +305,7 @@ params:                         # 파라미터별 예외. 왼쪽은 앱의 필�
 
 - **상속은 "대체"입니다.** Task 의 `options.model` 이 있으면 `defaults.yaml` 의 `model` 을 덮어씁니다.
   합쳐지지 않으므로 "이 항목이 왜 목록에 있지?" 가 생기지 않습니다.
-- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** SuperResolution 모델을 UI 에서 추가하면 `task-defs/SuperResolution.yaml` 만 바뀝니다.
+- **앱이 쓰는 파일은 값이 있던 파일뿐입니다.** Super-Resolution 모델을 UI 에서 추가하면 `task-defs/Super-Resolution.yaml` 만 바뀝니다.
 - **파일 하나가 깨져도 나머지는 삽니다.** `task-defs/Denoising.yaml` 에 문법 오류가 있으면 그 Task 만 빠지고
   상태바에 이유가 뜹니다. 정의가 깨졌을 때 같은 이름의 내장 정의로 덮어쓰지 않습니다(원본 유실 방지).
 - **덮어쓰기 전에 `.bak` 을 남깁니다.**
@@ -312,7 +322,7 @@ params:                         # 파라미터별 예외. 왼쪽은 앱의 필�
 | `servers` | name, host, gpu, note |
 | `tasks` | name(UNIQUE), description — **Level 1** |
 | `works` | task_id→tasks, name, description, UNIQUE(task_id, name) — **Level 2** |
-| `datasets` | work_id→works, name, variant, path, **sample_count**, **image_size**, **extension**, notes, created_at(등록일 - UI 에 표시), UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
+| `datasets` | work_id→works, name, variant, path, **sample_count**, **image_size**, **extension**, **device**, **abbreviation**, notes, created_at(등록일 - UI 에 표시), UNIQUE(work_id, name, variant) — Work 별 데이터셋 레지스트리 |
 | `train_runs` | work_id→works, server, model, dataset, dataset_path, result_path, status, started_at, duration_sec, epochs, batch_size, crop_size, lr, optimizer, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason |
 | `evaluation_runs` | work_id→works, server, model, **checkpoint_path**, dataset_path, result_path, device, input_size, **latency_ms**, **throughput_fps**, status, duration_sec, metrics_json, exec_command, config_yaml, notes, favorite, tags, failure_reason, **source_train_run_id**, **checkpoint_epoch** |
 | `run_history` | run_kind, run_id, action(created/updated/duplicated), detail, created_at — Run 별 변경 이력 |
