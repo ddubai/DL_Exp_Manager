@@ -1121,6 +1121,51 @@ def test_compare_dialog_highlights_differing_fields(qapp, config):
     assert tabs.tabText(2) == "config.yaml Diff"
 
 
+def test_compare_dialog_uses_side_by_side_diff_when_configs_differ(qapp, config):
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+    from dl_exp_manager.widgets.diff_view import SideBySideDiffWidget
+
+    rows = [_fake_run(1, "Restormer", 30.0, "a: 1\nb: 2\n"), _fake_run(2, "SwinIR", 32.0, "a: 1\nb: 3\n")]
+    dialog = CompareRunsDialog(rows, config, "Super-Resolution")
+    diff_widget = dialog.findChild(SideBySideDiffWidget)
+    assert diff_widget is not None
+    assert diff_widget.summary_label.text() == "+1  -1"
+
+
+def test_compare_dialog_shows_placeholder_when_configs_are_identical(qapp, config):
+    from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
+    from dl_exp_manager.widgets.diff_view import SideBySideDiffWidget
+
+    rows = [_fake_run(1, "Restormer", 30.0, "a: 1\nb: 2\n"), _fake_run(2, "SwinIR", 32.0, "a: 1\nb: 2\n")]
+    dialog = CompareRunsDialog(rows, config, "Super-Resolution")
+    assert dialog.findChild(SideBySideDiffWidget) is None
+    tabs = dialog.findChild(QtWidgets.QTabWidget)
+    assert tabs.tabText(2) == "config.yaml Diff"
+
+
+def test_side_by_side_diff_widget_colors_add_remove_and_toggles_changed_only(qapp):
+    from dl_exp_manager.widgets.diff_view import SideBySideDiffWidget
+
+    left = "keep1\nkeep2\nold\nkeep3\nkeep4\nkeep5\n"
+    right = "keep1\nkeep2\nnew\nkeep3\nkeep4\nkeep5\n"
+    widget = SideBySideDiffWidget(left, right, "#1", "#2")
+
+    assert widget.summary_label.text() == "+1  -1"
+    assert len(widget.left_view.extraSelections()) >= 1  # "old" 줄이 빨강으로 표시된다
+    assert len(widget.right_view.extraSelections()) >= 1  # "new" 줄이 초록으로 표시된다
+
+    # 기본은 "바뀐 줄만 보기" - 앞뒤 keep 줄들이 "⋯ N unchanged line(s) ⋯" 로 접힌다.
+    assert widget.changed_only_check.isChecked()
+    assert "⋯" in widget.left_view.toPlainText()
+    assert "old" in widget.left_view.toPlainText()
+    assert "keep1" not in widget.left_view.toPlainText()
+
+    widget.changed_only_check.setChecked(False)
+    assert "keep1" in widget.left_view.toPlainText()
+    assert "keep5" in widget.right_view.toPlainText()
+    assert "⋯" not in widget.left_view.toPlainText()
+
+
 def test_compare_dialog_three_runs_shows_separate_config_tabs(qapp, config):
     from dl_exp_manager.widgets.compare_dialog import CompareRunsDialog
 

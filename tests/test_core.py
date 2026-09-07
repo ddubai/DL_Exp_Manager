@@ -436,7 +436,7 @@ def test_render_html_report_escapes_html_and_lists_rows():
 
 
 
-# --- find_representative_image / unified_diff_text ---------------------------
+# --- find_representative_image -----------------------------------------------
 def test_find_representative_image_prefers_hinted_name():
     from dl_exp_manager.utils import find_representative_image
 
@@ -459,14 +459,6 @@ def test_find_representative_image_falls_back_to_first_and_subdir():
     open(os.path.join(d2, "visualization", "x.jpg"), "w").close()
     assert find_representative_image(d2) == os.path.join(d2, "visualization", "x.jpg")
 
-
-
-def test_unified_diff_text():
-    from dl_exp_manager.utils import unified_diff_text
-
-    diff = unified_diff_text("a\nb\nc\n", "a\nx\nc\n", "left", "right")
-    assert "-b" in diff and "+x" in diff
-    assert unified_diff_text("same", "same", "a", "b") == ""
 
 
 # --- log_parser: train.py 의 config.yaml / loss.log 파싱 ----------------------

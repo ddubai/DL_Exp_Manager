@@ -4,8 +4,9 @@
 Run 을 하나씩 열어 눈으로 대조해야 했다. 표에서 여러 개를 고르면 바로 뜬다.
 
 config.yaml diff 는 두 개를 비교할 때만 의미가 있어(그 이상은 "누가 기준인지"가
-애매해진다) 2개면 unified diff 한 장, 그 이상이면 Run 별 config 를 따로 탭으로 보여준다.
-반면 지표 표와 막대 그래프(`metrics_chart.py`)는 몇 개를 골라도 그대로 늘어나므로,
+애매해진다) 2개면 좌우로 나눈 diff(SideBySideDiffWidget - 추가는 초록, 삭제는
+빨강, "바뀐 줄만 보기" 토글 포함) 한 장, 그 이상이면 Run 별 config 를 따로 탭으로
+보여준다. 반면 지표 표와 막대 그래프(`metrics_chart.py`)는 몇 개를 골라도 그대로 늘어나므로,
 "많이 돌려 놓고 한눈에 비교" 용도로는 선택 개수를 넉넉히 열어 둔다(호출부의 RUN_LIMIT).
 """
 from __future__ import annotations
@@ -16,8 +17,9 @@ from typing import Any, Callable, Sequence
 from .. import theme
 from ..config_store import OptionsConfig
 from ..qt import Qt, QtGui, QtWidgets
-from ..utils import format_duration, format_number, loads_metrics, parse_gpu_count, unified_diff_text
+from ..utils import format_duration, format_number, loads_metrics, parse_gpu_count
 from .common import monospace_font
+from .diff_view import SideBySideDiffWidget
 from .metrics_chart import MetricGroup, MetricsChartWidget
 
 
@@ -77,17 +79,17 @@ class CompareRunsDialog(QtWidgets.QDialog):
         tabs.addTab(chart_scroll, "📊 Chart")
 
         if len(rows) == 2:
-            diff_view = QtWidgets.QPlainTextEdit(self)
-            diff_view.setReadOnly(True)
-            diff_view.setFont(monospace_font())
-            diff_text = unified_diff_text(
-                rows[0].get("config_yaml") or "",
-                rows[1].get("config_yaml") or "",
-                f"#{rows[0]['id']}",
-                f"#{rows[1]['id']}",
-            )
-            diff_view.setPlainText(diff_text or "(config.yaml is identical, or empty on both runs)")
-            tabs.addTab(diff_view, "config.yaml Diff")
+            left_text = rows[0].get("config_yaml") or ""
+            right_text = rows[1].get("config_yaml") or ""
+            if left_text.strip() == right_text.strip():
+                placeholder = QtWidgets.QLabel("(config.yaml is identical, or empty on both runs)", self)
+                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                tabs.addTab(placeholder, "config.yaml Diff")
+            else:
+                diff_widget = SideBySideDiffWidget(
+                    left_text, right_text, f"#{rows[0]['id']}", f"#{rows[1]['id']}", self
+                )
+                tabs.addTab(diff_widget, "config.yaml Diff")
         else:
             for row in rows:
                 text = QtWidgets.QPlainTextEdit(self)

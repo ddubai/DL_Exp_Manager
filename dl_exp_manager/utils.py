@@ -199,17 +199,6 @@ def find_representative_image(folder: str) -> str | None:
     return None
 
 
-def unified_diff_text(a: str, b: str, label_a: str, label_b: str) -> str:
-    """두 텍스트(주로 config.yaml)의 unified diff. 동일하면 빈 문자열."""
-    import difflib
-
-    lines = difflib.unified_diff(
-        (a or "").splitlines(), (b or "").splitlines(),
-        fromfile=label_a, tofile=label_b, lineterm="",
-    )
-    return "\n".join(lines)
-
-
 def tail_file(path: str, max_lines: int = 400, max_bytes: int = 512_000) -> str:
     """파일 끝부분 최대 `max_lines` 줄을 돌려준다.
 
