@@ -1,6 +1,6 @@
 # DL Experiment Manager
 
-4대의 독립된 학습 서버(Server 1~4)에서 돌린 실험을 **로컬 PC 한 곳에서 아카이빙·검색·비교**하는 PyQt6 데스크톱 애플리케이션입니다.
+4대의 독립된 학습 서버(Server 1~4)에서 돌린 실험을 **로컬 PC 한 곳에서 아카이빙·검색·비교**하는 PySide6 데스크톱 애플리케이션입니다.
 모든 기록은 로컬 SQLite 파일(`experiments.db`) 하나에 저장되므로 별도 서버나 계정이 필요 없습니다.
 
 ```
@@ -17,6 +17,8 @@ DL Task (SuperResolution / Denoising / Clustering / Classification)  ← Level 1
 pip install -r requirements.txt
 
 cp config/servers.template.yaml config/servers.yaml   # 실서버 정보를 직접 채워 넣는다 (gitignore 대상)
+# ↑ 유일하게 손으로 복사해야 하는 파일. 나머지(options/defaults/params/tasks)는
+#   앱이 첫 실행 때 각자의 <name>.template.yaml 을 그대로 복사해 알아서 만듭니다.
 
 python main.py                    # 프로젝트 폴더의 experiments.db 사용
 python main.py --db ~/exp/my.db   # DB 경로 지정
@@ -31,8 +33,10 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 - Python 3.10+ 권장 (타입 힌트에 `X | None` 문법 사용).
 - 폰트는 시스템에 설치된 것 중 앞 순위를 씁니다(Pretendard → Apple SD Gothic Neo/Malgun Gothic → Noto Sans KR → OS 기본).
   `assets/fonts/` 에 ttf/otf 를 넣어 두면 자동으로 등록해서 함께 후보로 삼습니다.
-- **PySide6 를 쓰고 싶다면** `requirements.txt` 에서 PyQt6 대신 PySide6 를 설치하기만 하면 됩니다.
-  `dl_exp_manager/qt.py` 가 PyQt6 → PySide6 순으로 바인딩을 찾아 API 차이를 흡수합니다.
+- **Qt 바인딩은 PySide6 (LGPL) 하나입니다.** `dl_exp_manager/qt.py` 가 유일한 import 지점이고,
+  나머지 코드는 전부 이 파일을 거쳐서만 Qt 를 씁니다 - GPLv3/상용인 PyQt6 대신 LGPL 인 PySide6 를
+  쓰는 건, 사내 서버 IP 같은 정보가 들어가는 이 앱을 동료에게 그대로 넘겨도 라이선스 문제가
+  없어야 하기 때문입니다.
 - Linux 서버 등 GUI 라이브러리가 없는 환경에서는 `libegl1 libgl1 libxkbcommon0` 등이 추가로 필요합니다.
 - `config/servers.yaml` 을 복사해서 만들지 않아도 앱은 죽지 않습니다 - placeholder 서버 4개로 뜨고
   상태바에 안내가 뜹니다. 실서버를 쓰려면 위 `cp` 명령이나 서버 상태 바의 + 버튼으로 등록하세요.
@@ -43,7 +47,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 |---|---|
 | 상단 서버 상태 바 | 서버 이름 + 사용 중 GPU 비율만 보이는 **한 줄** 표시. 클릭하면 실행 중인 학습(GPU 개수·모델·경과시간·명령어)이 메뉴로, 우클릭하면 서버/GPU 편집 메뉴. 15초마다 자동 갱신 |
 | 좌측 네비게이션 | **All Tasks ▸ Task ▸ Work 드릴다운**(트리 아님, 브레드크럼으로 한 번에 한 단계만). Work 까지 들어가면 그 Work 에 등록된 **Dataset(이름 + 위치)** 이 그 자리에 바로 나와 추가/수정/삭제할 수 있습니다. 검색·Task/Work 추가·이름변경·삭제는 그대로 지원 |
-| 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 2~3개 실행을 지표·config.yaml diff 로 나란히 비교. **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
+| 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 최대 8개 실행을 지표 표·**막대 그래프**·config.yaml diff 로 나란히 비교(2개는 unified diff, 그 이상은 Run 별 config 탭). **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
 | 중앙 하단 상세 | **행을 선택했을 때만 나타남.** 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes, 그리고 그 실행이 **생성/수정/복제될 때마다 기록되는 History** 탭. **🖼 View Image**(결과 폴더의 대표 이미지 한 장) / **📈 Training Curve**(Train 전용, 로그를 파싱해 iteration 별 지표를 그린 라인 차트) 버튼도 여기에 |
 | 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** **좌(실행 설정) / 우(경로 + 실행 코드) 2단 분할**이며, 좌측 스크롤과 우측 스크롤이 독립적으로 움직이고 Save/Clear/Cancel 버튼은 스크롤 밖에 고정돼 항상 보입니다. Work ID 는 좌측에서 이미 고른 Work 가 있으면 그 값을 기본으로 채웁니다. Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Dataset** 콤보는 그 Work 에 등록된 데이터셋 레지스트리와 바로 연동되어, 고르면 경로(+ Evaluation 은 Input size 도)가 자동으로 채워집니다(옆 📦 버튼으로 전체 관리). **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Evaluation 폼은 GPU 대신 **같은 Work 의 Train Run + Epoch/Iter** 를 먼저 고르는 순서(Server 는 유지) |
 
@@ -131,17 +135,23 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 ```
 main.py                        진입점 (--db, --config, --theme, --sample)
 requirements.txt
-config/
+config/                        아래 <name>.yaml 은 전부 로컬 전용(gitignore) - git 엔
+                                <name>.template.yaml 만 들어있고, 없는 실제 파일은 그
+                                template 을 그대로 복사해 만듭니다(servers.yaml 만 예외).
   options.yaml                 진입점 (버전 + 작성법 안내)
-  servers.yaml                 서버 & GPU 인벤토리 (gitignore 대상, 직접 만들어야 함)
-  servers.template.yaml        servers.yaml 을 만들 때 복사하는 예시 (git 추적)
+  options.template.yaml
+  servers.yaml                 서버 & GPU 인벤토리 (직접 복사해서 만들어야 함 - 유일한 예외)
+  servers.template.yaml
   defaults.yaml                모든 Task 공통 선택지
+  defaults.template.yaml
   params.yaml                  명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16)
+  params.template.yaml
   tasks/SuperResolution.yaml   Task 별 선택지 · 지표 · 컬럼 · 명령어 템플릿
+  tasks/SuperResolution.template.yaml
   tasks/Denoising.yaml         (Task 를 추가하면 파일도 함께 생깁니다)
   tasks/...
 dl_exp_manager/
-  qt.py                        PyQt6 / PySide6 바인딩 추상화
+  qt.py                        PySide6 바인딩 - 유일한 Qt import 지점
   constants.py                 상태값, 기본 Task, 샘플 config 텍스트
   config_store.py              config/ 의 여러 YAML 을 합쳐 읽고 원래 파일로 되돌려 쓰는 계층
   db.py                        SQLite 스키마, 마이그레이션, CRUD
@@ -163,7 +173,8 @@ dl_exp_manager/
     run_panel.py               Train / Evaluation 대시보드 (표 + 상세 + 입력 폼)
     server_panel.py            GPU 개수 기반 서버 상태 패널
     dataset_dialog.py          Work 별 데이터셋 등록 (이름 + Variant + 경로)
-    compare_dialog.py          Run 2~3개 비교 (지표/파라미터 표 + config.yaml diff)
+    compare_dialog.py          Run 여러 개 비교 (지표/파라미터 표 + 막대 그래프 + config.yaml diff)
+    metrics_chart.py           비교용 막대 그래프 (QPainter, 외부 플로팅 라이브러리 없음)
     curve_chart.py             학습 곡선 (커스텀 QPainter 라인 차트, 외부 의존성 없음)
     image_viewer.py            결과 폴더의 대표 이미지 뷰어
     log_viewer.py              로그 tail 뷰어
@@ -177,19 +188,28 @@ docs/ROADMAP.md                설계 배경과 진행 기록
 
 ```
 config/
-  options.yaml            진입점. 버전과 작성법 안내만 들어 있습니다.
-  servers.yaml            서버와 GPU 인벤토리 (index / type / memory_gb) - gitignore 대상
-  servers.template.yaml   servers.yaml 예시. git 에는 이것만 들어 있습니다.
-  defaults.yaml           모든 Task 가 공유하는 기본 선택지
-  params.yaml             명령어에 파라미터를 적는 방식 (<batch_size> 를 어떻게 펼칠지)
+  options.yaml              진입점. 버전과 작성법 안내만 들어 있습니다.
+  options.template.yaml     없으면 그대로 복사해 만드는 시작점
+  servers.yaml              서버와 GPU 인벤토리 (index / type / memory_gb)
+  servers.template.yaml     servers.yaml 만 예외 - 자동으로 만들지 않습니다 (아래 참고)
+  defaults.yaml             모든 Task 가 공유하는 기본 선택지
+  defaults.template.yaml
+  params.yaml                명령어에 파라미터를 적는 방식 (<batch_size> 를 어떻게 펼칠지)
+  params.template.yaml
   tasks/
-    SuperResolution.yaml  Task 별 options · metrics · columns · commands
+    SuperResolution.yaml            Task 별 options · metrics · columns · commands
+    SuperResolution.template.yaml
     Denoising.yaml
     ...
 ```
 
-**`servers.yaml` 은 실서버 IP/구성이 들어가서 git 에 커밋하지 않습니다.** 저장소에는
-`servers.template.yaml` 만 들어 있고, 실행 전에 아래처럼 복사해서 직접 채웁니다.
+**`config/` 아래 "실제로 쓰는" YAML(`<name>.yaml`)은 전부 gitignore 대상입니다.** git 에는
+`<name>.template.yaml` 만 커밋되고, 실제 파일이 없으면 앱이 그 자리에서 template 을 그대로
+복사해 만듭니다 - 첫 실행에 아무것도 안 해도 바로 쓸 수 있는 이유입니다. `options.yaml` 을
+고치고 싶으면 그냥 고치면 됩니다(그 파일은 이미 로컬 전용이라 git 이 신경 쓰지 않습니다).
+
+**`servers.yaml` 만 유일한 예외입니다.** 실서버 IP/구성이 들어가서 자동으로 만들어 주지
+않고, 실행 전에 직접 복사해서 채워야 합니다.
 
 ```bash
 cp config/servers.template.yaml config/servers.yaml
@@ -277,6 +297,9 @@ params:                         # 파라미터별 예외. 왼쪽은 앱의 필�
 - **덮어쓰기 전에 `.bak` 을 남깁니다.**
 - 예전처럼 `options.yaml` 한 파일에 전부 들어 있으면 첫 실행 때 자동으로 나눠 줍니다(원본은 `.bak`).
 - `ruamel.yaml` 을 설치하면 주석과 순서를 보존하며 저장합니다. 없으면 PyYAML 로 동작합니다.
+- **실제 파일이 없으면 `<name>.template.yaml` 을 그대로 복사해 만듭니다** (servers.yaml 은
+  예외 - 위 참고). Task 를 추가하고 싶으면 `tasks/<Task>.template.yaml` 을 만들어 두는 것도
+  방법입니다 - 다음 실행 때 `tasks/<Task>.yaml` 로 그대로 복사됩니다.
 
 ## 데이터베이스 스키마
 

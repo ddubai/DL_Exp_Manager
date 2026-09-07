@@ -338,6 +338,108 @@ def test_missing_servers_yaml_falls_back_without_writing_it():
     assert any("servers.template.yaml" in e for e in config.errors)
 
 
+# --- config/ 의 모든 YAML 은 template 뿐이다 - 실제 파일은 로컬에서 그걸 복사해 만든다 ---
+def _write(path: str, text: str) -> None:
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write(text)
+
+
+def test_options_defaults_params_are_seeded_from_their_templates():
+    """git clone 직후(template 만 있고 실제 파일은 없는) 상태를 흉내낸다."""
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    tasks_dir = os.path.join(directory, "tasks")
+    os.makedirs(tasks_dir)
+    path = os.path.join(directory, "options.yaml")
+
+    _write(os.path.join(directory, "options.template.yaml"), "version: 2\n# 손으로 단 주석\n")
+    _write(os.path.join(directory, "defaults.template.yaml"),
+           "defaults:\n  model: [MyNet]\n")
+    _write(os.path.join(directory, "params.template.yaml"),
+           "style: {prefix: '--', separator: ' '}\nparams: {}\n")
+    _write(
+        os.path.join(tasks_dir, "Demo.template.yaml"),
+        "name: Demo\noptions: {}\nmetrics: []\ncolumns: {}\ncommands: {}\n",
+    )
+
+    config = OptionsConfig(path)
+
+    assert os.path.exists(path)
+    assert os.path.exists(os.path.join(directory, "defaults.yaml"))
+    assert os.path.exists(os.path.join(directory, "params.yaml"))
+    # servers.template.yaml 을 안 뒀으니 그 안내 하나만 남고, 나머지는 조용히 채워져야 한다.
+    assert len(config.errors) == 1 and "servers.template.yaml" in config.errors[0]
+    assert config.options_for(None, "model") == ["MyNet"]
+    assert config.param_style().prefix == "--"
+    # 바이트 그대로 복사하므로 손으로 단 주석도 살아 있어야 한다
+    with open(path, encoding="utf-8") as fp:
+        assert "손으로 단 주석" in fp.read()
+
+
+def test_task_yaml_is_seeded_from_its_template_including_custom_options():
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    tasks_dir = os.path.join(directory, "tasks")
+    os.makedirs(tasks_dir)
+    _write(os.path.join(directory, "options.template.yaml"), "version: 2\n")
+    _write(
+        os.path.join(tasks_dir, "Denoising.template.yaml"),
+        "name: Denoising\nlabel: Denoising\nshort: dn\n"
+        "options:\n  model: [NAFNet]\n  algo: [noise2noise]\n"
+        "metrics: []\ncolumns: {}\ncommands: {}\n",
+    )
+
+    config = OptionsConfig(os.path.join(directory, "options.yaml"))
+
+    assert os.path.exists(os.path.join(tasks_dir, "Denoising.yaml"))
+    assert "Denoising" in config.task_names
+    assert config.options_for("Denoising", "algo") == ["noise2noise"]
+    assert config.task("Denoising").short == "dn"
+
+
+def test_template_files_are_not_read_as_task_definitions():
+    """`Foo.template.yaml` 자체가 "Foo" 라는 Task 정의로 잘못 읽히면 안 된다."""
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    tasks_dir = os.path.join(directory, "tasks")
+    os.makedirs(tasks_dir)
+    _write(os.path.join(directory, "options.template.yaml"), "version: 2\n")
+    _write(
+        os.path.join(tasks_dir, "Denoising.template.yaml"),
+        "name: Denoising\noptions: {}\nmetrics: []\ncolumns: {}\ncommands: {}\n",
+    )
+
+    config = OptionsConfig(os.path.join(directory, "options.yaml"))
+
+    assert config.task_names.count("Denoising") == 1
+    assert config.task_path("Denoising") == os.path.join(tasks_dir, "Denoising.yaml")
+
+
+def test_only_servers_yaml_is_excluded_from_auto_seeding():
+    """나머지는 template 만 있으면 다 채워지는데, servers.yaml 만 그대로 안내만 남긴다."""
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    os.makedirs(directory)
+    _write(os.path.join(directory, "options.template.yaml"), "version: 2\n")
+    _write(os.path.join(directory, "servers.template.yaml"),
+           "servers:\n- {name: RealServer, host: 10.0.0.1, gpus: []}\n")
+
+    config = OptionsConfig(os.path.join(directory, "options.yaml"))
+
+    assert os.path.exists(os.path.join(directory, "options.yaml"))
+    assert not os.path.exists(os.path.join(directory, "servers.yaml"))
+    assert any("servers.template.yaml" in e for e in config.errors)
+
+
+def test_seeding_does_not_overwrite_an_existing_real_file():
+    """이미 사용자가 고쳐 쓴 실제 파일이 있으면, template 이 있어도 덮어쓰지 않는다."""
+    directory = os.path.join(tempfile.mkdtemp(), "config")
+    os.makedirs(directory)
+    _write(os.path.join(directory, "options.template.yaml"), "version: 2\nfrom_template: true\n")
+    _write(os.path.join(directory, "options.yaml"), "version: 2\nfrom_template: false\n")
+
+    OptionsConfig(os.path.join(directory, "options.yaml"))
+
+    with open(os.path.join(directory, "options.yaml"), encoding="utf-8") as fp:
+        assert "from_template: false" in fp.read()
+
+
 def test_broken_task_file_does_not_break_the_rest():
     config = make_config()
     with open(config.task_path("Denoising"), "w", encoding="utf-8") as fp:

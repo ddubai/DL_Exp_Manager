@@ -1127,3 +1127,66 @@ None` 으로 예약될 콜백을 미리 무해하게 바꿔 둔다 - 테스트�
 `MainWindow` 를 오프스크린으로 띄워 서버 바 새로고침을 5번 반복해도(`_paint_chip`
 의 disconnect/connect 경로) `-W error::RuntimeWarning` 아래에서 조용했다.
 
+## 22. 2026-09 세션 — config/ 의 모든 YAML 을 template 방식으로 통일
+
+### 22.1 문제 - servers.yaml 만 지켜지던 규칙
+
+`servers.yaml`(실서버 IP)은 처음부터 gitignore + `servers.template.yaml` 로 관리했지만,
+`options.yaml`/`defaults.yaml`/`params.yaml`/`tasks/*.yaml` 은 여전히 git 에 그대로
+커밋돼 있었다 - 이 저장소는 사실상 한 명(사용자 본인)의 프로젝트 설정이라, Task 이름·
+모델·데이터셋 목록 같은 프로젝트 고유 정보가 "포크하면 누구나 받는 기본값"처럼 git
+히스토리에 박제되고 있었다. `config 의 모든 yaml 파일은 template 으로만 만들어줘` 요청은
+이 불일치를 없애 달라는 것이었다.
+
+### 22.2 설계 - "이름.yaml" 은 전부 로컬 전용, git 엔 "이름.template.yaml" 만
+
+`servers.yaml` 패턴을 나머지 전부에 그대로 확장했다:
+
+```
+config/options.yaml            <- 로컬 전용 (gitignore)
+config/options.template.yaml   <- git 추적
+config/tasks/Denoising.yaml            <- 로컬 전용
+config/tasks/Denoising.template.yaml   <- git 추적
+```
+
+`servers.yaml` 과 다른 점 하나: 나머지는 **비밀이 없는 시작점**이라 servers 처럼 "안내만
+남기고 사람이 직접 복사하게" 할 이유가 없다. 그래서 `OptionsConfig.load()` 맨 앞에
+`_seed_from_templates()` 를 넣어, 실제 파일이 없으면 옆의 `<name>.template.yaml` 을
+**그대로 복사**해서(파싱 후 재작성이 아니라 `shutil.copy2` - 주석·순서가 그대로 남는다)
+만든다. `servers.yaml` 하나만 이 자동 복사에서 빼서 기존 동작(안내 + placeholder)을
+그대로 유지했다.
+
+기존 "options.yaml 자체가 없으면 BUILTIN 으로 전체를 새로 쓴다"는 최상위 폴백은
+그대로 남겨 뒀다 - template 마저 없는 극단적인 경우(아주 오래된 체크아웃, config/ 를
+통째로 지운 경우)의 안전망이다. 정상 경로(이 저장소를 git clone)에서는 template 이
+항상 있으므로 이 폴백을 탈 일이 없다.
+
+### 22.3 template 내용은 BUILTIN 이 아니라 "지금 쓰던 실제 파일"에서 가져왔다
+
+Python 코드 안의 `BUILTIN`/`BUILTIN_PARAMS` 상수를 그대로 template 으로 찍어내지
+않았다 - 실제 `tasks/Denoising.yaml` 에는 이후 세션에서 손으로 추가한 `algo:
+[noise2noise]` 옵션이 있는데, `BUILTIN["tasks"]["Denoising"]` 은 그걸 반영하지 못한 채
+남아 있었다(둘이 갈라져 있었다). template 은 **지금 실제로 쓰고 있던 파일을 그대로
+복사**해서 만들었고, `BUILTIN` 은 손대지 않은 채 "template 마저 없을 때"의 마지막
+안전망으로만 남겨 뒀다.
+
+### 22.4 걸린 것 - `_read_task_files()` 가 template 자신을 Task 로 읽을 뻔했다
+
+`tasks/` 안의 `*.yaml` 을 전부 Task 정의로 읽는 기존 로직이 `Denoising.template.yaml`
+도 `.yaml` 로 끝난다는 이유로 그대로 읽어 버렸다 - "Denoising" 이라는 Task 가 실제
+파일과 template 양쪽에서 두 번 잡힐 뻔했다. `_read_task_files()` 맨 앞에 `.template.yaml`
+스킵을 추가해서 막았다.
+
+### 22.5 검증
+
+- 실제 `config/` 의 파일 4종(options/defaults/params/tasks) 을 전부 `git rm --cached` 로
+  인덱스에서 빼되(작업 트리에는 그대로 남긴다), `.template.yaml` 사본을 새로 만들어
+  커밋 대상으로 삼았다.
+- "git clone 직후" 상황을 임시 디렉터리에 template 파일만 복사해 재현 - `OptionsConfig`
+  생성 한 번으로 options/defaults/params/tasks 전부가 template 내용 그대로(주석 포함)
+  로컬에 만들어지고, `servers.yaml` 만 여전히 안 만들어지며 안내가 뜨는 것까지 확인했다.
+- 실제 저장소의 `config/*.yaml` (사용자가 이미 손으로 고쳐 둔 것들)에 대해서는
+  `OptionsConfig` 를 다시 만들어도 체크섬이 그대로였다 - template 이 있어도 실제
+  파일이 이미 있으면 절대 덮어쓰지 않는다.
+- 새 테스트 5개 추가(template 시딩, template 파일이 Task 로 안 읽히는 것,
+  servers.yaml 만 예외인 것, 기존 실제 파일을 안 덮어쓰는 것). 전체 240개 통과.

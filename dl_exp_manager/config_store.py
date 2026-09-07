@@ -1,15 +1,27 @@
 """설정 로더/라이터 - 기능별로 나뉜 YAML 파일들을 하나의 뷰로 합친다.
 
     config/
-      options.yaml          진입점 (버전 + 안내). 세부 설정은 아래 파일들에 있다.
-      servers.yaml          서버 & GPU 인벤토리 (실서버 정보라 gitignore 대상 - 직접 만들어야 한다)
-      servers.template.yaml servers.yaml 이 없을 때 복사해서 쓰는 예시 (git 추적)
-      defaults.yaml         모든 Task 공통 선택지
-      params.yaml           명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16 ...)
+      options.yaml            진입점 (버전 + 안내). 세부 설정은 아래 파일들에 있다.
+      options.template.yaml   없을 때 그대로 복사해서 만드는 시작점 (git 추적)
+      servers.yaml            서버 & GPU 인벤토리 (실서버 정보라 자동으로 만들지 않는다)
+      servers.template.yaml   servers.yaml 이 없을 때 직접 복사해서 쓰는 예시 (git 추적)
+      defaults.yaml           모든 Task 공통 선택지
+      defaults.template.yaml
+      params.yaml             명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16 ...)
+      params.template.yaml
       tasks/
-        SuperResolution.yaml  Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
+        SuperResolution.yaml           Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
+        SuperResolution.template.yaml
         Denoising.yaml
+        Denoising.template.yaml
         ...
+
+**"실제로 쓰는" YAML(`<name>.yaml`)은 전부 로컬 전용이라 git 에 안 들어간다** - 커밋되는
+건 `<name>.template.yaml` 뿐이고, 앱은 실제 파일이 없으면 그 template 을 그대로 복사해
+만든다(`_seed_from_templates`). 예외는 `servers.yaml` 하나뿐이다 - 실서버 주소가 들어가서
+자동으로 만들어 주지 않고, `errors` 에 안내를 남겨 사람이 직접 복사하게 한다.
+템플릿마저 없으면(예: 아주 오래된 체크아웃) 이 파일 안의 `BUILTIN`/`BUILTIN_PARAMS`
+Python 상수로 마지막 안전망을 둔다.
 
 읽을 때는 전부 합쳐 하나의 딕셔너리로 보고, 쓸 때는 **그 값이 원래 있던 파일에만** 저장한다.
 (SuperResolution 모델을 추가하면 tasks/SuperResolution.yaml 만 바뀐다.)
@@ -174,6 +186,16 @@ SERVERS_TEMPLATE_FILE = "servers.template.yaml"
 DEFAULTS_FILE = "defaults.yaml"
 PARAMS_FILE = "params.yaml"
 TASKS_DIR = "tasks"
+
+# "<name>.yaml" -> "<name>.template.yaml". config/ 아래 실제로 쓰는 YAML 은 전부
+# 로컬 전용(gitignore)이고, git 에는 이 접미사가 붙은 template 만 들어간다 - 실제
+# 파일이 없을 때 그 자리에서 그대로 복사해 만든다(servers.yaml 만 예외 - 아래 참고).
+_TEMPLATE_SUFFIX = ".template.yaml"
+
+
+def _template_path(real_path: str) -> str:
+    root, _ext = os.path.splitext(real_path)
+    return f"{root}{_TEMPLATE_SUFFIX}"
 
 # 옵션 필드 중 DB 에 전용 컬럼이 있는 것들. 이외의 필드는 extra_json 으로 간다.
 NATIVE_OPTION_FIELDS = {"model", "dataset", "optimizer", "server"}
@@ -535,6 +557,41 @@ class OptionsConfig:
             return None
         return loaded
 
+    # -- template 에서 실제 파일 만들기 -----------------------------------------
+    def _seed_from_template(self, real_path: str) -> bool:
+        """`real_path` 가 없으면 옆의 `<name>.template.yaml` 을 그대로 복사해 만든다.
+
+        파싱해서 다시 쓰는 게 아니라 바이트 그대로 복사한다 - 주석/순서가 그대로
+        남고, YAML 백엔드가 없어도(`_BACKEND == "none"`) 동작한다.
+        """
+        if os.path.exists(real_path):
+            return False
+        template = _template_path(real_path)
+        if not os.path.isfile(template):
+            return False
+        try:
+            shutil.copy2(template, real_path)
+        except OSError:
+            return False
+        return True
+
+    def _seed_from_templates(self) -> None:
+        """servers.yaml 을 뺀 나머지 전부 - 없는 파일을 template 으로 채운다.
+
+        servers.yaml 만 예외인 이유: 실서버 주소가 들어가서 자동으로 만들어 주면
+        안 되고, `errors` 에 안내를 남겨 사람이 직접 복사하게 한다(`load()` 아래
+        servers 처리 참고). 나머지는 비밀이 없는 시작점이라 곧바로 만들어도 안전하다.
+        """
+        self._seed_from_template(self.path)
+        self._seed_from_template(self.defaults_path)
+        self._seed_from_template(self.params_path)
+        if os.path.isdir(self.tasks_dir):
+            for filename in sorted(os.listdir(self.tasks_dir)):
+                if not filename.endswith(_TEMPLATE_SUFFIX):
+                    continue
+                real_name = filename[: -len(_TEMPLATE_SUFFIX)] + ".yaml"
+                self._seed_from_template(os.path.join(self.tasks_dir, real_name))
+
     def load(self, auto_create: bool = True) -> None:
         self.errors = []
         self._dirty = set()
@@ -543,6 +600,9 @@ class OptionsConfig:
         self._defaults_file = self.defaults_path
         self._params_file = self.params_path
         self._params = copy.deepcopy(BUILTIN_PARAMS)
+
+        if auto_create:
+            self._seed_from_templates()
 
         root = self._read(self.path)
         if root is None and not os.path.exists(self.path):
@@ -655,6 +715,8 @@ class OptionsConfig:
             return out, False
         seen_any = False
         for filename in sorted(os.listdir(self.tasks_dir)):
+            if filename.endswith(_TEMPLATE_SUFFIX):
+                continue  # git 에만 있는 시작점 - Task 정의로 읽지 않는다
             if not filename.lower().endswith((".yaml", ".yml")):
                 continue
             seen_any = True

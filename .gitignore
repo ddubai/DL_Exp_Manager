@@ -24,13 +24,20 @@ sample_experiments.db-wal
 sample_experiments.db-shm
 sample_results/
 
-# 설정 파일 백업/임시본 (config/options.yaml 자체는 추적한다)
+# 설정 파일 백업/임시본
 config/*.yaml.bak
 config/*.yaml.tmp
 
-# 실서버 IP/구성이 들어가는 실제 servers.yaml 은 커밋하지 않는다.
-# config/servers.template.yaml 을 복사해서 로컬에서만 정의한다.
+# config/ 아래 "실제로 쓰는" YAML 은 전부 로컬 전용이다 - git 에는 <name>.template.yaml
+# 만 들어가고, 앱이 없는 파일을 그 template 을 복사해 만들어 준다(servers.yaml 은
+# 실서버 주소가 들어가서 예외 - 자동으로 만들지 않고 직접 복사하게 안내만 한다).
+# 새 Task 를 추가하면 tasks/<Task>.yaml 도 여기 걸린다(패턴이 알아서 잡는다).
+config/options.yaml
+config/defaults.yaml
+config/params.yaml
 config/servers.yaml
+config/tasks/*.yaml
+!config/tasks/*.template.yaml
 
 # uv 환경
 .python-version
