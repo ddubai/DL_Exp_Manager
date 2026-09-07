@@ -712,8 +712,14 @@ def test_hyperparameter_fields_render_in_their_own_section(qapp, config):
     panel.set_scope(sr, work)
 
     assert panel._custom_widgets["scale"].parent() is panel._custom_host
-    assert panel._custom_widgets["warmup_steps"].parent() is panel._hyperparam_host
     assert panel._custom_form.labelForField(panel._custom_widgets["scale"]).text() == "Scale Factor:"
+
+    # warmup_steps 는 별도 host 가 아니라 메인 form_layout 에 직접 낀 행이어야
+    # Epochs/Batch size/... 와 라벨 칸 너비(정렬)가 맞는다 - 같은 부모를 쓰는지로 확인한다.
+    warmup_combo = panel._custom_widgets["warmup_steps"]
+    assert warmup_combo.parent() is panel.epochs_edit.parent()
+    row, role = panel.form_layout.getWidgetPosition(warmup_combo)
+    assert row >= 0 and role == QtWidgets.QFormLayout.ItemRole.FieldRole
     db.close()
 
 

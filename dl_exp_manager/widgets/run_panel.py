@@ -554,20 +554,17 @@ class BaseRunPanel(QtWidgets.QWidget):
 
         # Training Hyperparameters: Train 은 여기 고정 필드(epochs/batch_size/...)를
         # 두고(_build_extra_form_rows), 두 패널 다 이 Task 의 task-defs/<Task>.yaml
-        # 의 hyperparameter_fields 에 올린 커스텀 필드를 그 아래에 이어 붙인다
-        # (Task-Specific Fields 와 같은 콤보 위젯이지만 섹션만 다르다 - 어느 쪽에
-        # 갈지는 OptionsConfig.hyperparameter_fields/task_specific_fields 가 정한다).
+        # 의 hyperparameter_fields 에 올린 커스텀 필드를 그 바로 아래에 이어 붙인다.
+        # Task-Specific Fields 와 달리 별도 중첩 QFormLayout 을 쓰지 않고 이
+        # form_layout 에 직접 행을 끼워 넣는다 - 그래야 라벨 칸 너비가 Epochs/Batch
+        # size/... 와 똑같이 맞는다(중첩 레이아웃은 자기 칸 너비를 따로 계산해서
+        # 정렬이 어긋난다). 어느 필드가 여기로 올지는
+        # OptionsConfig.hyperparameter_fields/task_specific_fields 가 정한다.
         self._hyperparam_section = self._section("Training Hyperparameters", left_inner)
         self.form_layout.addRow(self._hyperparam_section)
         self._build_extra_form_rows(left_inner)
-        self._hyperparam_host = QtWidgets.QWidget(left_inner)
-        self._hyperparam_form = QtWidgets.QFormLayout(self._hyperparam_host)
-        self._hyperparam_form.setContentsMargins(0, 0, 0, 0)
-        self._hyperparam_form.setSpacing(6)
-        self._hyperparam_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self.form_layout.addRow(self._hyperparam_host)
+        self._hyperparam_insert_row = self.form_layout.rowCount()
+        self._hyperparam_widgets: list[QtWidgets.QWidget] = []
 
         self.metrics_editor = MetricsEditor(
             self.METRIC_PRESETS, left_inner, config=self.config, task_getter=self.current_task_name
@@ -1240,29 +1237,37 @@ class BaseRunPanel(QtWidgets.QWidget):
             task_fields, hyper_fields = [], []
         current = {name: combo.current_text() for name, combo in self._custom_widgets.items()}
 
-        for form in (self._custom_form, self._hyperparam_form):
-            while form.count():
-                item = form.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.setParent(None)   # deleteLater alone leaves it on screen until next tick
-                    widget.deleteLater()
+        while self._custom_form.count():
+            item = self._custom_form.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)   # deleteLater alone leaves it on screen until next tick
+                widget.deleteLater()
+        # hyperparameter_fields 행은 별도 host 가 아니라 form_layout 에 직접 낀
+        # 행이라(라벨 정렬을 Epochs/Batch size/... 와 맞추기 위해) takeAt 대신
+        # removeRow 로 하나씩 걷어낸다.
+        for widget in self._hyperparam_widgets:
+            self.form_layout.removeRow(widget)
+        self._hyperparam_widgets = []
         self._custom_widgets = {}
 
-        for form, host, names in (
-            (self._custom_form, self._custom_host, task_fields),
-            (self._hyperparam_form, self._hyperparam_host, hyper_fields),
-        ):
-            for name in names:
-                label = self.config.label_for(self._task_name, name, name) if self.config else name
-                combo = self._make_option_combo(name, label, host)
-                combo.set_text(current.get(name, ""))
-                form.addRow(f"{label}:", combo)
-                self._custom_widgets[name] = combo
+        for name in task_fields:
+            label = self.config.label_for(self._task_name, name, name) if self.config else name
+            combo = self._make_option_combo(name, label, self._custom_host)
+            combo.set_text(current.get(name, ""))
+            self._custom_form.addRow(f"{label}:", combo)
+            self._custom_widgets[name] = combo
+
+        for offset, name in enumerate(hyper_fields):
+            label = self.config.label_for(self._task_name, name, name) if self.config else name
+            combo = self._make_option_combo(name, label, self._hyperparam_section)
+            combo.set_text(current.get(name, ""))
+            self.form_layout.insertRow(self._hyperparam_insert_row + offset, f"{label}:", combo)
+            self._hyperparam_widgets.append(combo)
+            self._custom_widgets[name] = combo
 
         self._custom_section.setVisible(bool(task_fields))
         self._custom_host.setVisible(bool(task_fields))
-        self._hyperparam_host.setVisible(bool(hyper_fields))
         # Train 은 고정 필드(epochs/...)가 늘 있어 섹션을 계속 보여준다;
         # Evaluation 은 hyperparameter_fields 로 뭔가 올렸을 때만 보여준다.
         self._hyperparam_section.setVisible(self.KIND == "train" or bool(hyper_fields))
