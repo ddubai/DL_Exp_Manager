@@ -1,6 +1,7 @@
 """위젯 동작 테스트 (offscreen)."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -690,6 +691,60 @@ def test_search_dialog_activation_calls_back_with_payload(qapp, config):
     assert received[0]["kind"] == "run"
     db.close()
 
+
+
+def test_algo_field_sits_directly_above_model(qapp, config):
+    """Algo 는 Task-Specific Fields 로 동적으로 뜨는 게 아니라, Model/Dataset 처럼
+    항상 있는 고정 행이어야 하고 Model 바로 위에 있어야 한다 (Train/Evaluation 둘 다)."""
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import EvaluationPanel, TrainPanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    sr = db.add_task("Super-Resolution")  # 기본 옵션에 algo 는 정의돼 있지 않다
+    work = db.add_work(sr, "SSL2SL")
+
+    train_panel = TrainPanel(db, config)
+    train_panel.set_scope(sr, work)
+    row_algo, _ = train_panel.form_layout.getWidgetPosition(train_panel.algo_combo)
+    row_model, _ = train_panel.form_layout.getWidgetPosition(train_panel.model_combo)
+    assert row_algo == row_model - 1
+    # Super-Resolution 은 기본으로 "scale" 을 Task-Specific Fields 에 갖고 있다 -
+    # algo 는 거기 안에는(중복으로) 안 들어가고, self._custom_widgets 에는 command
+    # 값/extra_json 용으로 여전히 등록돼 있어야 한다.
+    assert train_panel._custom_form.indexOf(train_panel.algo_combo) == -1
+    assert train_panel._custom_widgets["algo"] is train_panel.algo_combo
+
+    eval_panel = EvaluationPanel(db, config)
+    eval_panel.set_scope(sr, work)
+    row_algo_e, _ = eval_panel.form_layout.getWidgetPosition(eval_panel.algo_combo)
+    row_model_e, _ = eval_panel.form_layout.getWidgetPosition(eval_panel.model_combo)
+    assert row_algo_e == row_model_e - 1
+    db.close()
+
+
+def test_algo_value_round_trips_and_avoids_duplicate_signal_connections(qapp, config):
+    db, panel, run_id = _panel_with_one_run(config)
+    panel.view.selectRow(0)
+    panel.load_selected_into_form()
+    panel.algo_combo.set_text("restormer_algo")
+    panel.save_form()
+
+    row = db.get_run("train", run_id)
+    extra = json.loads(row["extra_json"])
+    assert extra["algo"] == "restormer_algo"
+
+    rendered = panel._render_command()
+    assert "algo" not in rendered.unknown  # 이 Task 는 options.algo 가 없어도 unknown 이 아니어야 한다
+
+    # Task 를 여러 번 다시 그려도(옵션 변경/스코프 전환 등) algo_combo 는 고정
+    # 위젯이라 currentTextChanged 연결이 쌓이면 안 된다 (한 번 편집 = 콜백 한 번).
+    for _ in range(5):
+        panel._rebuild_custom_fields()
+    calls = []
+    panel._sync_generated_command = lambda: calls.append(1)
+    panel.algo_combo.setCurrentText("changed-once")
+    assert len(calls) == 1
+    db.close()
 
 
 def test_hyperparameter_fields_render_in_their_own_section(qapp, config):

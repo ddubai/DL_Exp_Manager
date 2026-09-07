@@ -85,8 +85,11 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
       model={task_short}/{model} <batch_size> <crop_size> <lr> <epochs>
   ```
 
-  `algo` 처럼 Hydra config group 을 쓰려면 그 이름을 Task 의 `options:` 에 추가하면 됩니다 —
-  폼에 콤보박스가 자동으로 생기고 템플릿에서 `{algo}` 로 바로 쓸 수 있습니다.
+  `algo` (Hydra config group)는 Run 폼에서 Model 바로 위에 항상 콤보박스로 뜹니다 -
+  선택지를 Task 마다 다르게 하고 싶으면 그 Task 의 `options: {algo: [...]}` 에 채워
+  넣으면 되고, 안 채워도(자유 입력으로) 명령어의 `{algo}` 자리에 그대로 쓰입니다.
+  `scale` 처럼 `algo` 외의 이름을 추가하면 "Task-Specific Fields" 섹션에 콤보박스가
+  자동으로 생깁니다.
 - **파라미터 표기법은 `config/params.yaml` 한 곳에서** — 템플릿의 `<batch_size>` 는 값이 아니라
   **인자 하나 전체**(`+batch_size=16`)로 펼쳐지고, 그 모양을 이 파일이 정합니다. `+batch_size` 를
   `+batchsize` 로, 또는 Hydra 대신 argparse(`--batch-size 16`)로 바꾸는 일이 **모든 Task 에 대해

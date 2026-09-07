@@ -228,8 +228,10 @@ commands:
 - `{이름}` 은 **값만** 채웁니다(예: `{model}` → `NAFNet`).
 - `<이름>` 은 **인자 전체**를 채웁니다(예: `<batch_size>` → `+batch_size=16`).
   값이 비어 있으면 그 인자가 통째로 사라집니다.
-- `algo` 처럼 Task 마다 다른 선택지를 쓰려면 그 Task 파일의 `options:` 에
-  이름만 추가하면 폼에 콤보박스가 자동으로 생깁니다.
+- `algo` 콤보박스는 Model 바로 위에 항상 있습니다 - Task 마다 선택지를 다르게
+  하고 싶으면 그 Task 파일의 `options: {algo: [...]}` 에 채워 넣으면 됩니다.
+- `algo` 외의 이름을 Task 마다 다른 선택지로 쓰려면 그 Task 파일의 `options:`
+  에 이름만 추가하면 "Task-Specific Fields" 섹션에 콤보박스가 자동으로 생깁니다.
 
 ### 필드 이름 바꾸기 / Training Hyperparameters 에 항목 추가하기
 

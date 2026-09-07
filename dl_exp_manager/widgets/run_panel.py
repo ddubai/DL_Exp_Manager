@@ -684,6 +684,14 @@ class BaseRunPanel(QtWidgets.QWidget):
             # 보이므로, 아예 숨겨야 한다 (그냥 자식으로만 두면 안 됨).
             self.gpu_selector.setVisible(False)
 
+        # Algo 는 다른 커스텀 필드(options: 로 추가한 것)와 저장 방식은 같지만
+        # (extra_json), Model/Dataset 처럼 항상 보이는 고정 행으로 둔다 - 명령어
+        # 템플릿의 algo={task_short}/{algo} 가 모든 Task 에서 쓰이기 때문이다.
+        # _rebuild_custom_fields 가 "algo" 를 Task-Specific Fields 목록에서 빼고
+        # 대신 이 위젯을 self._custom_widgets 에 다시 등록해 준다.
+        self.algo_combo = self._make_option_combo("algo", self._label("algo", "Algo"), parent)
+        self._add_row(self.form_layout, "algo", "Algo", self.algo_combo)
+
         self.model_combo = self._make_option_combo("model", self._label("model", "Model"), parent)
         self._add_row(self.form_layout, "model", "Model", self.model_combo)
 
@@ -1013,8 +1021,11 @@ class BaseRunPanel(QtWidgets.QWidget):
                 signal.connect(lambda *_: self._sync_generated_command())
 
     def _command_source_widgets(self) -> list[QtWidgets.QWidget]:
+        # algo_combo 는 model_combo 처럼 고정 위젯이라 여기서 한 번만 연결한다 -
+        # _rebuild_custom_fields 가 도는 동적 커스텀 필드들과 달리, 얘는 Task 를
+        # 바꿔도 다시 만들어지지 않으므로 거기서 또 연결하면 중복된다.
         widgets: list[QtWidgets.QWidget] = [
-            self.model_combo, self.dataset_combo, self.server_combo,
+            self.algo_combo, self.model_combo, self.dataset_combo, self.server_combo,
             self.status_combo, self.dataset_path_edit.edit, self.result_path_edit.edit,
         ]
         widgets.extend(self._custom_widgets.values())
@@ -1228,11 +1239,17 @@ class BaseRunPanel(QtWidgets.QWidget):
         (config_store.OptionsConfig.task_specific_fields/hyperparameter_fields).
         Both groups end up in the same self._custom_widgets dict either way, so
         everything downstream (extra_json, command placeholders, table columns)
-        treats them identically - only where they're drawn differs.
+        treats them identically - only where they're drawn differs. "algo" is
+        excluded from both - it has its own fixed row above Model (self.algo_combo,
+        built in _build_left_fields) - and gets re-registered into
+        self._custom_widgets here so it still rides that same generic plumbing.
         """
         if self.config:
-            task_fields = self.config.task_specific_fields(self._task_name)
-            hyper_fields = self.config.hyperparameter_fields(self._task_name)
+            # algo 는 이 목록들과 저장 방식(extra_json)은 같지만 Model/Dataset 처럼
+            # 항상 보이는 고정 행(_build_left_fields 의 self.algo_combo)이라 여기
+            # 동적 목록에서는 뺀다 - 안 빼면 두 번 그려진다.
+            task_fields = [f for f in self.config.task_specific_fields(self._task_name) if f != "algo"]
+            hyper_fields = [f for f in self.config.hyperparameter_fields(self._task_name) if f != "algo"]
         else:
             task_fields, hyper_fields = [], []
         current = {name: combo.current_text() for name, combo in self._custom_widgets.items()}
@@ -1249,7 +1266,10 @@ class BaseRunPanel(QtWidgets.QWidget):
         for widget in self._hyperparam_widgets:
             self.form_layout.removeRow(widget)
         self._hyperparam_widgets = []
-        self._custom_widgets = {}
+        # algo_combo 는 고정 위젯이라 지우지 않는다 - extra_json/명령어 자리표시자/
+        # parse-fill 등 self._custom_widgets 를 도는 기존 로직에 그대로 태우기
+        # 위해 다시 등록만 한다.
+        self._custom_widgets = {"algo": self.algo_combo}
 
         for name in task_fields:
             label = self.config.label_for(self._task_name, name, name) if self.config else name
@@ -1271,7 +1291,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         # Train 은 고정 필드(epochs/...)가 늘 있어 섹션을 계속 보여준다;
         # Evaluation 은 hyperparameter_fields 로 뭔가 올렸을 때만 보여준다.
         self._hyperparam_section.setVisible(self.KIND == "train" or bool(hyper_fields))
-        for combo in self._custom_widgets.values():
+        for name, combo in self._custom_widgets.items():
+            if name == "algo":
+                continue  # algo_combo 는 _watch_command_sources 에서 이미 한 번 연결했다
             combo.currentTextChanged.connect(lambda *_: self._sync_generated_command())
 
     def _refresh_extra_combo_sources(self) -> None:
@@ -2221,6 +2243,9 @@ class EvaluationPanel(BaseRunPanel):
             compact=True,
         )
         self._add_row(self.form_layout, "checkpoint_path", "Checkpoint Path", self.checkpoint_edit)
+
+        self.algo_combo = self._make_option_combo("algo", self._label("algo", "Algo"), parent)
+        self._add_row(self.form_layout, "algo", "Algo", self.algo_combo)
 
         self.model_combo = self._make_option_combo("model", self._label("model", "Model"), parent)
         self.model_combo.setToolTip("Auto-filled when you pick a Train Run above; override if needed.")
