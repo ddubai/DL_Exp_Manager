@@ -51,7 +51,7 @@ python main.py --sample           # 비어 있으면 예시 데이터까지 생�
 |---|---|
 | 상단 서버 상태 바 | 서버 이름 + 사용 중 GPU 비율만 보이는 **한 줄** 표시. 클릭하면 실행 중인 학습(GPU 개수·모델·경과시간·명령어)이 메뉴로, 우클릭하면 서버/GPU 편집 메뉴. 15초마다 자동 갱신 |
 | 좌측 네비게이션 | **All Tasks ▸ Task ▸ Work 드릴다운**(트리 아님, 브레드크럼으로 한 번에 한 단계만). Work 까지 들어가면 그 Work 에 등록된 **Dataset(이름 + 위치)** 이 그 자리에 바로 나와 추가/수정/삭제할 수 있습니다. 검색·Task/Work 추가·이름변경·삭제는 그대로 지원 |
-| 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 최대 8개 실행을 지표 표·**막대 그래프**·config.yaml diff 로 나란히 비교(2개는 좌우로 나눈 diff - 추가 초록/삭제 빨강, "Changed lines only" 로 바뀐 줄만 보기 ↔ 전체 보기 전환, 그 이상은 Run 별 config 탭). **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경) |
+| 중앙 상단 테이블 | 실행 목록. 툴바의 **`+ New Run`** 버튼으로 등록, **`⇄ Compare`** 로 최대 8개 실행을 지표 표·**막대 그래프**·config.yaml diff 로 나란히 비교(2개는 좌우로 나눈 diff - 추가 초록/삭제 빨강, "Changed lines only" 로 바뀐 줄만 보기 ↔ 전체 보기 전환, 그 이상은 Run 별 config 탭). **열 헤더 클릭 시 정렬**, 전 컬럼 검색, 상태 필터, **Task 별 컬럼 구성**(헤더 우클릭으로 추가/제거/이름변경/드래그 순서변경/개별 숨기기 - 순서·숨김은 task-defs 에 저장) |
 | 중앙 하단 상세 | **행을 선택했을 때만 나타남.** 경로(+📁 폴더 열기), 실행 코드, `config.yml`, Metrics/Notes, 그리고 그 실행이 **생성/수정/복제될 때마다 기록되는 History** 탭. **🖼 View Image**(결과 폴더의 대표 이미지 한 장) / **📈 Training Curve**(Train 전용, 로그를 파싱해 iteration 별 지표를 그린 라인 차트) 버튼도 여기에 |
 | 등록/수정 팝업 | **`+ New Run` 클릭 시에만 뜨는 다이얼로그.** **좌(실행 설정) / 우(경로 + 실행 코드) 2단 분할**이며, 좌측 스크롤과 우측 스크롤이 독립적으로 움직이고 Save/Clear/Cancel 버튼은 스크롤 밖에 고정돼 항상 보입니다. Work ID 는 좌측에서 이미 고른 Work 가 있으면 그 값을 기본으로 채웁니다. Server 는 상단 서버 목록 중에서만 고르고, GPU 는 슬롯 대신 **개수**만 입력합니다. 상태 기본값은 `queued`. **Dataset** 콤보는 그 Work 에 등록된 데이터셋 레지스트리와 바로 연동되어, 고르면 경로(+ Evaluation 은 Input size 도)가 자동으로 채워집니다(옆 📦 버튼으로 전체 관리). **⇪ Parse** 버튼은 결과 폴더의 `config.yaml` + 학습 로그를 읽어 Model/Dataset/하이퍼파라미터/평가지표/소요시간을 자동으로 채웁니다(자동 로깅). Evaluation 폼은 GPU 대신 **같은 Work 의 Train Run + Epoch/Iter** 를 먼저 고르는 순서(Server 는 유지) |
 
@@ -249,9 +249,11 @@ metrics:
 - {key: PSNR, unit: dB, digits: 2, higher_is_better: true}
 - {key: SSIM, digits: 4, higher_is_better: true}
 - {key: LPIPS, digits: 3, higher_is_better: false}
-columns:
+columns:                        # 표에 보이는 컬럼과 순서 - 헤더를 드래그해도 여기가 바뀝니다
   train: [status, server, gpus, model, dataset, scale, duration, PSNR, SSIM, LPIPS, result_path]
   evaluation: [status, server, gpus, model, checkpoint_path, dataset, latency_ms, PSNR, SSIM]
+hidden_columns:                 # columns: 에는 남아 있지만 지금은 안 보이는 것들
+  train: [dataset_path]         # 헤더 우클릭 → Visible Columns 체크박스가 여길 씁니다
 ```
 
 `commands:` 는 실행 명령어 템플릿입니다(위 예시 아래에 함께 둡니다).

@@ -385,13 +385,13 @@ ROOT_HEADER = """\
 #             hyperparameter_fields: [warmup_steps]   labels: {lr: "LR (base)"}
 #   metrics : The table's metric columns. digits sets decimal places shown,
 #             higher_is_better marks whether a bigger value is better.
-#   columns : Which columns appear (and in what order) in the Train /
-#             Evaluation tables. Allowed values:
+#   columns : Which columns appear, and in what order (dragging a header
+#             reorders it here too). Allowed values:
 #     built-in    status, server, gpus, model, dataset, dataset_path, result_path,
 #                 checkpoint_path, device, input_size, duration, started_at,
 #                 latency_ms, throughput_fps, epochs, batch_size, crop_size, lr, optimizer, notes
-#     metric      any key defined under metrics
-#     custom field  any name defined under options
+#     metric      any key defined under metrics · custom field  any name under options
+#   hidden_columns : same shape as columns: - off by default, still defined.
 #   commands: The run form's "⚙ Generate" button builds the execution command
 #             from these templates - one for train, one for evaluation.
 #             Two placeholder forms are filled from the form:
@@ -489,7 +489,8 @@ TASK_HEADER_TEMPLATE = """\
 #   없앴지만, 혹시 다른 도구가 같은 식으로(경로만 보고) 스키마를 잘못 붙이는 걸
 #   대비한 안전망이다. 파일 자체에 붙어 있어 워크스페이스 설정과 무관하게 적용된다.
 # Task: {name}
-# options = combo-box choices · metrics = table metric columns · columns = table layout
+# options = combo-box choices · metrics = table metric columns
+# columns/hidden_columns = table layout (order/which are shown)
 # labels  = rename any field, built-in or custom, for this Task only
 # hyperparameter_fields = which options: show under Training Hyperparameters
 # short   = short name used in the generated command ({{task_short}})
@@ -818,6 +819,7 @@ class OptionsConfig:
             raw.setdefault("options", {})
             raw.setdefault("metrics", [])
             raw.setdefault("columns", {})
+            raw.setdefault("hidden_columns", {})
             raw.setdefault("commands", {})
             raw.setdefault("labels", {})
             raw.setdefault("hyperparameter_fields", [])
@@ -829,6 +831,9 @@ class OptionsConfig:
                 self.errors.append(f"Task '{name}' metrics is not a list; cleared it.")
             if not isinstance(raw["columns"], dict):
                 raw["columns"] = {}
+            if not isinstance(raw["hidden_columns"], dict):
+                raw["hidden_columns"] = {}
+                self.errors.append(f"Task '{name}' hidden_columns is not a mapping; cleared it.")
             if not isinstance(raw["commands"], dict):
                 raw["commands"] = {}
                 self.errors.append(f"Task '{name}' commands is not a mapping; cleared it.")
@@ -1343,6 +1348,25 @@ class OptionsConfig:
         table[mode] = [str(c) for c in columns]
         if mode == "evaluation":
             table.pop(LEGACY_EVAL_COLUMNS_KEY, None)  # 옛 키가 남아 헷갈리지 않게 정리한다
+        self._touch_task(task)
+
+    def hidden_columns(self, task: str | None, mode: str) -> list[str]:
+        """표에는 남아 있지만(순서는 `columns:` 그대로) 안 보이게 꺼 둔 컬럼들."""
+        raw = self._task_raw(task)
+        if not raw:
+            return []
+        hidden = (raw.get("hidden_columns") or {}).get(mode)
+        return [str(c) for c in hidden] if isinstance(hidden, list) else []
+
+    def set_hidden_columns(self, task: str, mode: str, hidden: Iterable[str]) -> None:
+        raw = self._task_raw(task)
+        if raw is None:
+            self.ensure_task(task)
+            raw = self._task_raw(task)
+            if raw is None:
+                return
+        table = raw.setdefault("hidden_columns", {})
+        table[mode] = [str(c) for c in hidden]
         self._touch_task(task)
 
     # -- 실행 명령어 템플릿 -------------------------------------------------------

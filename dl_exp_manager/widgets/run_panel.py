@@ -73,12 +73,29 @@ from .log_viewer import LogViewerDialog
 
 
 class AddColumnDialog(QtWidgets.QDialog):
-    """Add a table column - pick an existing field or type a new name."""
+    """Add a table column - pick an existing field or type a new name.
 
-    def __init__(self, parent: QtWidgets.QWidget | None, candidates: Sequence[str]) -> None:
+    "Register it as a metric" only makes sense for a genuinely new, numeric
+    name - picking a name that's already a field (built-in, or one you added
+    under some Task's options:) must NOT also register it as a metric, or
+    `build_columns()` starts reading it from metrics_json instead of
+    extra_json and the column silently shows blank forever (it checks
+    metric_keys before custom_fields). So the checkbox tracks the typed/
+    picked name live and disables itself once it recognizes it.
+    """
+
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget | None,
+        candidates: Sequence[str],
+        non_metric_fields: Sequence[str] = (),
+        existing_metrics: Sequence[str] = (),
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Column")
         self.setMinimumWidth(340)
+        self._non_metric_fields = set(non_metric_fields)
+        self._existing_metrics = set(existing_metrics)
 
         self.combo = QtWidgets.QComboBox(self)
         self.combo.setEditable(True)
@@ -89,6 +106,8 @@ class AddColumnDialog(QtWidgets.QDialog):
 
         self.metric_check = QtWidgets.QCheckBox("If new, register it as a metric for this Task", self)
         self.metric_check.setChecked(True)
+        self.combo.currentTextChanged.connect(self._sync_metric_check)
+        self.combo.editTextChanged.connect(self._sync_metric_check)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -110,6 +129,21 @@ class AddColumnDialog(QtWidgets.QDialog):
             )
         )
         layout.addWidget(buttons)
+
+    def _sync_metric_check(self, *_args: Any) -> None:
+        name = self.combo.currentText().strip()
+        if name in self._non_metric_fields:
+            self.metric_check.setChecked(False)
+            self.metric_check.setEnabled(False)
+            self.metric_check.setToolTip(f"'{name}' is already a field, not a metric.")
+        elif name in self._existing_metrics:
+            self.metric_check.setChecked(False)
+            self.metric_check.setEnabled(False)
+            self.metric_check.setToolTip(f"'{name}' is already registered as a metric.")
+        else:
+            self.metric_check.setEnabled(True)
+            self.metric_check.setToolTip("")
+            self.metric_check.setChecked(True)
 
     def value(self) -> str:
         return self.combo.currentText().strip()
@@ -201,13 +235,24 @@ class BaseRunPanel(QtWidgets.QWidget):
         # 즐겨찾기는 표/상세에서만 토글하고 폼에는 입력란이 없으므로, 편집 중인 값을
         # 여기 들고 있다가 저장할 때 그대로 되돌려 준다 (안 그러면 매 저장마다 꺼진다).
         self._editing_favorite: bool = False
-        self._hidden_headers: set[str] = set()
+        # 컬럼 프리셋(Simple/Paper/Full)이 활성 중일 때만 쓰는 세션 한정 숨김
+        # 목록 - None 이면 "프리셋 없음, config 의 hidden_columns: 를 그대로
+        # 따른다" 는 뜻이다. spec.source_name 으로 키를 잡는다(표시 이름은
+        # rename 으로 바뀔 수 있어 식별자로 못 쓴다). _effective_hidden_columns 참고.
+        self._preset_hidden: set[str] | None = None
         self._custom_widgets: dict[str, ManagedCombo] = {}
         # 폼의 고정 필드(Work ID, Epochs, ...) 라벨 - config/labels.yaml 이 바뀌면
         # refresh_labels() 가 이걸 훑으며 다시 그린다. 값은 (라벨 위젯, 기본 문구).
         self._field_labels: dict[str, tuple[QtWidgets.QLabel, str]] = {}
         self._column_settings = QtCore.QSettings(ORG_NAME, APP_NAME)
         self._restoring_columns = False
+        # 드래그하는 동안 sectionMoved 가 계속 불려서, 매번 config 에 바로 쓰면
+        # (파일 쓰기 + .bak) 드래그 한 번에 디스크 쓰기가 쏟아진다 - 드래그가
+        # 멎고 나서 한 번만 쓰도록 살짝 늦춘다.
+        self._column_order_save_timer = QtCore.QTimer(self)
+        self._column_order_save_timer.setSingleShot(True)
+        self._column_order_save_timer.setInterval(400)
+        self._column_order_save_timer.timeout.connect(self._persist_column_order)
 
         self.model = RunTableModel(self)
         self.proxy = RunFilterProxy(self)
@@ -333,8 +378,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         header.setStretchLastSection(True)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._header_context_menu)
-        header.sectionMoved.connect(self._on_column_geometry_changed)
-        header.sectionResized.connect(self._on_column_geometry_changed)
+        header.sectionMoved.connect(self._on_column_order_changed)
+        header.sectionResized.connect(self._on_column_width_changed)
         header.setToolTip("Click a header to sort, right-click to manage columns")
 
         self.view.selectionModel().selectionChanged.connect(lambda *_: self._on_selection_changed())
@@ -1186,35 +1231,74 @@ class BaseRunPanel(QtWidgets.QWidget):
         return self.db.list_evaluation_runs(work_id=self._work_id, task_id=self._task_id)
 
     def _apply_column_sizing(self) -> None:
-        # 프로그램이 너비/순서/숨김을 다시 맞추는 동안은 사용자가 직접 조정한 것으로
-        # 착각해 저장하지 않도록 막는다 - reload() 는 스코프를 바꿀 때마다 불린다.
+        """열 순서는 model.columns() 가 이미 config 의 columns: 순서 그대로다 -
+        여기선 폭(이 기기 전용, QSettings)과 숨김(config 의 hidden_columns:,
+        프리셋이 켜져 있으면 그 대신 세션 한정 목록)만 적용한다."""
+        # 프로그램이 다시 맞추는 동안은 사용자가 직접 조정한 것으로 착각해
+        # 저장하지 않도록 막는다 - reload() 는 스코프를 바꿀 때마다 불린다.
         self._restoring_columns = True
         try:
             header = self.view.horizontalHeader()
-            restored = self._restore_column_state()
+            widths = self._column_widths()
+            hidden = self._effective_hidden_columns()
             for index, spec in enumerate(self.model.columns()):
-                if not restored:
-                    self.view.setColumnWidth(index, spec.width)
-                header.setSectionHidden(index, spec.header in self._hidden_headers)
+                self.view.setColumnWidth(index, widths.get(spec.source_name, spec.width))
+                header.setSectionHidden(index, spec.source_name in hidden)
         finally:
             self._restoring_columns = False
 
-    # -- Column order/width persistence (per Task, per Train/Evaluation) -------
-    def _column_settings_key(self) -> str:
-        return f"columns/{self.KIND}/{self._task_name or '_default'}"
+    def _effective_hidden_columns(self) -> set[str]:
+        if self._preset_hidden is not None:
+            return self._preset_hidden
+        if not self._task_name:
+            return set()
+        return set(self.config.hidden_columns(self._task_name, self.KIND))
 
-    def _restore_column_state(self) -> bool:
-        data = self._column_settings.value(self._column_settings_key())
-        if not isinstance(data, QtCore.QByteArray):
-            return False
-        return bool(self.view.horizontalHeader().restoreState(data))
+    # -- Column width persistence (per Task, per Train/Evaluation - this machine only) --
+    def _column_widths_key(self) -> str:
+        return f"columns/{self.KIND}/{self._task_name or '_default'}/widths"
 
-    def _on_column_geometry_changed(self, *_args: Any) -> None:
+    def _column_widths(self) -> dict[str, int]:
+        raw = self._column_settings.value(self._column_widths_key())
+        if not raw:
+            return {}
+        try:
+            return {str(k): int(v) for k, v in json.loads(raw).items()}
+        except (TypeError, ValueError):
+            return {}
+
+    def _on_column_width_changed(self, index: int, _old_size: int, new_size: int) -> None:
         if self._restoring_columns:
             return
-        self._column_settings.setValue(
-            self._column_settings_key(), self.view.horizontalHeader().saveState()
-        )
+        spec = self.model.column_spec(index)
+        if spec is None:
+            return
+        widths = self._column_widths()
+        widths[spec.source_name] = new_size
+        self._column_settings.setValue(self._column_widths_key(), json.dumps(widths))
+
+    # -- Column order (saved to config, like add/remove/rename column) ---------
+    def _on_column_order_changed(self, *_args: Any) -> None:
+        if self._restoring_columns:
+            return
+        # 드래그하는 동안 이 시그널이 계속 오므로, 멎고 나서(디바운스) 한 번만 쓴다.
+        self._column_order_save_timer.start()
+
+    def _persist_column_order(self) -> None:
+        task = self._task_name
+        if not task:
+            return
+        header = self.view.horizontalHeader()
+        order = []
+        for visual in range(header.count()):
+            spec = self.model.column_spec(header.logicalIndex(visual))
+            # id/favorite/notes 는 항상 맨 앞/뒤에 붙는 컬럼이라(LEADING/TRAILING_COLUMNS)
+            # Task 의 columns: 목록에는 안 들어간다 - build_columns 참고.
+            if spec is None or spec.key in ("id", "favorite", "notes"):
+                continue
+            order.append(spec.source_name)
+        self.config.set_columns(task, self.KIND, order)
+        self.configChanged.emit()
 
     def _refresh_combo_sources(self) -> None:
         """Base the list on config, but merge in legacy values only found in the DB."""
@@ -1531,13 +1615,13 @@ class BaseRunPanel(QtWidgets.QWidget):
         menu.addSeparator()
 
         visibility = menu.addMenu("Visible Columns")
+        hidden_now = self._effective_hidden_columns()
         for index, column in enumerate(self.model.columns()):
-            label = self.model.header_text(column)
-            action = visibility.addAction(label)
+            action = visibility.addAction(self.model.header_text(column))
             action.setCheckable(True)
-            action.setChecked(label not in self._hidden_headers)
+            action.setChecked(column.source_name not in hidden_now)
             action.triggered.connect(
-                lambda checked, h=label, i=index: self._toggle_column(h, i, checked)
+                lambda checked, spec=column, i=index: self._toggle_column(spec, i, checked)
             )
         menu.exec(header.mapToGlobal(pos))
 
@@ -1551,7 +1635,7 @@ class BaseRunPanel(QtWidgets.QWidget):
     def _hide_column(self, section: int) -> None:
         spec = self.model.column_spec(section)
         if spec is not None:
-            self._toggle_column(self.model.header_text(spec), section, False)
+            self._toggle_column(spec, section, False)
 
     # -- Column management (saved to config) ---------------------------------
     def _require_task(self) -> str | None:
@@ -1580,11 +1664,16 @@ class BaseRunPanel(QtWidgets.QWidget):
         if task is None:
             return
         used = set(self._current_column_ids())
+        existing_metrics = set(self.config.metric_keys(task))
+        # 이 필드들은 이미 뭔가로 정의돼 있으므로, 골라도 "지표로 등록" 하면 안 된다
+        # (metric 은 metrics_json 을, 이 필드들은 extra_json/DB 컬럼을 읽는다 -
+        # 둘 다로 등록되면 build_columns 가 metric 을 먼저 보므로 표가 계속 비어 보인다).
+        non_metric_fields = set(FIELD_SPECS.keys()) | set(self.config.custom_fields(task))
         candidates = [key for key in FIELD_SPECS if key not in used and key not in ("id", "notes")]
-        candidates += [m for m in self.config.metric_keys(task) if m not in used]
+        candidates += [m for m in existing_metrics if m not in used]
         candidates += [f for f in self.config.custom_fields(task) if f not in used]
 
-        dialog = AddColumnDialog(self, candidates)
+        dialog = AddColumnDialog(self, candidates, non_metric_fields, existing_metrics)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         name = dialog.value()
@@ -1596,7 +1685,7 @@ class BaseRunPanel(QtWidgets.QWidget):
             return
         columns.append(name)
         self.config.set_columns(task, self.KIND, columns)
-        if dialog.as_metric() and name not in self.config.metric_keys(task):
+        if dialog.as_metric() and name not in existing_metrics and name not in non_metric_fields:
             self.config.add_metric(task, MetricDef(key=name))
         self.reload_columns()
         self.configChanged.emit()
@@ -1638,6 +1727,8 @@ class BaseRunPanel(QtWidgets.QWidget):
             return
         columns = [c for c in self._current_column_ids() if c != spec.source_name]
         self.config.set_columns(task, self.KIND, columns)
+        hidden = [c for c in self.config.hidden_columns(task, self.KIND) if c != spec.source_name]
+        self.config.set_hidden_columns(task, self.KIND, hidden)
         self.reload_columns()
         self.configChanged.emit()
 
@@ -1672,19 +1763,29 @@ class BaseRunPanel(QtWidgets.QWidget):
             BUILTIN.get("tasks", {}).get(task, {}).get("columns", {}).get(self.KIND)
         )
         self.config.set_columns(task, self.KIND, default or [])
-        self._hidden_headers.clear()
+        self.config.set_hidden_columns(task, self.KIND, [])
+        self._preset_hidden = None
         self.reload_columns()
         self.configChanged.emit()
 
-    def _toggle_column(self, header: str, index: int, visible: bool) -> None:
+    def _toggle_column(self, spec: ColumnSpec, index: int, visible: bool) -> None:
+        """수동으로 하나씩 켜고 끄는 건(아래 프리셋과 달리) 이 Task 에 저장된다 -
+        지금 프리셋이 활성 중이면 거기서 빠져나와 저장된 값을 직접 바꾼다."""
+        self._preset_hidden = None
+        task = self._require_task()
+        if task is None:
+            return
+        hidden = set(self.config.hidden_columns(task, self.KIND))
         if visible:
-            self._hidden_headers.discard(header)
+            hidden.discard(spec.source_name)
         else:
-            self._hidden_headers.add(header)
+            hidden.add(spec.source_name)
+        self.config.set_hidden_columns(task, self.KIND, sorted(hidden))
         self.view.horizontalHeader().setSectionHidden(index, not visible)
+        self.configChanged.emit()
 
     def _show_all_columns(self) -> None:
-        self._hidden_headers.clear()
+        self._preset_hidden = set()
         for index in range(self.model.columnCount()):
             self.view.horizontalHeader().setSectionHidden(index, False)
 
@@ -1701,8 +1802,8 @@ class BaseRunPanel(QtWidgets.QWidget):
     _PAPER_KEEP_KEYS = {"model"}
 
     def _apply_preset(self, keep: Callable[[ColumnSpec], bool]) -> None:
-        self._hidden_headers = {
-            self.model.header_text(spec) for spec in self.model.columns() if not keep(spec)
+        self._preset_hidden = {
+            spec.source_name for spec in self.model.columns() if not keep(spec)
         }
         self._apply_column_sizing()
 

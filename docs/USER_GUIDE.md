@@ -187,7 +187,7 @@ Checkpoint 경로/Epoch 만 채우면 됩니다.
 | 전역 검색 | `Ctrl+K` | Task/Work/Run 을 이름·경로·메모까지 가로질러 검색 |
 | 즐겨찾기 | 상세 패널의 `☆ Favorite` / 표의 별 컬럼 | 툴바의 `★ Favorites` 로 즐겨찾기만 필터 |
 | 태그 / 실패 사유 | New Run 폼 | Status 를 `failed` 로 하면 실패 사유 입력란이 나타남 |
-| 컬럼 구성 바꾸기 | 표 헤더 우클릭 | 컬럼 추가/제거/이름변경. 위치·폭은 재시작해도 유지됨 |
+| 컬럼 구성 바꾸기 | 표 헤더 우클릭 | 컬럼 추가/제거/이름변경, 드래그로 순서 바꾸기, "Visible Columns" 로 개별 숨기기 - 전부 그 Task 의 `task-defs/<Task>.yaml`(순서는 `columns:`, 숨김은 `hidden_columns:`)에 저장돼 다른 기기에서도 그대로 열림. 폭만 이 기기 전용으로 따로 기억함. Simple/Paper/Full 프리셋은 그 자리에서만 보는 용도라 저장 안 됨 |
 | 정렬 | 헤더 클릭 | 숫자 컬럼은 문자열이 아니라 실제 크기 순 |
 | 복제 | `⎘ Duplicate` | 같은 설정으로 복제(상태는 `queued` 로 리셋) |
 | 내보내기 | `⤓ Export` / `File ▸ Export Current Tab to CSV`(`Ctrl+E`) | CSV(엑셀 한글 안전), 선택 행/표 전체 TSV 클립보드 복사, Markdown/HTML 리포트 |

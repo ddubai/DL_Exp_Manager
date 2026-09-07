@@ -430,7 +430,12 @@ def test_evaluation_source_train_run_prefills_model(qapp, config):
 def test_column_preset_simple_hides_paths_and_hyperparams(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
     panel.apply_preset_simple()
-    visible = {h for h in panel.model.headers() if h not in panel._hidden_headers}
+    hidden = panel._effective_hidden_columns()
+    visible = {
+        panel.model.header_text(spec)
+        for spec in panel.model.columns()
+        if spec.source_name not in hidden
+    }
     assert "Result Folder Path" not in visible
     assert "Dataset Path" not in visible
     assert "Notes" not in visible
@@ -442,19 +447,20 @@ def test_column_preset_simple_hides_paths_and_hyperparams(qapp, config):
 def test_column_preset_full_clears_hidden_set(qapp, config):
     db, panel, run_id = _panel_with_one_run(config)
     panel.apply_preset_simple()
-    assert panel._hidden_headers  # sanity: simple actually hid something
+    assert panel._preset_hidden  # sanity: simple actually hid something
     panel.apply_preset_full()
-    assert panel._hidden_headers == set()
+    assert panel._preset_hidden == set()
     db.close()
 
 
-def test_column_width_and_order_persist_across_panel_instances(qapp, config):
-    """Dragging a header (resize/reorder) should survive a restart - a fresh panel
-    for the same Task must pick up the saved geometry instead of the config defaults."""
+def test_column_width_persists_across_panel_instances(qapp, config):
+    """Resizing a header should survive a restart - a fresh panel for the same
+    Task must pick up the saved width (this machine's QSettings) instead of
+    the config default."""
     from dl_exp_manager.widgets.run_panel import TrainPanel
 
     db, panel, run_id = _panel_with_one_run(config)
-    key = panel._column_settings_key()
+    key = panel._column_widths_key()
     panel._column_settings.remove(key)  # start clean regardless of prior test runs
     try:
         header = panel.view.horizontalHeader()
@@ -476,13 +482,124 @@ def test_reload_does_not_write_column_settings_by_itself(qapp, config):
     """reload() re-applies sizing/hidden-state on every scope change; that must not
     be mistaken for a user edit and spam the settings store."""
     db, panel, run_id = _panel_with_one_run(config)
-    key = panel._column_settings_key()
+    key = panel._column_widths_key()
     panel._column_settings.remove(key)
     try:
         panel.reload()
         assert panel._column_settings.value(key) is None
     finally:
         panel._column_settings.remove(key)
+    db.close()
+
+
+def test_dragging_a_header_reorders_the_saved_column_list(qapp, config):
+    """Dragging a header should end up in task-defs/<Task>.yaml's columns: list -
+    that list is the single source of truth for order, not a separate QSettings blob."""
+    db, panel, run_id = _panel_with_one_run(config)
+    header = panel.view.horizontalHeader()
+    before = config.columns_for("Super-Resolution", "train")
+    # "model" 과 "dataset" 를 서로 바꾼다(둘 다 id/favorite 뒤, notes 앞의 실컬럼).
+    model_idx = panel.model.column_index("model")
+    dataset_idx = panel.model.column_index("dataset")
+    header.moveSection(header.visualIndex(model_idx), header.visualIndex(dataset_idx))
+    panel._persist_column_order()  # 디바운스 타이머를 기다리지 않고 바로 저장시킨다
+
+    after = config.columns_for("Super-Resolution", "train")
+    assert after != before
+    assert set(after) == set(before)  # 순서만 바뀌고 목록 자체는 그대로
+    assert after.index("dataset") < after.index("model")
+    db.close()
+
+
+def test_hiding_a_column_persists_to_config_and_survives_a_new_panel(qapp, config):
+    """The header context menu's per-column hide/show is a saved Task preference,
+    unlike the session-only Simple/Paper/Full presets."""
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    db, panel, run_id = _panel_with_one_run(config)
+    spec = next(s for s in panel.model.columns() if s.source_name == "model")
+    index = panel.model.column_index("model")
+    panel._toggle_column(spec, index, False)
+
+    assert "model" in config.hidden_columns("Super-Resolution", "train")
+    assert panel.view.horizontalHeader().isSectionHidden(index)
+
+    window2 = QtWidgets.QMainWindow()
+    panel2 = TrainPanel(db, config, parent=window2)
+    window2.setCentralWidget(panel2)
+    panel2.set_scope(panel._task_id, panel._work_id)
+    model_index2 = panel2.model.column_index("model")
+    assert panel2.view.horizontalHeader().isSectionHidden(model_index2)
+    db.close()
+
+
+def test_add_column_dialog_disables_metric_checkbox_for_known_fields(qapp):
+    """Picking an already-defined field must not offer to also register it as a
+    metric - see test_adding_a_task_defs_option_as_a_column_shows_its_value for
+    why that combination silently breaks the column."""
+    from dl_exp_manager.widgets.run_panel import AddColumnDialog
+
+    dialog = AddColumnDialog(
+        None,
+        candidates=["device", "algo", "PSNR", "warmup_steps"],
+        non_metric_fields={"device", "algo", "warmup_steps"},
+        existing_metrics={"PSNR"},
+    )
+    assert dialog.metric_check.isChecked()  # 아직 아무것도 안 골랐을 때는 기본값 그대로
+
+    dialog.combo.setCurrentText("algo")
+    assert dialog.metric_check.isEnabled() is False
+    assert dialog.metric_check.isChecked() is False
+
+    dialog.combo.setCurrentText("PSNR")
+    assert dialog.metric_check.isEnabled() is False
+    assert dialog.metric_check.isChecked() is False
+
+    dialog.combo.setCurrentText("brand_new_field")
+    assert dialog.metric_check.isEnabled() is True
+    assert dialog.metric_check.isChecked() is True
+
+
+def test_adding_a_task_defs_option_as_a_column_shows_its_value(qapp, config):
+    """Regression: add_column() used to always offer "register as metric" checked
+    by default, even for a name that was already a task-defs options: field. If
+    left checked, the field became both a metric and a custom field, and
+    build_columns() checks metric_keys before custom_fields - so the column
+    silently read from metrics_json (always empty) instead of extra_json, and
+    looked permanently blank no matter what the user typed into the form."""
+    from dl_exp_manager.widgets.run_panel import AddColumnDialog
+
+    db, panel, run_id = _panel_with_one_run(config)
+    config.add_option("Super-Resolution", "algo", "restormer_algo")
+    row = db.get_run("train", run_id)
+    row["extra_json"] = json.dumps({"algo": "restormer_algo"})
+    db.update_run("train", run_id, row)
+
+    # add_column() 을 그대로 거치되, 다이얼로그만 "algo 선택 + OK" 로 흉내낸다.
+    used = set(panel._current_column_ids())
+    existing_metrics = set(config.metric_keys("Super-Resolution"))
+    from dl_exp_manager.models import FIELD_SPECS
+    non_metric_fields = set(FIELD_SPECS.keys()) | set(config.custom_fields("Super-Resolution"))
+    candidates = [f for f in config.custom_fields("Super-Resolution") if f not in used]
+    dialog = AddColumnDialog(panel, candidates, non_metric_fields, existing_metrics)
+    dialog.combo.setCurrentText("algo")
+    assert dialog.as_metric() is False  # 체크박스가 스스로 꺼져 있어야 한다
+
+    columns = list(panel._current_column_ids())
+    columns.append("algo")
+    config.set_columns("Super-Resolution", "train", columns)
+    if dialog.as_metric() and "algo" not in existing_metrics and "algo" not in non_metric_fields:
+        from dl_exp_manager.config_store import MetricDef
+        config.add_metric("Super-Resolution", MetricDef(key="algo"))
+    panel.reload_columns()
+
+    assert "algo" not in config.metric_keys("Super-Resolution")
+    spec = next(s for s in panel.model.columns() if s.source_name == "algo")
+    assert spec.is_extra and not spec.is_metric
+    row = panel.model.row_dict(0)
+    idx = panel.model.index(0, panel.model.column_index(spec.key))
+    from dl_exp_manager.qt import Qt
+    assert panel.model.data(idx, Qt.ItemDataRole.DisplayRole) == "restormer_algo"
     db.close()
 
 

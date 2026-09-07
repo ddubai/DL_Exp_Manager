@@ -74,6 +74,23 @@ def test_columns_differ_per_task():
     assert "LPIPS" not in config.columns_for("Classification", "train")
 
 
+def test_hidden_columns_are_per_task_and_per_mode():
+    config = make_config()
+    assert config.hidden_columns("Super-Resolution", "train") == []
+
+    config.set_hidden_columns("Super-Resolution", "train", ["dataset_path", "notes"])
+    assert config.hidden_columns("Super-Resolution", "train") == ["dataset_path", "notes"]
+    # 다른 모드/다른 Task 는 영향받지 않는다.
+    assert config.hidden_columns("Super-Resolution", "evaluation") == []
+    assert config.hidden_columns("Denoising", "train") == []
+
+    reloaded = OptionsConfig(config.path)
+    assert reloaded.hidden_columns("Super-Resolution", "train") == ["dataset_path", "notes"]
+
+    config.set_hidden_columns("Super-Resolution", "train", [])
+    assert config.hidden_columns("Super-Resolution", "train") == []
+
+
 def test_custom_fields_are_non_native_options():
     config = make_config()
     # algo 는 모든 내장 Task 에 있다(값 목록은 Denoising 만 채워져 있고 나머지는
