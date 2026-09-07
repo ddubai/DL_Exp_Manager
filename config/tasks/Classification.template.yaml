@@ -1,3 +1,8 @@
+# yaml-language-server: $schema=none
+# ↑ 이 폴더 이름이 "tasks" 라서, VSCode 의 Ansible 확장이 파일 경로만 보고 Ansible
+#   태스크 목록 스키마를 잘못 붙인다(Ansible 과 무관한 파일이다). 이 한 줄로 그 스키마
+#   검사를 파일 단위로 끈다 - .vscode/settings.json 의 files.associations 와 별개로,
+#   에디터/워크스페이스 설정 없이도 이 파일만 열면 항상 적용된다.
 # Task: Classification
 # options = combo-box choices · metrics = table metric columns · columns = table layout
 # short   = short name used in the generated command ({task_short})
