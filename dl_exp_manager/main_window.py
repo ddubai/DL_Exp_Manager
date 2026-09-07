@@ -47,7 +47,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reload_pending.timeout.connect(self._reload_config_from_disk)
 
         self._restore_state()
-        self.nav.refresh()
+        self.nav.refresh(select_work_id=self._restore_work_id, select_task_id=self._restore_task_id)
 
     # ==================================================================
     # 작업 공간 (좌측 네비게이션 + Train/Evaluation 탭 + 서버 바)
@@ -462,11 +462,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tabs.setCurrentIndex(int(tab))
             except (TypeError, ValueError):
                 pass
+        # 종료 시점에 보고 있던 Task/Work 로 되돌아간다 - nav.refresh() 에 넘길
+        # select_*_id 는 여기서 미리 읽어 두고, 실제 refresh 호출은 __init__ 마지막에 한다.
+        self._restore_task_id = self._settings_int("nav/task_id")
+        self._restore_work_id = self._settings_int("nav/work_id")
+
+    def _settings_int(self, key: str) -> int | None:
+        value = self.settings.value(key)
+        if value is None:
+            return None
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return None
+        return value or None
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.setValue("window/splitter", self.splitter.saveState())
         self.settings.setValue("window/tab", self.tabs.currentIndex())
+        self.settings.setValue("nav/task_id", self.nav.current_task_id() or 0)
+        self.settings.setValue("nav/work_id", self.nav.current_work_id() or 0)
         # 단일 SQLite 파일이 실험 전체 기록이므로, 종료 시점 스냅샷을 남겨 둔다
         # (실수로 지우거나 편집을 잘못했을 때의 최소한의 보험).
         self.db.backup(keep=5)

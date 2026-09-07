@@ -725,6 +725,30 @@ def test_set_theme_rebuilds_workspace_and_preserves_scope(qapp, config):
         window.close()
 
 
+def test_main_window_restores_scope_and_tab_after_restart(qapp, config):
+    """종료 시점에 보고 있던 Task/Work·탭을 재시작 후에도 그대로 띄워야 한다."""
+    from dl_exp_manager.main_window import MainWindow
+
+    d = tempfile.mkdtemp()
+    db_path = os.path.join(d, "e.db")
+    config_path = os.path.join(d, "options.yaml")
+
+    window = MainWindow(db_path, config_path)
+    sr = window.db.add_task("Super-Resolution")
+    work_id = window.db.add_work(sr, "SSL2SL")
+    window.nav.refresh(select_work_id=work_id)
+    window.tabs.setCurrentIndex(1)
+    window.close()  # closeEvent 가 nav/task_id, nav/work_id, window/tab 을 저장한다
+
+    reopened = MainWindow(db_path, config_path)
+    try:
+        assert reopened.nav.current_work_id() == work_id
+        assert reopened.nav.current_task_id() == sr
+        assert reopened.tabs.currentIndex() == 1
+    finally:
+        reopened.close()
+
+
 def test_main_window_navigates_to_run_from_search(qapp, config):
     from dl_exp_manager.main_window import MainWindow
 
