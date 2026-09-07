@@ -202,8 +202,10 @@ config/
   defaults.template.yaml
   params.yaml                명령어에 파라미터를 적는 방식 (<batch_size> 를 어떻게 펼칠지)
   params.template.yaml
+  labels.yaml                 폼/표에 보이는 필드 이름 (전역) - Epochs, Learning rate, ...
+  labels.template.yaml
   task-defs/
-    Super-Resolution.yaml            Task 별 options · metrics · columns · commands
+    Super-Resolution.yaml            Task 별 options · metrics · columns · commands · labels
     Super-Resolution.template.yaml
     Denoising.yaml
     ...
@@ -277,6 +279,47 @@ Dataset 을 고르면 `data=` 자리 전체가 명령어에서 빠집니다.
 | `checkpoint_path`, `checkpoint_epoch`, `device`, `input_size` | Evaluation 폼 |
 | `train_result_path`, `train_run_id`, `train_model` | Evaluation 폼에서 고른 Train Run |
 | 그 외 이름 | Task 의 `options:` 에 정의한 사용자 정의 필드 (`{algo}`, `{scale}` …) |
+
+### `config/labels.yaml` — 필드 이름 바꾸기 / 항목 늘리기
+
+Train/Evaluation 폼과 표에 나오는 **모든** 필드 이름 - Task-Specific Fields 도,
+Training Hyperparameters(Epochs, Batch size, Learning rate, ...)도 - 코드를
+고치지 않고 여기서 바꿀 수 있습니다.
+
+**이름만 바꾸기** — 가장 쉬운 방법은 Train/Evaluation 표의 **컬럼 헤더를
+우클릭 → Rename**입니다. 내장 필드는 모든 Task 에 공통으로 적용되도록
+`config/labels.yaml` 에 저장되고, `options:` 로 추가한 Task 전용 필드는 그
+Task 의 `task-defs/<Task>.yaml` 에 저장됩니다(다른 Task 에는 영향 없음). 물론
+YAML 을 직접 열어 써도 됩니다:
+
+```yaml
+# config/labels.yaml - 모든 Task 공통
+labels:
+  epochs: Iterations
+  lr: Learning Rate
+  checkpoint_path: Checkpoint (.pth)
+```
+
+```yaml
+# config/task-defs/Super-Resolution.yaml - 이 Task 에서만
+labels:
+  scale: Scale Factor
+```
+
+**항목 늘리기** — Training Hyperparameters 에 필드를 새로 추가하는 것도 항상
+써 오던 방법과 같습니다: `options:` 에 이름을 하나 추가하면 그게 폼의 새
+필드가 됩니다(값 저장, 명령어 자리표시자, 표 컬럼까지 전부 자동으로 동작).
+기본은 "Task-Specific Fields" 섹션에 뜨는데, `hyperparameter_fields:` 에
+그 이름을 적으면 "Training Hyperparameters" 쪽으로 옮겨 그려질 뿐, 나머지
+동작은 완전히 같습니다.
+
+```yaml
+# config/task-defs/Super-Resolution.yaml
+options:
+  scale: [x2, x3, x4]
+  warmup_steps: []       # 새 필드 - 자유 입력 콤보라 목록을 안 채워도 된다
+hyperparameter_fields: [warmup_steps]   # Training Hyperparameters 쪽에 그린다
+```
 
 ### `config/params.yaml` — 파라미터를 적는 방식
 

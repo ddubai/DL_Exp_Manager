@@ -203,6 +203,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         self._editing_favorite: bool = False
         self._hidden_headers: set[str] = set()
         self._custom_widgets: dict[str, ManagedCombo] = {}
+        # 폼의 고정 필드(Work ID, Epochs, ...) 라벨 - config/labels.yaml 이 바뀌면
+        # refresh_labels() 가 이걸 훑으며 다시 그린다. 값은 (라벨 위젯, 기본 문구).
+        self._field_labels: dict[str, tuple[QtWidgets.QLabel, str]] = {}
         self._column_settings = QtCore.QSettings(ORG_NAME, APP_NAME)
         self._restoring_columns = False
 
@@ -549,9 +552,22 @@ class BaseRunPanel(QtWidgets.QWidget):
         )
         self.form_layout.addRow(self._custom_host)
 
-        # Train 의 Training Hyperparameters 는 여기(Task-Specific Fields 다음, Metrics 전)
-        # 에 온다 - Evaluation 은 _build_left_fields 에서 이미 다 그려서 여기선 no-op.
+        # Training Hyperparameters: Train 은 여기 고정 필드(epochs/batch_size/...)를
+        # 두고(_build_extra_form_rows), 두 패널 다 이 Task 의 task-defs/<Task>.yaml
+        # 의 hyperparameter_fields 에 올린 커스텀 필드를 그 아래에 이어 붙인다
+        # (Task-Specific Fields 와 같은 콤보 위젯이지만 섹션만 다르다 - 어느 쪽에
+        # 갈지는 OptionsConfig.hyperparameter_fields/task_specific_fields 가 정한다).
+        self._hyperparam_section = self._section("Training Hyperparameters", left_inner)
+        self.form_layout.addRow(self._hyperparam_section)
         self._build_extra_form_rows(left_inner)
+        self._hyperparam_host = QtWidgets.QWidget(left_inner)
+        self._hyperparam_form = QtWidgets.QFormLayout(self._hyperparam_host)
+        self._hyperparam_form.setContentsMargins(0, 0, 0, 0)
+        self._hyperparam_form.setSpacing(6)
+        self._hyperparam_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.form_layout.addRow(self._hyperparam_host)
 
         self.metrics_editor = MetricsEditor(
             self.METRIC_PRESETS, left_inner, config=self.config, task_getter=self.current_task_name
@@ -624,47 +640,77 @@ class BaseRunPanel(QtWidgets.QWidget):
         layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     # ==================================================================
+    # 필드 표시 이름 (config/labels.yaml) - 고정 필드는 전역 이름만 쓴다
+    # (Task 마다 폼이 다시 그려지지 않으므로, Task 전용 라벨은 커스텀 필드에만
+    # 쓴다 - _rebuild_custom_fields 참고).
+    # ==================================================================
+    def _label(self, key: str, fallback: str) -> str:
+        return self.config.label_for(None, key, fallback) if self.config else fallback
+
+    def _add_row(
+        self, layout: QtWidgets.QFormLayout, key: str, fallback: str, widget: QtWidgets.QWidget
+    ) -> QtWidgets.QWidget:
+        """`layout.addRow` that remembers the row's label so `refresh_labels()`
+        can repaint it after config/labels.yaml changes, without rebuilding the form."""
+        layout.addRow(self._label(key, fallback) + ":", widget)
+        label_widget = layout.labelForField(widget)
+        if label_widget is not None:
+            self._field_labels[key] = (label_widget, fallback)
+        return widget
+
+    def refresh_labels(self) -> None:
+        """config/labels.yaml (또는 이 Task 의 labels:) 을 다시 읽고 이미 그려진
+        폼의 라벨 문구를 새로 칠한다 - 고정 필드는 여기서, 커스텀 필드는
+        _rebuild_custom_fields 가 매번 새로 읽으므로 그걸 한 번 더 부른다."""
+        for key, (label_widget, fallback) in self._field_labels.items():
+            label_widget.setText(self._label(key, fallback) + ":")
+        self._rebuild_custom_fields()
+
+    # ==================================================================
     # LEFT column - Train 의 기본 순서. Evaluation 은 이 메서드를 통째로 오버라이드한다.
     # ==================================================================
     def _build_left_fields(self, parent: QtWidgets.QWidget) -> None:
         self.work_combo = self._make_work_combo(parent)
-        self.form_layout.addRow("Work ID:", self.work_combo)
+        self._add_row(self.form_layout, "work", "Work ID", self.work_combo)
 
         self.server_combo = self._make_server_combo(parent)
         if self.SHOW_SERVER:
-            self.form_layout.addRow("Server:", self.server_combo)
+            self._add_row(self.form_layout, "server", "Server", self.server_combo)
         else:
             self.server_combo.setVisible(False)
 
         self.gpu_selector = GpuSelector(parent)
         if self.SHOW_GPU:
-            self.form_layout.addRow("GPU:", self.gpu_selector)
+            self._add_row(self.form_layout, "gpus", "GPU", self.gpu_selector)
         else:
             # 레이아웃에 올리지 않은 위젯은 부모 위 (0,0) 에 떠 있는 채로 계속
             # 보이므로, 아예 숨겨야 한다 (그냥 자식으로만 두면 안 됨).
             self.gpu_selector.setVisible(False)
 
-        self.model_combo = self._make_option_combo("model", "Model", parent)
-        self.form_layout.addRow("Model:", self.model_combo)
+        self.model_combo = self._make_option_combo("model", self._label("model", "Model"), parent)
+        self._add_row(self.form_layout, "model", "Model", self.model_combo)
 
         dataset_row = self._make_dataset_row(parent)
-        self.form_layout.addRow("Dataset:", dataset_row)
+        self._add_row(self.form_layout, "dataset", "Dataset", dataset_row)
 
         self.status_combo = self._make_status_combo(parent)
-        self.form_layout.addRow("Status:", self.status_combo)
+        self._add_row(self.form_layout, "status", "Status", self.status_combo)
 
         started_row = self._make_started_row(parent)
-        self.form_layout.addRow("Started At:", started_row)
+        self._add_row(self.form_layout, "started_at", "Started At", started_row)
 
         self.duration_edit = self._make_duration_edit(parent)
-        self.form_layout.addRow("Duration:", self.duration_edit)
+        self._add_row(self.form_layout, "duration", "Duration", self.duration_edit)
 
     def _build_extra_form_rows(self, parent: QtWidgets.QWidget) -> None:
-        """Subclasses add their own input fields here (Train: Training Hyperparameters).
+        """Subclasses add their own fixed rows here, under the (already-added)
+        Training Hyperparameters heading - Train uses this for epochs/batch_size/...,
+        Evaluation leaves it as a no-op (its fields are all in `_build_left_fields`).
 
-        Called by `_build_form_area` right after Task-Specific Fields, before
-        Evaluation Metrics - not from `_build_left_fields` itself, so it lands in
-        the same spot regardless of how a subclass orders its other fields.
+        Called by `_build_form_area` right after the Training Hyperparameters
+        section heading, before that section's custom-field host - not from
+        `_build_left_fields` itself, so it lands in the same spot regardless of
+        how a subclass orders its other fields.
         """
 
     # -- 공용 위젯 팩토리 - LEFT 컬럼 순서를 재구성하는 서브클래스(Evaluation)도 함께 쓴다 ---
@@ -751,8 +797,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         result_path_layout.addWidget(self.result_path_edit, 1)
         result_path_layout.addWidget(parse_btn)
         self.right_form_layout.addRow(self._section("Paths", parent))
-        self.right_form_layout.addRow(self._dataset_path_label() + ":", self.dataset_path_edit)
-        self.right_form_layout.addRow("Result Folder Path:", result_path_row)
+        self._add_row(self.right_form_layout, "dataset_path", self._dataset_path_label(), self.dataset_path_edit)
+        self._add_row(self.right_form_layout, "result_path", "Result Folder Path", result_path_row)
 
         self.command_input = LabeledText(
             "Execution Command",
@@ -807,8 +853,8 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.right_form_layout.addRow(self.command_input)
         self.right_form_layout.addRow(self.config_input)
         self.right_form_layout.addRow(self.notes_input)
-        self.right_form_layout.addRow("Tags:", self.tags_edit)
-        self.right_form_layout.addRow("Failure Reason:", self.failure_reason_edit)
+        self._add_row(self.right_form_layout, "tags", "Tags", self.tags_edit)
+        self._add_row(self.right_form_layout, "failure_reason", "Failure Reason", self.failure_reason_edit)
         self._sync_failure_reason_visibility()
 
     # -- option combos ------------------------------------------------------------
@@ -1178,27 +1224,48 @@ class BaseRunPanel(QtWidgets.QWidget):
 
     # -- Task-specific custom fields --------------------------------------------
     def _rebuild_custom_fields(self) -> None:
-        """Build combo rows for this Task's custom fields (scale, noise_sigma, ...)."""
-        fields = self.config.custom_fields(self._task_name) if self.config else []
+        """Build combo rows for this Task's custom fields (scale, noise_sigma, ...).
+
+        Which section a field lands in - Task-Specific Fields or Training
+        Hyperparameters - comes from task-defs/<Task>.yaml's hyperparameter_fields
+        (config_store.OptionsConfig.task_specific_fields/hyperparameter_fields).
+        Both groups end up in the same self._custom_widgets dict either way, so
+        everything downstream (extra_json, command placeholders, table columns)
+        treats them identically - only where they're drawn differs.
+        """
+        if self.config:
+            task_fields = self.config.task_specific_fields(self._task_name)
+            hyper_fields = self.config.hyperparameter_fields(self._task_name)
+        else:
+            task_fields, hyper_fields = [], []
         current = {name: combo.current_text() for name, combo in self._custom_widgets.items()}
 
-        while self._custom_form.count():
-            item = self._custom_form.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)   # deleteLater alone leaves it on screen until next tick
-                widget.deleteLater()
+        for form in (self._custom_form, self._hyperparam_form):
+            while form.count():
+                item = form.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)   # deleteLater alone leaves it on screen until next tick
+                    widget.deleteLater()
         self._custom_widgets = {}
 
-        for name in fields:
-            combo = self._make_option_combo(name, name, self._custom_host)
-            combo.set_text(current.get(name, ""))
-            self._custom_form.addRow(f"{name}:", combo)
-            self._custom_widgets[name] = combo
+        for form, host, names in (
+            (self._custom_form, self._custom_host, task_fields),
+            (self._hyperparam_form, self._hyperparam_host, hyper_fields),
+        ):
+            for name in names:
+                label = self.config.label_for(self._task_name, name, name) if self.config else name
+                combo = self._make_option_combo(name, label, host)
+                combo.set_text(current.get(name, ""))
+                form.addRow(f"{label}:", combo)
+                self._custom_widgets[name] = combo
 
-        has_fields = bool(fields)
-        self._custom_section.setVisible(has_fields)
-        self._custom_host.setVisible(has_fields)
+        self._custom_section.setVisible(bool(task_fields))
+        self._custom_host.setVisible(bool(task_fields))
+        self._hyperparam_host.setVisible(bool(hyper_fields))
+        # Train 은 고정 필드(epochs/...)가 늘 있어 섹션을 계속 보여준다;
+        # Evaluation 은 hyperparameter_fields 로 뭔가 올렸을 때만 보여준다.
+        self._hyperparam_section.setVisible(self.KIND == "train" or bool(hyper_fields))
         for combo in self._custom_widgets.values():
             combo.currentTextChanged.connect(lambda *_: self._sync_generated_command())
 
@@ -1518,9 +1585,15 @@ class BaseRunPanel(QtWidgets.QWidget):
         if spec.is_metric:
             # For a metric, rename the config key itself (columns update along with it).
             self.config.rename_metric(task, spec.source_name, new)
+        elif spec.is_extra:
+            # Custom field - only this Task uses it, so the override is Task-scoped
+            # (config/task-defs/<task>.yaml's own labels:).
+            self.config.set_label(task, spec.source_name, new)
         else:
-            # Built-in/custom fields only get a display-name change; the data key stays.
-            self.model.set_header_label(spec.key, new)
+            # Built-in field - shared by every Task, so the override is global
+            # (config/labels.yaml). The data key stays the same either way; this
+            # only changes what's displayed here and in the Register/Edit Run form.
+            self.config.set_label(None, spec.source_name, new)
         self.reload_columns()
         self.configChanged.emit()
 
@@ -2025,14 +2098,15 @@ class TrainPanel(BaseRunPanel):
         self.crop_size_edit.setPlaceholderText("e.g. 256x256 / 192")
         self.lr_edit = QtWidgets.QLineEdit(parent)
         self.lr_edit.setPlaceholderText("e.g. 3e-4")
-        self.optimizer_combo = self._make_option_combo("optimizer", "Optimizer", parent)
+        self.optimizer_combo = self._make_option_combo(
+            "optimizer", self._label("optimizer", "Optimizer"), parent
+        )
 
-        self.form_layout.addRow(self._section("Training Hyperparameters", parent))
-        self.form_layout.addRow("Epochs / Iter:", self.epochs_edit)
-        self.form_layout.addRow("Batch size:", self.batch_edit)
-        self.form_layout.addRow("Crop size:", self.crop_size_edit)
-        self.form_layout.addRow("Learning rate:", self.lr_edit)
-        self.form_layout.addRow("Optimizer:", self.optimizer_combo)
+        self._add_row(self.form_layout, "epochs", "Epochs / Iter", self.epochs_edit)
+        self._add_row(self.form_layout, "batch_size", "Batch size", self.batch_edit)
+        self._add_row(self.form_layout, "crop_size", "Crop size", self.crop_size_edit)
+        self._add_row(self.form_layout, "lr", "Learning rate", self.lr_edit)
+        self._add_row(self.form_layout, "optimizer", "Optimizer", self.optimizer_combo)
 
     def _command_values(self) -> dict[str, str]:
         values = super()._command_values()
@@ -2121,7 +2195,7 @@ class EvaluationPanel(BaseRunPanel):
     def _build_left_fields(self, parent: QtWidgets.QWidget) -> None:
         """Train 과 순서가 크게 달라(같은 Work 의 Train Run 을 먼저 고르는 흐름) 통째로 재구성한다."""
         self.work_combo = self._make_work_combo(parent)
-        self.form_layout.addRow("Work ID:", self.work_combo)
+        self._add_row(self.form_layout, "work", "Work ID", self.work_combo)
 
         self.source_run_combo = QtWidgets.QComboBox(parent)
         self.source_run_combo.setToolTip(
@@ -2129,11 +2203,11 @@ class EvaluationPanel(BaseRunPanel):
             "Sets Model automatically; you still pick which checkpoint/epoch."
         )
         self.source_run_combo.currentIndexChanged.connect(self._on_source_run_changed)
-        self.form_layout.addRow("Train Run:", self.source_run_combo)
+        self._add_row(self.form_layout, "source_train_run", "Train Run", self.source_run_combo)
 
         self.checkpoint_epoch_edit = QtWidgets.QLineEdit(parent)
         self.checkpoint_epoch_edit.setPlaceholderText("e.g. 300000 (iter) or 200 (epoch)")
-        self.form_layout.addRow("Epoch/Iter:", self.checkpoint_epoch_edit)
+        self._add_row(self.form_layout, "checkpoint_epoch", "Epoch/Iter", self.checkpoint_epoch_edit)
 
         self.checkpoint_edit = PathEdit(
             parent,
@@ -2141,43 +2215,43 @@ class EvaluationPanel(BaseRunPanel):
             directory=False,
             compact=True,
         )
-        self.form_layout.addRow("Checkpoint Path:", self.checkpoint_edit)
+        self._add_row(self.form_layout, "checkpoint_path", "Checkpoint Path", self.checkpoint_edit)
 
-        self.model_combo = self._make_option_combo("model", "Model", parent)
+        self.model_combo = self._make_option_combo("model", self._label("model", "Model"), parent)
         self.model_combo.setToolTip("Auto-filled when you pick a Train Run above; override if needed.")
-        self.form_layout.addRow("Model:", self.model_combo)
+        self._add_row(self.form_layout, "model", "Model", self.model_combo)
 
         dataset_row = self._make_dataset_row(parent)
-        self.form_layout.addRow("Dataset:", dataset_row)
+        self._add_row(self.form_layout, "dataset", "Dataset", dataset_row)
 
         self.status_combo = self._make_status_combo(parent)
-        self.form_layout.addRow("Status:", self.status_combo)
+        self._add_row(self.form_layout, "status", "Status", self.status_combo)
 
         self.server_combo = self._make_server_combo(parent)
-        self.form_layout.addRow("Server:", self.server_combo)
+        self._add_row(self.form_layout, "server", "Server", self.server_combo)
         self.gpu_selector = GpuSelector(parent)
         self.gpu_selector.setVisible(False)  # 추론은 GPU 를 안 씀 - 인스턴스는 그대로 유지
 
-        self.device_combo = self._make_option_combo("device", "Device", parent)
-        self.form_layout.addRow("Device:", self.device_combo)
+        self.device_combo = self._make_option_combo("device", self._label("device", "Device"), parent)
+        self._add_row(self.form_layout, "device", "Device", self.device_combo)
 
         self.latency_edit = QtWidgets.QLineEdit(parent)
         self.latency_edit.setPlaceholderText("ms per image")
-        self.form_layout.addRow("Latency (ms):", self.latency_edit)
+        self._add_row(self.form_layout, "latency_ms", "Latency (ms)", self.latency_edit)
 
         self.throughput_edit = QtWidgets.QLineEdit(parent)
         self.throughput_edit.setPlaceholderText("images/sec (FPS)")
-        self.form_layout.addRow("Throughput (FPS):", self.throughput_edit)
+        self._add_row(self.form_layout, "throughput_fps", "Throughput (FPS)", self.throughput_edit)
 
         self.input_size_edit = QtWidgets.QLineEdit(parent)
         self.input_size_edit.setPlaceholderText("auto-filled from Dataset's Image size; editable")
-        self.form_layout.addRow("Input size:", self.input_size_edit)
+        self._add_row(self.form_layout, "input_size", "Input size", self.input_size_edit)
 
         started_row = self._make_started_row(parent)
-        self.form_layout.addRow("Started At:", started_row)
+        self._add_row(self.form_layout, "started_at", "Started At", started_row)
 
         self.duration_edit = self._make_duration_edit(parent)
-        self.form_layout.addRow("Duration:", self.duration_edit)
+        self._add_row(self.form_layout, "duration", "Duration", self.duration_edit)
 
     def _on_dataset_selected(self, row: dict[str, Any]) -> None:
         super()._on_dataset_selected(row)

@@ -115,6 +115,52 @@ def test_rename_and_remove_option():
     assert not config.remove_option("Super-Resolution", "model", "NotThere")
 
 
+def test_label_precedence_and_persistence():
+    """전역(labels.yaml) < Task 전용(task-defs) - Task 쪽이 있으면 그게 이긴다."""
+    config = make_config()
+    assert config.label_for(None, "lr", "LR fallback") == "LR fallback"
+
+    config.set_label(None, "lr", "Learning Rate")
+    assert config.label_for("Super-Resolution", "lr", "") == "Learning Rate"
+    assert config.label_for("Denoising", "lr", "") == "Learning Rate"
+
+    config.set_label("Super-Resolution", "lr", "Learning Rate (SR)")
+    assert config.label_for("Super-Resolution", "lr", "") == "Learning Rate (SR)"
+    assert config.label_for("Denoising", "lr", "") == "Learning Rate"  # 다른 Task 는 그대로 전역
+
+    # 빈 문자열은 override 를 지운다.
+    config.set_label("Super-Resolution", "lr", "")
+    assert config.label_for("Super-Resolution", "lr", "") == "Learning Rate"
+
+    reloaded = OptionsConfig(config.path)
+    assert reloaded.label_for(None, "lr", "") == "Learning Rate"
+    assert os.path.exists(config.labels_path)
+
+
+def test_hyperparameter_fields_split_from_task_specific_fields():
+    config = make_config()
+    config.add_option("Super-Resolution", "warmup_steps", "500")
+    # 아직 hyperparameter_fields 에 안 올렸으면 Task-Specific Fields 쪽에 남는다.
+    assert "warmup_steps" in config.task_specific_fields("Super-Resolution")
+    assert "warmup_steps" not in config.hyperparameter_fields("Super-Resolution")
+
+    raw = config._task_raw("Super-Resolution")
+    raw["hyperparameter_fields"] = ["warmup_steps"]
+    config._touch_task("Super-Resolution")
+
+    assert config.hyperparameter_fields("Super-Resolution") == ["warmup_steps"]
+    assert "warmup_steps" not in config.task_specific_fields("Super-Resolution")
+    # scale 은 그대로 Task-Specific Fields.
+    assert "scale" in config.task_specific_fields("Super-Resolution")
+    # custom_fields() 는 여전히 둘 다 포함한다 (명령어/컬럼 등 기존 용도는 안 바뀐다).
+    assert set(config.custom_fields("Super-Resolution")) >= {"scale", "warmup_steps"}
+
+    # 존재하지 않는 이름을 적어 두면 무시한다.
+    raw["hyperparameter_fields"] = ["warmup_steps", "not_a_real_option"]
+    config._touch_task("Super-Resolution")
+    assert config.hyperparameter_fields("Super-Resolution") == ["warmup_steps"]
+
+
 def test_metric_removal_cleans_columns():
     config = make_config()
     assert "LPIPS" in config.columns_for("Super-Resolution", "train")

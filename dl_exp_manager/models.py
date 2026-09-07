@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Sequence
 
 from . import theme
@@ -146,6 +146,9 @@ def build_columns(
     metric_keys = set(config.metric_keys(task)) if config is not None else set()
     custom_fields = set(config.custom_fields(task)) if config is not None else set()
 
+    def label(key: str, fallback: str) -> str:
+        return config.label_for(task, key, fallback) if config is not None else fallback
+
     specs: list[ColumnSpec] = []
     seen: set[str] = set()
 
@@ -153,7 +156,10 @@ def build_columns(
         if spec.key in seen:
             return
         seen.add(spec.key)
-        specs.append(spec)
+        # config/labels.yaml (또는 이 Task 의 task-defs 파일) 에 이 필드 이름을
+        # 바꿔 둔 게 있으면 그걸로 - 없으면 코드에 있는 기본 이름 그대로.
+        # source_name 은 "metric:"/"extra:" 접두어를 뗀 원래 필드 이름이다.
+        specs.append(replace(spec, header=label(spec.source_name, spec.header)))
 
     for column_id in LEADING_COLUMNS:
         add(FIELD_SPECS[column_id])
@@ -190,7 +196,6 @@ class RunTableModel(QtCore.QAbstractTableModel):
         super().__init__(parent)
         self._columns: list[ColumnSpec] = []
         self._rows: list[dict[str, Any]] = []
-        self._labels: dict[str, str] = {}  # 사용자가 바꾼 헤더 표시명
         self._best: dict[tuple[Any, str], float] = {}  # (work_id, column key) -> 최고값
 
     # -- 데이터 주입 --------------------------------------------------------
@@ -258,12 +263,6 @@ class RunTableModel(QtCore.QAbstractTableModel):
             keys.update(loads_metrics(row.get("metrics_json")).keys())
         return sorted(keys)
 
-    def set_header_label(self, key: str, label: str) -> None:
-        self._labels[key] = label
-        index = self.column_index(key)
-        if index >= 0:
-            self.headerDataChanged.emit(Qt.Orientation.Horizontal, index, index)
-
     # -- 조회 헬퍼 ----------------------------------------------------------
     def columns(self) -> list[ColumnSpec]:
         return list(self._columns)
@@ -285,7 +284,7 @@ class RunTableModel(QtCore.QAbstractTableModel):
         return None
 
     def header_text(self, spec: ColumnSpec) -> str:
-        return self._labels.get(spec.key, spec.header)
+        return spec.header
 
     # -- QAbstractTableModel ------------------------------------------------
     def rowCount(self, parent: QtCore.QModelIndex | None = None) -> int:  # noqa: N802

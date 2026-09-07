@@ -692,6 +692,58 @@ def test_search_dialog_activation_calls_back_with_payload(qapp, config):
 
 
 
+def test_hyperparameter_fields_render_in_their_own_section(qapp, config):
+    """task-defs 의 hyperparameter_fields 로 올린 커스텀 필드는 Training
+    Hyperparameters 에, 나머지 options: 는 Task-Specific Fields 에 그려진다."""
+    from dl_exp_manager.db import Database
+    from dl_exp_manager.widgets.run_panel import TrainPanel
+
+    db = Database(os.path.join(tempfile.mkdtemp(), "e.db"))
+    sr = db.add_task("Super-Resolution")
+    work = db.add_work(sr, "SSL2SL")
+
+    config.add_option("Super-Resolution", "warmup_steps", "500")
+    raw = config._task_raw("Super-Resolution")
+    raw["hyperparameter_fields"] = ["warmup_steps"]
+    config._touch_task("Super-Resolution")
+    config.set_label("Super-Resolution", "scale", "Scale Factor")
+
+    panel = TrainPanel(db, config)
+    panel.set_scope(sr, work)
+
+    assert panel._custom_widgets["scale"].parent() is panel._custom_host
+    assert panel._custom_widgets["warmup_steps"].parent() is panel._hyperparam_host
+    assert panel._custom_form.labelForField(panel._custom_widgets["scale"]).text() == "Scale Factor:"
+    db.close()
+
+
+def test_rename_column_persists_label_and_updates_the_open_form(qapp, monkeypatch):
+    """표 헤더 우클릭 -> Rename 이 config 에 저장되고, 열려 있는 Register/Edit Run
+    폼의 라벨도 (main_window 의 configChanged 배선을 통해) 함께 바뀌어야 한다."""
+    from dl_exp_manager import editing
+    from dl_exp_manager.main_window import MainWindow
+    from dl_exp_manager.models import build_columns
+
+    d = tempfile.mkdtemp()
+    window = MainWindow(os.path.join(d, "e.db"), os.path.join(d, "options.yaml"))
+    try:
+        sr = window.db.add_task("Super-Resolution")
+        work_id = window.db.add_work(sr, "SSL2SL")
+        window.nav.refresh(select_work_id=work_id)
+        window.config.set_columns("Super-Resolution", "train", ["status", "epochs"])
+
+        cols = build_columns(window.config, "Super-Resolution", "train")
+        epochs_spec = next(c for c in cols if c.source_name == "epochs")
+        monkeypatch.setattr(editing, "prompt_text", lambda *a, **k: "Iterations")
+        window.train_panel.rename_column(epochs_spec)
+
+        assert window.config.label_for(None, "epochs", "") == "Iterations"
+        label_widget, _fallback = window.train_panel._field_labels["epochs"]
+        assert label_widget.text() == "Iterations:"
+    finally:
+        window.close()
+
+
 def test_set_theme_rebuilds_workspace_and_preserves_scope(qapp, config):
     from dl_exp_manager import theme
     from dl_exp_manager.main_window import MainWindow

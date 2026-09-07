@@ -39,6 +39,7 @@ config/*.yaml.tmp
 config/options.yaml
 config/defaults.yaml
 config/params.yaml
+config/labels.yaml
 config/servers.yaml
 config/task-defs/*.yaml
 !config/task-defs/*.template.yaml

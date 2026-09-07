@@ -382,6 +382,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _apply_config_everywhere(self) -> None:
         self.train_panel.reload_columns()
         self.evaluation_panel.reload_columns()
+        self.train_panel.refresh_labels()
+        self.evaluation_panel.refresh_labels()
         self.server_bar.refresh()
 
     def _show_startup_status(self) -> None:

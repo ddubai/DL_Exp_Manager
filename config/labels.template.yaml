@@ -1,0 +1,16 @@
+# Display names for the Train / Evaluation form and table - shared by every Task
+#
+# Rename any field without touching the app: built-in ones (epochs, lr,
+# checkpoint_path, ...) or a custom field added under some Task's options:.
+# The left side is the data key (never changes); the right side is what's
+# shown:
+#
+#   epochs: "Iterations"
+#   lr: "Learning Rate"
+#
+# The easiest way to set one of these is to right-click a column header in
+# the Train/Evaluation table and choose Rename - it writes here for you.
+# A label set in task-defs/<name>.yaml's own `labels:` applies only to that
+# Task and overrides the one here (see the header of options.yaml).
+
+labels: {}

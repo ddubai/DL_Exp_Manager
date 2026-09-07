@@ -9,8 +9,10 @@
       defaults.template.yaml
       params.yaml             명령어에 파라미터를 적는 방식 (+batch_size=16 / --batch-size 16 ...)
       params.template.yaml
+      labels.yaml              폼/표에 보이는 필드 이름 (전역) - Epochs, Learning rate, ...
+      labels.template.yaml
       task-defs/
-        Super-Resolution.yaml           Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿
+        Super-Resolution.yaml           Task 별 선택지 / 지표 / 컬럼 / 명령어 템플릿 / 필드 이름
         Super-Resolution.template.yaml
         Denoising.yaml
         Denoising.template.yaml
@@ -185,6 +187,7 @@ SERVERS_FILE = "servers.yaml"
 SERVERS_TEMPLATE_FILE = "servers.template.yaml"
 DEFAULTS_FILE = "defaults.yaml"
 PARAMS_FILE = "params.yaml"
+LABELS_FILE = "labels.yaml"
 # 예전엔 "tasks" 였다 - VSCode 의 Ansible 확장이 "tasks/*.yml" 을 Ansible 태스크 목록
 # 스키마로 자동 인식해서(폴더 이름만 보고 판단한다), 이 폴더 안 아무 관련 없는 YAML
 # 에도 전부 빨간줄이 떴다. `$schema=none` 모드라인(TASK_HEADER_TEMPLATE)으로도 못
@@ -355,7 +358,8 @@ ROOT_HEADER = """\
 #   servers.yaml        Servers and GPU inventory (type / count / memory)
 #   defaults.yaml       Options shared by every Task
 #   params.yaml         How parameters are spelled on the command line
-#   task-defs/<name>.yaml   Per-Task options, metrics, columns, and commands
+#   labels.yaml         Display names for fields, shared by every Task
+#   task-defs/<name>.yaml   Per-Task options, metrics, columns, commands, and labels
 #
 # Edit by hand or through the app UI - both write to the same files.
 # Saving is picked up by the app immediately, and a UI edit only touches
@@ -365,10 +369,14 @@ ROOT_HEADER = """\
 #   short   : Short name used in the generated command ({task_short}), so the
 #             Task can be called Denoising in the UI while the command still
 #             says algo=dn/... . Defaults to the Task name.
-#   options : That Task's combo-box choices. A name here 'replaces' the same
-#             name in defaults.yaml. Any name other than model / dataset /
-#             optimizer becomes a custom field with its own combo box in the
-#             form, stored in the DB's extra_json.
+#   options : That Task's combo-box choices ('replaces' the same name in
+#             defaults.yaml). Any name other than model / dataset / optimizer
+#             becomes a custom field - also how you add a brand new field.
+#   hyperparameter_fields, labels : optional per-Task tweaks - the first
+#             groups some options: names under "Training Hyperparameters"
+#             instead of "Task-Specific Fields"; the second renames any field
+#             for this Task only (labels.yaml renames one for every Task):
+#             hyperparameter_fields: [warmup_steps]   labels: {lr: "LR (base)"}
 #   metrics : The table's metric columns. digits sets decimal places shown,
 #             higher_is_better marks whether a bigger value is better.
 #   columns : Which columns appear (and in what order) in the Train /
@@ -452,6 +460,23 @@ PARAMS_HEADER = """\
 #               server, host, gpus, cuda_devices
 """
 
+LABELS_HEADER = """\
+# Display names for the Train / Evaluation form and table - shared by every Task
+#
+# Rename any field without touching the app: built-in ones (epochs, lr,
+# checkpoint_path, ...) or a custom field added under some Task's options:.
+# The left side is the data key (never changes); the right side is what's
+# shown:
+#
+#   epochs: "Iterations"
+#   lr: "Learning Rate"
+#
+# The easiest way to set one of these is to right-click a column header in
+# the Train/Evaluation table and choose Rename - it writes here for you.
+# A label set in task-defs/<name>.yaml's own `labels:` applies only to that
+# Task and overrides the one here (see the header of options.yaml).
+"""
+
 TASK_HEADER_TEMPLATE = """\
 # yaml-language-server: $schema=none
 # ↑ 폴더 이름을 tasks -> task-defs 로 바꿔서 Ansible 확장의 오탐은 근본적으로
@@ -459,6 +484,8 @@ TASK_HEADER_TEMPLATE = """\
 #   대비한 안전망이다. 파일 자체에 붙어 있어 워크스페이스 설정과 무관하게 적용된다.
 # Task: {name}
 # options = combo-box choices · metrics = table metric columns · columns = table layout
+# labels  = rename any field, built-in or custom, for this Task only
+# hyperparameter_fields = which options: show under Training Hyperparameters
 # short   = short name used in the generated command ({{task_short}})
 # See the header of options.yaml for the full syntax.
 """
@@ -488,6 +515,7 @@ class OptionsConfig:
         self._servers_file: str = self.servers_path
         self._defaults_file: str = self.defaults_path
         self._params_file: str = self.params_path
+        self._labels_file: str = self.labels_path
         self._task_files: dict[str, str] = {}
         self._dirty: set[str] = set()
 
@@ -516,6 +544,10 @@ class OptionsConfig:
         return os.path.join(os.path.dirname(self.path), PARAMS_FILE)
 
     @property
+    def labels_path(self) -> str:
+        return os.path.join(os.path.dirname(self.path), LABELS_FILE)
+
+    @property
     def tasks_dir(self) -> str:
         return os.path.join(os.path.dirname(self.path), TASKS_DIR)
 
@@ -527,7 +559,10 @@ class OptionsConfig:
 
     def watch_paths(self) -> list[str]:
         """외부 편집을 감지하기 위해 지켜봐야 할 파일 목록."""
-        paths = {self.path, self._servers_file, self._defaults_file, self._params_file}
+        paths = {
+            self.path, self._servers_file, self._defaults_file,
+            self._params_file, self._labels_file,
+        }
         paths.update(self._task_files.values())
         return sorted(p for p in paths if os.path.exists(p))
 
@@ -538,6 +573,7 @@ class OptionsConfig:
             ("서버/GPU", self._servers_file),
             ("공통 선택지", self._defaults_file),
             ("명령어 파라미터", self._params_file),
+            ("필드 이름", self._labels_file),
         ]
         for name in sorted(self._task_files):
             rows.append((f"Task · {name}", self._task_files[name]))
@@ -597,6 +633,7 @@ class OptionsConfig:
         self._seed_from_template(self.path)
         self._seed_from_template(self.defaults_path)
         self._seed_from_template(self.params_path)
+        self._seed_from_template(self.labels_path)
         if os.path.isdir(self.tasks_dir):
             for filename in sorted(os.listdir(self.tasks_dir)):
                 if not filename.endswith(_TEMPLATE_SUFFIX):
@@ -611,6 +648,7 @@ class OptionsConfig:
         self._servers_file = self.servers_path
         self._defaults_file = self.defaults_path
         self._params_file = self.params_path
+        self._labels_file = self.labels_path
         self._params = copy.deepcopy(BUILTIN_PARAMS)
 
         if auto_create:
@@ -672,6 +710,13 @@ class OptionsConfig:
         if params_doc is not None:
             self._params = params_doc
 
+        # 3b) 필드 이름(labels) - 전용 파일만 본다(params.yaml 처럼 나중에 생긴 파일)
+        labels_doc = self._read(self.labels_path)
+        if labels_doc is not None and isinstance(labels_doc.get("labels"), dict):
+            merged["labels"] = labels_doc["labels"]
+        else:
+            merged["labels"] = {}
+
         # 4) Task - task-defs/*.yaml 을 먼저 읽고, 진입점 인라인은 없는 것만 채운다
         tasks: dict[str, Any] = {}
         task_files, had_task_sources = self._read_task_files()
@@ -714,10 +759,13 @@ class OptionsConfig:
         # 구버전(한 파일에 전부) 이면 기능별로 나눠 준다.
         if auto_create:
             self._split_legacy_layout(root)
-            # params.yaml 은 나중에 생긴 파일이라 기존 설정 폴더에는 없다.
-            # 새로 만드는 것뿐이라 손으로 쓴 파일을 덮어쓸 위험은 없다.
+            # params.yaml / labels.yaml 은 나중에 생긴 파일이라 기존 설정 폴더에는
+            # 없다. 새로 만드는 것뿐이라 손으로 쓴 파일을 덮어쓸 위험은 없다.
             if not os.path.exists(self.params_path):
                 self._dirty.add(self._params_file)
+            if not os.path.exists(self.labels_path):
+                self._dirty.add(self._labels_file)
+            if self._dirty:
                 self.save()
 
     def _read_task_files(self) -> tuple[list[tuple[str, dict[str, Any], str]], bool]:
@@ -748,6 +796,7 @@ class OptionsConfig:
         self._servers_file = self.servers_path
         self._defaults_file = self.defaults_path
         self._params_file = self.params_path
+        self._labels_file = self.labels_path
         self._task_files = {
             name: os.path.join(self.tasks_dir, _safe_filename(name))
             for name in self._data.get("tasks", {})
@@ -764,6 +813,8 @@ class OptionsConfig:
             raw.setdefault("metrics", [])
             raw.setdefault("columns", {})
             raw.setdefault("commands", {})
+            raw.setdefault("labels", {})
+            raw.setdefault("hyperparameter_fields", [])
             if not isinstance(raw["options"], dict):
                 raw["options"] = {}
                 self.errors.append(f"Task '{name}' options is not a mapping; cleared it.")
@@ -775,6 +826,12 @@ class OptionsConfig:
             if not isinstance(raw["commands"], dict):
                 raw["commands"] = {}
                 self.errors.append(f"Task '{name}' commands is not a mapping; cleared it.")
+            if not isinstance(raw["labels"], dict):
+                raw["labels"] = {}
+                self.errors.append(f"Task '{name}' labels is not a mapping; cleared it.")
+            if not isinstance(raw["hyperparameter_fields"], list):
+                raw["hyperparameter_fields"] = []
+                self.errors.append(f"Task '{name}' hyperparameter_fields is not a list; cleared it.")
 
     def _split_legacy_layout(self, root: dict[str, Any]) -> None:
         """options.yaml 한 파일에 전부 들어 있던 구버전을 기능별 파일로 나눈다."""
@@ -842,7 +899,10 @@ class OptionsConfig:
         """
         targets = set(self._dirty)
         if force_all:
-            targets = {self.path, self._servers_file, self._defaults_file, self._params_file}
+            targets = {
+                self.path, self._servers_file, self._defaults_file,
+                self._params_file, self._labels_file,
+            }
             targets.update(self._task_files.values())
 
         if not targets:
@@ -889,6 +949,10 @@ class OptionsConfig:
 
         if same(path) == same(self._params_file):
             self._write(path, dict(self._params), PARAMS_HEADER)
+            return
+
+        if same(path) == same(self._labels_file):
+            self._write(path, {"labels": self._data.get("labels", {})}, LABELS_HEADER)
             return
 
         for name, origin in self._task_files.items():
@@ -987,6 +1051,67 @@ class OptionsConfig:
 
     def custom_fields(self, task: str | None) -> list[str]:
         return [f for f in self.option_fields(task) if f not in NATIVE_OPTION_FIELDS]
+
+    def hyperparameter_fields(self, task: str | None) -> list[str]:
+        """`custom_fields()` 중 "Training Hyperparameters" 섹션에 넣기로 한 것들
+        (task-defs/<name>.yaml 의 hyperparameter_fields)."""
+        raw = self._task_raw(task)
+        if not raw:
+            return []
+        names = raw.get("hyperparameter_fields")
+        if not isinstance(names, list):
+            return []
+        valid = set(self.custom_fields(task))
+        return [str(n) for n in names if str(n) in valid]
+
+    def task_specific_fields(self, task: str | None) -> list[str]:
+        """`custom_fields()` 에서 hyperparameter_fields 로 옮겨진 것들을 뺀 나머지 -
+        "Task-Specific Fields" 섹션에 그리는 목록."""
+        routed = set(self.hyperparameter_fields(task))
+        return [f for f in self.custom_fields(task) if f not in routed]
+
+    def label_for(self, task: str | None, key: str, fallback: str = "") -> str:
+        """이 필드의 표시 이름 - Task 전용(labels_for/task-defs) 이 있으면 그것,
+        없으면 전역(labels.yaml), 둘 다 없으면 코드가 준 기본값(fallback)."""
+        raw = self._task_raw(task)
+        if raw:
+            labels = raw.get("labels")
+            if isinstance(labels, dict):
+                value = labels.get(key)
+                if value:
+                    return str(value)
+        labels = self._data.get("labels")
+        if isinstance(labels, dict):
+            value = labels.get(key)
+            if value:
+                return str(value)
+        return fallback
+
+    def set_label(self, task: str | None, key: str, label: str) -> None:
+        """필드 표시 이름을 바꾼다. task 가 있으면 그 Task 파일에만, 없으면
+        labels.yaml(전역)에 저장한다. 빈 문자열이면 override 를 지운다."""
+        label = label.strip()
+        if task:
+            raw = self._task_raw(task)
+            if raw is None:
+                self.ensure_task(task)
+                raw = self._task_raw(task)
+                if raw is None:
+                    return
+            labels = raw.setdefault("labels", {})
+            if label:
+                labels[key] = label
+            else:
+                labels.pop(key, None)
+            self._touch_task(task)
+            return
+        labels = self._data.setdefault("labels", {})
+        if label:
+            labels[key] = label
+        else:
+            labels.pop(key, None)
+        self._dirty.add(self._labels_file)
+        self.save()
 
     def metrics_for(self, task: str | None) -> list[MetricDef]:
         task_def = self.task(task)

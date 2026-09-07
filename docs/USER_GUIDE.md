@@ -207,6 +207,7 @@ YAML 파일로 관리됩니다. **UI 에서 바꿔도 되고 파일을 직접 �
 config/
   defaults.yaml          모든 Task 가 같이 쓰는 기본 선택지 (model/dataset/optimizer)
   params.yaml             +batch_size=16 처럼 인자를 어떻게 쓸지 (아래 참고)
+  labels.yaml              폼/표에 보이는 필드 이름 (아래 참고)
   task-defs/
     Denoising.yaml         이 Task 만의 선택지 · 지표 · 표 컬럼 · 명령어 템플릿
     Super-Resolution.yaml
@@ -229,6 +230,30 @@ commands:
   값이 비어 있으면 그 인자가 통째로 사라집니다.
 - `algo` 처럼 Task 마다 다른 선택지를 쓰려면 그 Task 파일의 `options:` 에
   이름만 추가하면 폼에 콤보박스가 자동으로 생깁니다.
+
+### 필드 이름 바꾸기 / Training Hyperparameters 에 항목 추가하기
+
+Task-Specific Fields 든 Training Hyperparameters 든, 폼과 표에 보이는 이름은
+전부 바꿀 수 있고 항목도 늘릴 수 있습니다.
+
+- **이름만 바꾸기**: 표 컬럼 헤더를 **우클릭 → Rename**. 내장 필드(Epochs,
+  Batch size, Learning rate, ...)는 `config/labels.yaml` 에 저장되어 모든
+  Task 에 적용되고, `options:` 로 추가한 Task 전용 필드는 그 Task 의
+  `task-defs/<Task>.yaml` 에 저장돼 그 Task 에만 적용됩니다.
+- **항목 추가하기**: 해당 Task 파일의 `options:` 에 이름을 하나 추가하면
+  그게 새 필드가 됩니다(값 저장 · 명령어 자리표시자 · 표 컬럼까지 자동).
+  기본은 "Task-Specific Fields" 에 뜨는데, `hyperparameter_fields:` 에 그
+  이름을 적으면 "Training Hyperparameters" 쪽에 그려집니다.
+
+```yaml
+# config/task-defs/Super-Resolution.yaml
+options:
+  scale: [x2, x3, x4]
+  warmup_steps: []                      # 새 필드
+hyperparameter_fields: [warmup_steps]   # Training Hyperparameters 로
+labels:
+  scale: Scale Factor                   # 이 Task 에서만 이름 바꾸기
+```
 
 ### `config/params.yaml` - `<batch_size>` 가 정확히 어떻게 펼쳐지는지
 
