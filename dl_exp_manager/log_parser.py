@@ -1,17 +1,23 @@
-"""train.py 의 config.yaml / 학습 로그(loss.log 등)에서 값을 뽑아내는 파서.
+"""train.py 의 run_meta.json / config.yaml / 학습 로그(loss.log 등)에서 값을 뽑아내는 파서.
 
 프로젝트마다 config·로그 포맷이 다르므로 정답을 보장할 수 없다. 여러 흔한 스키마를
 관대하게 시도하고, 못 찾으면 그냥 비워 두며(예외를 던지지 않는다), 결과는 항상
 사용자가 폼에서 눈으로 확인하고 저장하는 구조라 오탐이 있어도 되돌리기 쉽다.
 
+- `parse_run_meta_text` : run_meta.json (붙여넣은 텍스트) -> {run_id, started_at, command,
+  git_commit, algo, model, dataset}. Started At 자동 연동에 쓴다.
 - `parse_train_config`  : config.yaml -> {model, dataset, batch_size, crop_size, lr, ...}.
   BasicSR 류(`datasets.train.*`) 를 기본으로 삼되, 최상위 섹션 이름(`datasets`/`data`/`dataset`)과
   crop 크기 필드 이름(`gt_size`/`crop_size`/`imagesize`/`image_size`/...) 이 다른 스키마도
   `_section_candidates()` 로 함께 시도한다.
-- `parse_loss_log`      : 학습 로그 -> 곡선용 (iter, {지표: 값}) 목록 + 최근 검증 지표 + 소요 시간
+- `parse_loss_log`      : 파일 경로로부터 학습 로그를 읽어 `parse_loss_log_text` 에 위임한다.
+- `parse_loss_log_text` : 텍스트(파일이든 붙여넣기든) -> 곡선용 (iter/epoch, {지표: 값}) 목록 +
+  최근 검증 지표 + 소요 시간. `iter: N` 관례와 `# key: value` (BasicSR) 외에
+  `[Epoch N/Total] Average key: value / Average key2: value2 ...` 형태도 인식한다.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -22,6 +28,36 @@ try:
     import yaml as _yaml
 except ImportError:  # pragma: no cover - requirements.txt 에 PyYAML 이 있어 보통 없다
     _yaml = None
+
+
+# ---------------------------------------------------------------------------
+# run_meta.json
+# ---------------------------------------------------------------------------
+_RUN_META_KEYS: tuple[str, ...] = (
+    "run_id", "started_at", "command", "git_commit", "algo", "model", "dataset",
+)
+
+
+def parse_run_meta_text(text: str) -> dict[str, str]:
+    """run_meta.json 을 붙여넣은 텍스트에서 흔히 쓰는 키를 뽑는다.
+
+    JSON 이 아니거나 깨졌거나, dict 가 아니면 예외 없이 빈 dict 를 돌려준다 -
+    사용자가 아직 붙여넣기를 끝내지 않은 중간 상태일 수도 있어서다.
+    """
+    if not text or not text.strip():
+        return {}
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key in _RUN_META_KEYS:
+        value = data.get(key)
+        if value not in (None, ""):
+            out[key] = str(value)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +222,12 @@ _ITER_RE = re.compile(r"\biter[:=]\s*([\d,]+)", re.IGNORECASE)
 _AT_ITER_RE = re.compile(r"@\s*([\d,]+)\s*iter", re.IGNORECASE)
 _KV_RE = re.compile(r"([A-Za-z][\w\-]*)\s*[:=]\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)")
 _HASH_METRIC_RE = re.compile(r"#\s*([A-Za-z][\w\-]*)\s*:\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)")
+# `[Epoch 33/1000]` 처럼 대괄호 안에 현재/전체 epoch 을 적는 관례 (요청자의 _loss_log.txt 형식).
+_EPOCH_RE = re.compile(r"\[?\s*epoch\s*[:=]?\s*(\d+)\s*/\s*\d+\s*\]?", re.IGNORECASE)
+# `Average loss:14.4 / Average psnr: 15 / Average ssim:0.3 / ...` - "Average " 뒤의 이름을 키로 쓴다.
+_AVERAGE_KV_RE = re.compile(
+    r"average\s+([A-Za-z][\w\-]*)\s*:\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)", re.IGNORECASE
+)
 
 # 학습 곡선에 남길 만한 흔한 손실/지표 이름 (iter: 줄에서 KV 로 잡히는 잡음을 거른다)
 _CURVE_KEYS = {
@@ -216,22 +258,34 @@ class LogParseResult:
 
 
 def parse_loss_log(path: str, max_bytes: int = 4_000_000) -> LogParseResult:
-    """학습 로그를 관대하게 파싱한다.
+    """파일 경로로부터 학습 로그를 읽어 `parse_loss_log_text` 에 위임한다.
+
+    형식을 못 알아봐도, 파일이 없어도 예외 없이 빈 결과를 돌려준다.
+    """
+    if not path or not os.path.isfile(path):
+        return LogParseResult()
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fp:
+            text = fp.read(max_bytes)
+    except OSError:
+        return LogParseResult()
+    return parse_loss_log_text(text)
+
+
+def parse_loss_log_text(text: str) -> LogParseResult:
+    """학습 로그 텍스트(파일 내용이든 붙여넣기든)를 관대하게 파싱한다.
 
     - `... iter: 10,000 ... l_pix: 1.23e-02` 같은 학습 loss 줄  -> 곡선 포인트
     - `# psnr: 32.41  Best: ... @ 10000 iter` 같은 BasicSR 검증 줄
       -> 곡선 포인트(있으면) + 최근 검증 지표(latest_metrics)
+    - `[Epoch 33/1000] Average loss:14.4 / Average psnr: 15 / Average ssim:0.3 / ...`
+      같은 epoch 단위 요약 줄 -> 곡선 포인트(x=epoch) + 최근 검증 지표
     - 맨 앞/뒤 줄의 타임스탬프 차이 -> 대략적인 소요 시간
 
     형식을 못 알아봐도 예외 없이 빈 결과를 돌려준다.
     """
     result = LogParseResult()
-    if not path or not os.path.isfile(path):
-        return result
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fp:
-            text = fp.read(max_bytes)
-    except OSError:
+    if not text:
         return result
 
     first_ts: str | None = None
@@ -260,6 +314,22 @@ def parse_loss_log(path: str, max_bytes: int = 4_000_000) -> LogParseResult:
                     pass
             continue
 
+        epoch_match = _EPOCH_RE.search(line)
+        if epoch_match:
+            values = {
+                key: float(value_text)
+                for key, value_text in _AVERAGE_KV_RE.findall(line)
+                if _is_float(value_text)
+            }
+            if values:
+                try:
+                    epoch = int(epoch_match.group(1))
+                    result.points.append((epoch, values))
+                except ValueError:
+                    pass
+                result.latest_metrics.update(values)
+            continue
+
         iter_match = _ITER_RE.search(line)
         if not iter_match:
             continue
@@ -268,7 +338,7 @@ def parse_loss_log(path: str, max_bytes: int = 4_000_000) -> LogParseResult:
         except ValueError:
             continue
 
-        values: dict[str, float] = {}
+        values = {}
         for key, value_text in _KV_RE.findall(line):
             key_norm = key.lower()
             if key_norm in ("iter", "epoch") or key_norm not in _CURVE_KEYS:
@@ -291,3 +361,11 @@ def parse_loss_log(path: str, max_bytes: int = 4_000_000) -> LogParseResult:
                 continue
 
     return result
+
+
+def _is_float(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True

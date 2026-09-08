@@ -24,7 +24,13 @@ from .. import editing, theme
 from ..command_builder import RenderedCommand, render_command
 from ..config_store import MetricDef, OptionsConfig
 from ..db import Database
-from ..log_parser import canonical_metric_name, parse_loss_log, parse_train_config
+from ..log_parser import (
+    canonical_metric_name,
+    parse_loss_log,
+    parse_loss_log_text,
+    parse_run_meta_text,
+    parse_train_config,
+)
 from ..theme import icons
 from ..models import (
     FIELD_SPECS,
@@ -447,12 +453,21 @@ class BaseRunPanel(QtWidgets.QWidget):
             "Execution Command", container, read_only=True, min_height=90
         )
         self.detail_config = LabeledText("config.yml", container, read_only=True, min_height=90)
+        self.detail_run_meta = LabeledText(
+            "run_meta.json", container, read_only=True, min_height=90
+        )
         self.detail_notes = LabeledText("Metrics & Notes", container, read_only=True, min_height=90)
         self.detail_history = LabeledText("History", container, read_only=True, mono=False, min_height=90)
 
         self.detail_tabs = QtWidgets.QTabWidget(container)
         self.detail_tabs.addTab(self.detail_command, "Command")
         self.detail_tabs.addTab(self.detail_config, "config.yml")
+        self.detail_tabs.addTab(self.detail_run_meta, "run_meta.json")
+        if self.SHOW_TRAINING_CURVE:
+            self.detail_loss_log = LabeledText(
+                "_loss_log.txt", container, read_only=True, min_height=90
+            )
+            self.detail_tabs.addTab(self.detail_loss_log, "_loss_log.txt")
         self.detail_tabs.addTab(self.detail_notes, "Metrics / Notes")
         self.detail_tabs.addTab(self.detail_history, "History")
 
@@ -542,10 +557,14 @@ class BaseRunPanel(QtWidgets.QWidget):
         if row is None:
             toast(self, False, "Select a run first.", "Training Curve")
             return
+        # 붙여넣어 둔 _loss_log.txt 가 있으면 그걸 우선 쓴다 - 결과 폴더가 이제
+        # 안 보이는 옛 서버에 있어도(마운트 해제 등) 곡선은 그대로 다시 볼 수 있다.
+        log_text = str(row.get("loss_log_text") or "").strip() or None
         dialog = CurveDialog(
             str(row.get("result_path") or ""),
             self,
             title=f"Training Curve · Run #{row.get('id')}",
+            log_text=log_text,
         )
         dialog.exec()
 
@@ -807,11 +826,20 @@ class BaseRunPanel(QtWidgets.QWidget):
         return combo
 
     def _make_started_row(self, parent: QtWidgets.QWidget) -> QtWidgets.QWidget:
+        # run_meta.json 붙여넣기가 started_at 을 자동으로 채워 준다(_apply_run_meta_text) -
+        # 단, 사용자가 이 필드를 직접 건드린 뒤로는 더 이상 덮어쓰지 않는다.
+        self._started_dirty = False
+        # 저장된 run 을 폼에 불러오는 동안에는(load_selected_into_form) run_meta_input 에
+        # 텍스트를 채워 넣어도 다시 파싱해 필드를 덮어쓰지 않는다 - 이미 저장돼 있는
+        # (사용자가 그 뒤에 손으로 고쳤을 수도 있는) 값이 진짜이지, 불러오는 행위 자체가
+        # "붙여넣기"는 아니기 때문이다.
+        self._suspend_run_meta_apply = False
         self.started_edit = QtWidgets.QLineEdit(parent)
         self.started_edit.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
+        self.started_edit.textEdited.connect(self._mark_started_dirty)
         now_btn = QtWidgets.QToolButton(parent)
         now_btn.setText("Now")
-        now_btn.clicked.connect(lambda: self.started_edit.setText(now_iso()))
+        now_btn.clicked.connect(self._set_started_now)
         row = QtWidgets.QWidget(parent)
         layout = QtWidgets.QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -819,6 +847,13 @@ class BaseRunPanel(QtWidgets.QWidget):
         layout.addWidget(self.started_edit, 1)
         layout.addWidget(now_btn)
         return row
+
+    def _mark_started_dirty(self) -> None:
+        self._started_dirty = True
+
+    def _set_started_now(self) -> None:
+        self.started_edit.setText(now_iso())
+        self._started_dirty = True
 
     @staticmethod
     def _make_duration_edit(parent: QtWidgets.QWidget) -> QtWidgets.QLineEdit:
@@ -887,6 +922,39 @@ class BaseRunPanel(QtWidgets.QWidget):
         load_cfg_btn.clicked.connect(self._load_config_from_file)
         self.config_input.add_header_widget(load_cfg_btn)
 
+        # run_meta.json / _loss_log.txt - train.py 가 실제로 남기는 파일들을 그대로
+        # 붙여넣는 칸. run_meta.json 은 Started At 을 자동으로 채우고(_apply_run_meta_text),
+        # _loss_log.txt 는 Training Curve 로 바로 미리 볼 수 있다(_preview_pasted_curve).
+        # config.yml 은 저장만 해 두면 Compare Selected 의 "config.yaml Diff" 탭이
+        # 다른 run 과 그대로 비교해 준다 - 별도 배선이 필요 없다.
+        self.run_meta_input = LabeledText(
+            "run_meta.json",
+            parent,
+            placeholder='# Paste run_meta.json content here, e.g. {"started_at": "...", ...}',
+            min_height=100,
+        )
+        load_meta_btn = QtWidgets.QToolButton(parent)
+        load_meta_btn.setText("Load From File")
+        load_meta_btn.clicked.connect(self._load_run_meta_from_file)
+        self.run_meta_input.add_header_widget(load_meta_btn)
+        self.run_meta_input.editor.textChanged.connect(self._apply_run_meta_text)
+
+        if self.SHOW_TRAINING_CURVE:
+            self.loss_log_input = LabeledText(
+                "_loss_log.txt",
+                parent,
+                placeholder=(
+                    "# Paste the training log here, e.g.\n"
+                    "# [Epoch 33/1000] Average loss:14.4 / Average psnr: 15 / Average ssim:0.3 ..."
+                ),
+                min_height=140,
+            )
+            plot_btn = QtWidgets.QToolButton(parent)
+            plot_btn.setText("📈 Plot")
+            plot_btn.setToolTip("Parse the pasted log above and preview it as a training curve.")
+            plot_btn.clicked.connect(self._preview_pasted_curve)
+            self.loss_log_input.add_header_widget(plot_btn)
+
         self.notes_input = LabeledText(
             "Notes", parent, placeholder="Free-form notes", mono=False, min_height=70
         )
@@ -902,6 +970,9 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.right_form_layout.addRow(self._section("Execution Code / Config", parent))
         self.right_form_layout.addRow(self.command_input)
         self.right_form_layout.addRow(self.config_input)
+        self.right_form_layout.addRow(self.run_meta_input)
+        if self.SHOW_TRAINING_CURVE:
+            self.right_form_layout.addRow(self.loss_log_input)
         self.right_form_layout.addRow(self.notes_input)
         self._add_row(self.right_form_layout, "tags", "Tags", self.tags_edit)
         self._add_row(self.right_form_layout, "failure_reason", "Failure Reason", self.failure_reason_edit)
@@ -1095,6 +1166,69 @@ class BaseRunPanel(QtWidgets.QWidget):
             toast(self, False, f"Could not read file:\n{exc}", "Load Config")
             return
         toast(self, True, f"Config loaded: {os.path.basename(path)}")
+
+    def _load_run_meta_from_file(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Select run_meta.json", QtCore.QDir.homePath(), "JSON (*.json);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                self.run_meta_input.set_text(fp.read())
+        except OSError as exc:
+            toast(self, False, f"Could not read file:\n{exc}", "Load run_meta.json")
+            return
+        toast(self, True, f"run_meta.json loaded: {os.path.basename(path)}")
+
+    def _apply_run_meta_text(self) -> None:
+        """run_meta.json 붙여넣기 -> Started At(+비어 있는 Model/Dataset/Algo/Command) 자동 채움.
+
+        config.yml 파싱과 같은 철학: 이미 채워진 값은 절대 덮지 않는다. Started At 만
+        예외인데, 여기가 이 필드의 "진짜" 출처이므로 사용자가 그 필드를 직접 고치기
+        전까지는(_started_dirty) 붙여넣은 내용과 계속 동기화한다. Execution Command 는
+        Generate 로 자동 채워진 것과는 다른 "실제로 돌린 명령"이므로 다시 생성된
+        상태(_command_dirty=False)라면 값이 있어도 덮어쓴다.
+
+        `load_selected_into_form` 이 저장된 run_meta_json 을 다시 채워 넣을 때는
+        (_suspend_run_meta_apply) 아무 것도 하지 않는다 - 그건 사용자의 붙여넣기가
+        아니라 이미 저장된 값을 화면에 되돌리는 것뿐이라, 여기서 다시 필드를 덮으면
+        저장 이후 사용자가 손으로 고친 값(예: Started At)이 열 때마다 되돌아간다.
+        """
+        if self._suspend_run_meta_apply:
+            return
+        fields = parse_run_meta_text(self.run_meta_input.text())
+        if not fields:
+            return
+        filled: list[str] = []
+        started_at = fields.get("started_at")
+        if started_at and not self._started_dirty and self.started_edit.text().strip() != started_at:
+            self.started_edit.setText(started_at)
+            filled.append("Started At")
+        if fields.get("model") and not self.model_combo.current_text():
+            self.model_combo.set_text(fields["model"])
+            filled.append("Model")
+        if fields.get("dataset") and not self.dataset_combo.current_text():
+            self.dataset_combo.set_text(fields["dataset"])
+            filled.append("Dataset")
+        algo_combo = getattr(self, "algo_combo", None)
+        if algo_combo is not None and fields.get("algo") and not algo_combo.current_text():
+            algo_combo.set_text(fields["algo"])
+            filled.append("Algo")
+        if fields.get("command") and not self._command_dirty:
+            self.command_input.set_text(fields["command"])
+            self._command_dirty = True
+            filled.append("Execution Command")
+        if filled:
+            toast(self, True, "Filled from run_meta.json: " + ", ".join(filled), "run_meta.json")
+
+    def _preview_pasted_curve(self) -> None:
+        text = self.loss_log_input.text().strip()
+        if not text:
+            toast(self, False, "Paste _loss_log.txt content first.", "Training Curve")
+            return
+        dialog = CurveDialog("", self, title="Training Curve (pasted log)", log_text=text)
+        dialog.exec()
 
     def _on_result_folder_dropped(self, path: str) -> None:
         """A folder was dragged onto the Result Folder Path field (#9).
@@ -1470,6 +1604,9 @@ class BaseRunPanel(QtWidgets.QWidget):
             edit.clear()
         self.detail_command.clear()
         self.detail_config.clear()
+        self.detail_run_meta.clear()
+        if self.SHOW_TRAINING_CURVE:
+            self.detail_loss_log.clear()
         self.detail_notes.clear()
         self.detail_history.clear()
         # Paths / Execution Command 등은 실행을 하나 고르기 전엔 보여 줄 내용이 없다.
@@ -1494,6 +1631,9 @@ class BaseRunPanel(QtWidgets.QWidget):
             edit.setText(str(row.get(key) or ""))
         self.detail_command.set_text(row.get("exec_command") or "")
         self.detail_config.set_text(row.get("config_yaml") or "")
+        self.detail_run_meta.set_text(row.get("run_meta_json") or "")
+        if self.SHOW_TRAINING_CURVE:
+            self.detail_loss_log.set_text(row.get("loss_log_text") or "")
 
         metrics = loads_metrics(row.get("metrics_json"))
         notes_text = metrics_to_text(metrics, sep="\n") or "(no metrics recorded)"
@@ -1961,6 +2101,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.model_combo.set_text("")
         self.dataset_combo.set_work(self._work_id, keep_text=False)
         self.status_combo.setCurrentIndex(C.STATUS_LIST.index(C.STATUS_QUEUED))
+        self._started_dirty = False
         self.started_edit.setText(now_iso())
         self.duration_edit.clear()
         self.gpu_selector.clear()
@@ -1975,6 +2116,9 @@ class BaseRunPanel(QtWidgets.QWidget):
             combo.set_text("")
         self.command_input.clear()
         self.config_input.clear()
+        self.run_meta_input.clear()
+        if self.SHOW_TRAINING_CURVE:
+            self.loss_log_input.clear()
         self.notes_input.clear()
         self.tags_edit.clear()
         self.failure_reason_edit.clear()
@@ -2006,6 +2150,7 @@ class BaseRunPanel(QtWidgets.QWidget):
         if status in C.STATUS_LIST:
             self.status_combo.setCurrentIndex(C.STATUS_LIST.index(status))
         self._sync_failure_reason_visibility()  # setCurrentIndex above may be a no-op
+        self._started_dirty = False
         self.started_edit.setText(row.get("started_at") or "")
         self.duration_edit.setText(format_duration(row.get("duration_sec")))
         self.dataset_path_edit.set_path(row.get("dataset_path"))
@@ -2015,6 +2160,16 @@ class BaseRunPanel(QtWidgets.QWidget):
         self.command_input.set_text(row.get("exec_command"))
         self._command_dirty = True
         self.config_input.set_text(row.get("config_yaml"))
+        # 저장된 run_meta_json 을 화면에 되돌리는 것뿐이므로 _apply_run_meta_text 를
+        # 다시 돌리지 않는다 - 안 그러면 저장 뒤 사용자가 손으로 고친 값(Started At 등)이
+        # 이 run 을 다시 열 때마다 run_meta.json 의 원래 값으로 되돌아간다.
+        self._suspend_run_meta_apply = True
+        try:
+            self.run_meta_input.set_text(row.get("run_meta_json"))
+        finally:
+            self._suspend_run_meta_apply = False
+        if self.SHOW_TRAINING_CURVE:
+            self.loss_log_input.set_text(row.get("loss_log_text"))
         self.notes_input.set_text(row.get("notes"))
         self.tags_edit.setText(str(row.get("tags") or ""))
         self.failure_reason_edit.setText(str(row.get("failure_reason") or ""))
@@ -2118,6 +2273,8 @@ class BaseRunPanel(QtWidgets.QWidget):
             "metrics_json": metrics,
             "exec_command": self.command_input.text(),
             "config_yaml": self.config_input.text(),
+            "run_meta_json": self.run_meta_input.text(),
+            "loss_log_text": self.loss_log_input.text() if self.SHOW_TRAINING_CURVE else "",
             "notes": self.notes_input.text(),
             "favorite": self._editing_favorite,
             "tags": self.tags_edit.text().strip(),

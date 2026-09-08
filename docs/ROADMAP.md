@@ -1216,3 +1216,54 @@ Python 코드 안의 `BUILTIN`/`BUILTIN_PARAMS` 상수를 그대로 template 으
 `config/tasks/` 라는 이름이 언급된 이전 섹션(§1-22)들은 고치지 않았다 -
 ROADMAP 은 그 시점의 상태를 그대로 남기는 날짜별 기록이라, 지금 와서
 과거 항목을 현재 이름으로 바꾸면 오히려 "그때 실제로 뭐였는지"가 헷갈린다.
+
+## 24. 2026-09 세션 — run_meta.json / _loss_log.txt 붙여넣기 칸
+
+train.py 가 실제 학습 시작 시 남기는 세 파일(`run_meta.json` - run_id/started_at/
+command/git_commit/algo/model/dataset, `config.yaml`, `_loss_log.txt` - 사용자
+환경에서는 `[Epoch 33/1000] Average loss:14.4 / Average psnr: 15 / ...` 형식)을
+그대로 복사해 붙여넣을 수 있는 칸을 New Run 폼에 추가했다. `config.yaml` 붙여넣기
+칸(§7-#2)은 이미 있었으므로 이번엔 `run_meta.json` 과 `_loss_log.txt` 두 칸만
+새로 만들면 됐다.
+
+- **`run_meta.json`** → **Started At 자동 연동**. `log_parser.parse_run_meta_text()`
+  가 JSON 을 파싱해 `started_at`(+비어 있으면 model/dataset/algo/실행 명령어)을
+  채운다(`run_panel._apply_run_meta_text`, 붙여넣기 칸의 `textChanged` 에 연결).
+  config.yaml 자동 채우기와 같은 철학 - 이미 값이 있는 필드는 절대 덮지 않는다.
+  Started At 만 예외로, 사용자가 그 필드를 직접 고치기 전까지는(`_started_dirty`,
+  `textEdited`/"Now" 버튼에서 세운다) 계속 붙여넣은 내용과 동기화한다. 저장된
+  run 을 다시 열 때는(`load_selected_into_form`) `_suspend_run_meta_apply` 로
+  이 동기화를 잠깐 꺼 둔다 - 안 그러면 저장된 `run_meta_json` 을 화면에 되돌리는
+  것뿐인데도 다시 파싱이 걸려서, 저장 이후 사용자가 손으로 고친 Started At 이
+  그 run 을 다시 열 때마다 파일의 원래 값으로 되돌아가는 문제가 생긴다.
+  Execution Command 는 "Generate" 로 자동 생성된 것과 별개로 "실제로 돌린 명령"
+  이므로, 자동 생성 상태(`_command_dirty=False`)라면 이미 텍스트가 있어도
+  run_meta.json 의 값으로 덮어쓴다(자동 생성 명령이 붙여넣기보다 먼저 반응해
+  칸을 채워 버리는 경합이 있었다 - `not text.strip()` 대신 dirty 플래그로 판단해
+  해결).
+- **`config.yaml`** → **다른 실험과 diff 비교**. 이미 있던 `compare_dialog.py` 의
+  "config.yaml Diff" 탭이 `config_yaml` DB 컬럼을 그대로 비교하므로, 붙여넣기
+  칸에만 새로 배선할 게 없었다 - 두 run 을 골라 Compare 하면 그대로 동작한다.
+- **`_loss_log.txt`** → **Training Curve 플롯**. `log_parser.py` 를 텍스트
+  입력 기반으로 리팩터링했다(`parse_loss_log(path)` 는 이제 파일을 읽어
+  `parse_loss_log_text(text)` 에 위임). 기존 `iter: N` / `# key: value`
+  (BasicSR) 관례에 더해 `[Epoch N/Total] Average key: value / Average key2:
+  value2 ...` 형식을 새로 인식한다(`_EPOCH_RE` + `_AVERAGE_KV_RE`) - "Average "
+  뒤의 이름을 그대로 키로 쓰므로 `_CURVE_KEYS` 화이트리스트를 거치지 않는다.
+  `widgets/curve_chart.py::CurveDialog` 에 `log_text` 파라미터를 추가해
+  결과 폴더 파일 대신 고정 텍스트로도 곡선을 그릴 수 있게 했다 - New Run 폼의
+  "📈 Plot" 버튼은 아직 저장 전인 붙여넣기 내용을 바로 미리 보여주고, 저장된
+  run 의 "📈 Training Curve" 버튼(`view_curve`)은 `loss_log_text` 컬럼이
+  있으면 그걸 우선 쓴다(결과 폴더가 마운트 해제돼 사라진 옛 서버에 있어도
+  곡선은 그대로 다시 볼 수 있다).
+
+DB 스키마는 v11 → v12: `train_runs`/`evaluation_runs` 양쪽에 `run_meta_json`
+`loss_log_text` 컬럼을 추가했다(`_V12_COLUMNS`). 둘 다 `metrics_json`/
+`extra_json` 처럼 History 의 diff 요약에서 제외했다(`_DIFF_SKIP`) - 구조화된
+값이 아니라 통짜 블록이라, 바뀔 때마다 전체 텍스트를 "이전 → 이후"로 나열하면
+History 탭이 읽을 수 없게 길어진다. 상세 패널에는 `config.yml` 탭 옆에
+`run_meta.json` 탭(Train/Evaluation 공통)과 `_loss_log.txt` 탭(Train 전용,
+`SHOW_TRAINING_CURVE` 로 분기)을 읽기 전용으로 추가해 저장된 내용을 그대로
+다시 볼 수 있게 했다. Evaluation 쪽은 학습 곡선 개념이 없어(§10.1) `_loss_log.txt`
+붙여넣기 칸/탭/DB 컬럼 사용을 만들지 않았지만, `run_meta_json` 컬럼 자체는
+두 테이블 모두에 둬서 스키마를 통일했다(기존 `config_yaml`/`notes` 와 같은 패턴).
