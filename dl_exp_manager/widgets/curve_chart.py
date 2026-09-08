@@ -3,7 +3,8 @@
 pyqtgraph/matplotlib 을 새 의존성으로 추가하지 않고, iteration/epoch vs 값을
 보여주면 되는 단순한 요구에 맞춘 최소 구현이다. 로그 한 줄에 여러 지표가
 동시에 찍히는 경우(`Average loss / Average psnr / Average ssim / ...`)가
-흔해서, 지표를 하나씩 갈아 보는 대신 여러 개를 한 번에 겹쳐 볼 수 있게 한다.
+흔해서, 지표마다 체크박스를 두고 켜고 끄면서 하나씩(또는 원하면 여러 개를
+겹쳐서) 확인할 수 있게 한다.
 """
 from __future__ import annotations
 
@@ -53,9 +54,12 @@ class CurveChartWidget(QtWidgets.QWidget):
         drawable = {key: pts for key, pts in self._series.items() if len(pts) >= 2}
         if not drawable:
             painter.setPen(text_color)
-            painter.drawText(
-                self.rect(), Qt.AlignmentFlag.AlignCenter, "Not enough data points to draw a curve."
+            message = (
+                "Check a metric below to plot it."
+                if not self._series
+                else "Not enough data points to draw a curve."
             )
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, message)
             return
 
         area = self.rect().adjusted(60, 12, -14, -30)
@@ -134,9 +138,10 @@ class CurveDialog(QtWidgets.QDialog):
     """result_path 안의 로그, 또는 붙여넣은 _loss_log.txt 텍스트를 파싱해 곡선으로 보여준다.
 
     로그 한 줄에 여러 지표가 함께 찍히는 경우(§log_parser `_AVERAGE_KV_RE`)를
-    감안해, 지표 체크박스를 여러 개 동시에 켜서 한 차트에 겹쳐 볼 수 있다
-    (기본값: 파싱된 지표 전부 켜짐). 체크박스 글자색이 곧 그 지표 선 색이라
-    별도 범례가 필요 없다.
+    감안해, 지표마다 체크박스를 두고 켠 것만 그린다 - 기본값은 전부 꺼진
+    상태로 시작해서, 한 번에 다 겹쳐 보여주는 대신 보고 싶은 지표를 하나씩
+    직접 켜서 확인하게 한다(필요하면 여러 개를 동시에 켜서 겹쳐 볼 수도 있다).
+    체크박스 글자색이 곧 그 지표 선 색이라 별도 범례가 필요 없다.
     """
 
     def __init__(
@@ -261,14 +266,14 @@ class CurveDialog(QtWidgets.QDialog):
     def _rebuild_metric_checks(self) -> None:
         """지표 체크박스를 다시 만든다 - 이미 켜/꺼 둔 것은 그대로 유지한다.
 
-        기본값은 전부 켜짐("Plot 을 같이") - 새로 처음 보는 지표만 켠 채로 추가한다.
-        색은 정렬된 키 순서로 고정 배정해서, 체크를 껐다 켜도 같은 지표는 항상
-        같은 색을 유지한다.
+        기본값은 전부 꺼진 상태 - 한 번에 다 겹쳐 그리지 않고, 보고 싶은
+        지표를 사용자가 하나씩 직접 켜서 확인하게 한다. 색은 정렬된 키
+        순서로 고정 배정해서, 체크를 껐다 켜도 같은 지표는 항상 같은
+        색을 유지한다.
         """
         previous_checked = {
             key for key, box in self.metric_checks.items() if box.isChecked()
         }
-        is_first_build = not self.metric_checks
 
         while self._metrics_row.count():
             item = self._metrics_row.takeAt(0)
@@ -281,7 +286,7 @@ class CurveDialog(QtWidgets.QDialog):
         self._colors = {key: QtGui.QColor(theme.series_color(i)) for i, key in enumerate(keys)}
         for key in keys:
             box = QtWidgets.QCheckBox(key, self)
-            box.setChecked(key in previous_checked if not is_first_build else True)
+            box.setChecked(key in previous_checked)
             box.setStyleSheet(f"QCheckBox {{ color: {self._colors[key].name()}; }}")
             box.toggled.connect(self._on_selection_changed)
             self._metrics_row.addWidget(box)
