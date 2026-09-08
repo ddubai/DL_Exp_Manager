@@ -1233,6 +1233,29 @@ def test_curve_dialog_toggles_metrics_with_direction_annotations_individually(qa
     assert set(dialog.chart._series) == {"ssim"}
 
 
+def test_curve_dialog_handles_multiword_and_fullwidth_metric_annotations(qapp):
+    """§ 회귀 테스트: `psnr(윗 화살표)` 처럼 괄호 안에 공백 섞인 한글 덧말이 붙거나,
+    한글 입력기로 흔히 붙는 전각 괄호(（）)를 쓰면 그 지표만 조용히 파싱에서
+    빠지던 문제 - "loss 는 개별로도 잡히는데 psnr/ssim 은 안 잡힌다"는 실제 신고.
+    """
+    from dl_exp_manager.widgets.curve_chart import CurveDialog
+
+    log_text = (
+        "Training Loss Log - 2026.09.01 18:14:33\n"
+        "[Epoch 11/100] Average loss:222.22 / Average psnr(윗 화살표):37.22 / "
+        "Average ssim(윗 화살표):0.91\n"
+        "[Epoch 12/100] Average loss:210.10 / Average psnr（윗 화살표）:38.05 / "
+        "Average ssim（윗 화살표）:0.92\n"
+    )
+    dialog = CurveDialog("", title="Test Curve", log_text=log_text)
+
+    assert set(dialog.metric_checks) == {"loss", "psnr", "ssim"}
+    for key in ("loss", "psnr", "ssim"):
+        dialog.metric_checks[key].setChecked(True)
+        assert dialog.chart._series.get(key), f"{key} did not plot when checked individually"
+        dialog.metric_checks[key].setChecked(False)
+
+
 
 
 # --- Compare runs ---------------------------------------------------------------
