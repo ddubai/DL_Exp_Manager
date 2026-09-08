@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from . import constants as C
 from .utils import dumps_metrics, now_iso
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # 기본으로 심던 Task 이름이 바뀔 때마다 여기 한 줄씩 남긴다 - 실행 기록은 Task 에
 # id 로 매달려 있으므로 이름만 바꿔 주면 그대로 따라온다(_rename_tasks 참고).
@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS train_runs (
     metrics_json  TEXT    DEFAULT '{}',
     exec_command  TEXT    DEFAULT '',
     config_yaml   TEXT    DEFAULT '',
+    run_meta_json TEXT    DEFAULT '',
+    loss_log_text TEXT    DEFAULT '',
     notes         TEXT    DEFAULT '',
     created_at    TEXT    NOT NULL,
     updated_at    TEXT    NOT NULL
@@ -105,6 +107,8 @@ CREATE TABLE IF NOT EXISTS evaluation_runs (
     metrics_json    TEXT    DEFAULT '{}',
     exec_command    TEXT    DEFAULT '',
     config_yaml     TEXT    DEFAULT '',
+    run_meta_json   TEXT    DEFAULT '',
+    loss_log_text   TEXT    DEFAULT '',
     notes           TEXT    DEFAULT '',
     created_at      TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL
@@ -148,15 +152,16 @@ TRAIN_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "dataset", "dataset_path", "result_path",
     "status", "started_at", "duration_sec", "epochs", "batch_size", "crop_size", "lr",
     "optimizer", "gpu_indices", "extra_json", "metrics_json", "exec_command",
-    "config_yaml", "notes", "favorite", "tags", "failure_reason",
+    "config_yaml", "run_meta_json", "loss_log_text", "notes", "favorite", "tags",
+    "failure_reason",
 )
 
 EVAL_FIELDS: tuple[str, ...] = (
     "work_id", "server", "model", "checkpoint_path", "dataset", "dataset_path",
     "result_path", "device", "input_size", "latency_ms", "throughput_fps",
     "status", "started_at", "duration_sec", "gpu_indices", "extra_json",
-    "metrics_json", "exec_command", "config_yaml", "notes",
-    "favorite", "tags", "failure_reason",
+    "metrics_json", "exec_command", "config_yaml", "run_meta_json", "loss_log_text",
+    "notes", "favorite", "tags", "failure_reason",
     "source_train_run_id", "checkpoint_epoch",
 )
 
@@ -205,6 +210,15 @@ _V7_COLUMNS: tuple[tuple[str, str, str], ...] = (
 _V11_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("datasets", "device", "TEXT DEFAULT ''"),
     ("datasets", "abbreviation", "TEXT DEFAULT ''"),
+)
+
+# v11 -> v12: train.py 가 실제로 남기는 run_meta.json / _loss_log.txt 붙여넣기 칸.
+# run_meta.json 은 started_at 자동 연동에, _loss_log.txt 는 학습 곡선 플롯에 쓴다.
+_V12_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("train_runs", "run_meta_json", "TEXT DEFAULT ''"),
+    ("train_runs", "loss_log_text", "TEXT DEFAULT ''"),
+    ("evaluation_runs", "run_meta_json", "TEXT DEFAULT ''"),
+    ("evaluation_runs", "loss_log_text", "TEXT DEFAULT ''"),
 )
 
 
@@ -258,7 +272,7 @@ class Database:
         with self.conn:
             for table, column, definition in (
                 _V2_COLUMNS + _V3_COLUMNS + _V4_COLUMNS + _V5_COLUMNS + _V6_COLUMNS + _V7_COLUMNS
-                + _V11_COLUMNS
+                + _V11_COLUMNS + _V12_COLUMNS
             ):
                 if not self._has_column(table, column):
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
@@ -693,7 +707,7 @@ class Database:
         )
 
     # 히스토리에 사람이 읽을 만한 요약을 남길 때 무시할 필드 (JSON 은 따로 비교한다)
-    _DIFF_SKIP = {"metrics_json", "extra_json"}
+    _DIFF_SKIP = {"metrics_json", "extra_json", "run_meta_json", "loss_log_text"}
     _DIFF_LABELS = {"work_id": "Work"}
 
     def _diff_summary(

@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 
 from .. import theme
-from ..log_parser import parse_loss_log
+from ..log_parser import LogParseResult, parse_loss_log, parse_loss_log_text
 from ..qt import Qt, QtCore, QtGui, QtWidgets
 from ..utils import format_number, scan_result_folder
 
@@ -97,13 +97,14 @@ class CurveChartWidget(QtWidgets.QWidget):
 
 
 class CurveDialog(QtWidgets.QDialog):
-    """result_path 안의 로그를 파싱해 지표를 골라 곡선으로 보여준다."""
+    """result_path 안의 로그, 또는 붙여넣은 _loss_log.txt 텍스트를 파싱해 곡선으로 보여준다."""
 
     def __init__(
         self,
         result_path: str,
         parent: QtWidgets.QWidget | None = None,
         title: str = "Training Curve",
+        log_text: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -111,6 +112,9 @@ class CurveDialog(QtWidgets.QDialog):
 
         self._result_path = result_path
         self._log_path: str | None = None
+        # 붙여넣은 텍스트가 있으면 파일 탐색 대신 그 내용을 고정으로 쓴다(New Run 폼의
+        # _loss_log.txt 붙여넣기 칸 미리보기, 저장된 run 의 loss_log_text 재생용).
+        self._log_text = log_text
         self._series: dict[str, list[tuple[int, float]]] = {}
 
         self.path_label = QtWidgets.QLabel(self)
@@ -124,6 +128,7 @@ class CurveDialog(QtWidgets.QDialog):
 
         browse_btn = QtWidgets.QPushButton("Browse for Log File…", self)
         browse_btn.clicked.connect(self._browse)
+        browse_btn.setVisible(self._log_text is None)
         refresh_btn = QtWidgets.QPushButton("↻ Refresh", self)
         refresh_btn.clicked.connect(self.refresh)
         close_btn = QtWidgets.QPushButton("Close", self)
@@ -150,6 +155,8 @@ class CurveDialog(QtWidgets.QDialog):
 
     # -- log discovery (LogViewerDialog 와 같은 패턴) --------------------------
     def _auto_detect(self) -> None:
+        if self._log_text is not None:
+            return
         found = scan_result_folder(self._result_path) if self._result_path else {}
         self._log_path = found.get("log")
 
@@ -164,6 +171,12 @@ class CurveDialog(QtWidgets.QDialog):
 
     # -- content --------------------------------------------------------------
     def refresh(self) -> None:
+        if self._log_text is not None:
+            self._apply_result(
+                parse_loss_log_text(self._log_text), "(pasted _loss_log.txt content)"
+            )
+            return
+
         if not self._log_path or not os.path.isfile(self._log_path):
             self.path_label.setText(
                 f"No log file found in {self._result_path or '(no result folder set)'}."
@@ -174,15 +187,15 @@ class CurveDialog(QtWidgets.QDialog):
             self.chart.set_points([])
             return
 
-        result = parse_loss_log(self._log_path)
+        self._apply_result(parse_loss_log(self._log_path), self._log_path)
+
+    def _apply_result(self, result: LogParseResult, source_label: str) -> None:
         self._series = {}
         for iteration, values in result.points:
             for key, value in values.items():
                 self._series.setdefault(key, []).append((iteration, value))
 
-        self.path_label.setText(
-            f"{self._log_path}   ·   {len(result.points)} logged point(s)"
-        )
+        self.path_label.setText(f"{source_label}   ·   {len(result.points)} logged point(s)")
 
         current = self.metric_combo.currentText()
         self.metric_combo.blockSignals(True)
