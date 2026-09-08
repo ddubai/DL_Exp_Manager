@@ -93,6 +93,11 @@ class CurveChartWidget(QtWidgets.QWidget):
             for x, y in pts[1:]:
                 path.lineTo(QtCore.QPointF(x_px(x), to_y(y)))
             painter.setPen(QtGui.QPen(color, 2))
+            # 이전 시리즈의 마지막 점(아래 drawEllipse)이 남긴 브러시를 안 지우면
+            # 여기서 매 시리즈의 선 아래가 그 색으로 통째로 채워져 버린다(겹쳐
+            # 그릴 때만 나타나는 버그 - 단일 시리즈는 애초에 브러시가 설정된 적이
+            # 없어서 안 보였다). drawPath 는 항상 채우기 없이 선만 그려야 한다.
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
             painter.setBrush(QtGui.QBrush(color))
             painter.setPen(Qt.PenStyle.NoPen)
@@ -171,10 +176,10 @@ class CurveDialog(QtWidgets.QDialog):
         self._metrics_row = QtWidgets.QHBoxLayout()
         self._metrics_row.setContentsMargins(0, 0, 0, 0)
         self._metrics_row.setSpacing(10)
-        metrics_host = QtWidgets.QWidget(self)
-        metrics_host.setLayout(self._metrics_row)
+        self._metrics_host = QtWidgets.QWidget(self)
+        self._metrics_host.setLayout(self._metrics_row)
         metrics_scroll = QtWidgets.QScrollArea(self)
-        metrics_scroll.setWidget(metrics_host)
+        metrics_scroll.setWidget(self._metrics_host)
         metrics_scroll.setWidgetResizable(False)
         metrics_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         metrics_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -292,6 +297,12 @@ class CurveDialog(QtWidgets.QDialog):
             self._metrics_row.addWidget(box)
             self.metric_checks[key] = box
         self._metrics_row.addStretch(1)
+        # setWidgetResizable(False) 인 QScrollArea 는 안에 든 위젯의 크기를 알아서
+        # 늘려주지 않는다 - 생성 시점엔 체크박스가 하나도 없어 폭이 0에 가까웠고,
+        # 이후 여기서 늘려도 이 호출 없이는 그 좁은 크기 그대로 남아 체크박스가
+        # 스크롤 영역 밖(안 보이는 곳)에 놓인다. 매번 다시 지어질 때마다 실제
+        # 레이아웃 크기에 맞게 폭을 다시 계산해 준다.
+        self._metrics_host.adjustSize()
         self._on_selection_changed()
 
     def _set_all_checked(self, checked: bool) -> None:

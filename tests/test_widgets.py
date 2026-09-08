@@ -1256,6 +1256,61 @@ def test_curve_dialog_handles_multiword_and_fullwidth_metric_annotations(qapp):
         dialog.metric_checks[key].setChecked(False)
 
 
+def test_curve_chart_second_series_is_not_flood_filled(qapp):
+    """§ 회귀 테스트: 지표를 2개 이상 겹쳐 그리면, 앞 시리즈의 마지막 점(dot)을
+    그릴 때 세팅한 브러시가 지워지지 않고 남아 다음 시리즈의 drawPath 가
+    선이 아니라 (이전 시리즈 색으로) 통째로 채워지던 문제. 실제로는 스크린샷
+    으로 확인했지만("겹쳐서 보면 삼각형 모양으로 색이 칠해진다"), 여기서는
+    렌더링된 픽셀을 세어 회귀를 잡는다: 얇은 선이면 앞 시리즈 색 픽셀이
+    수백~천 개 수준이어야 하고, 버그가 있으면 채워진 면적만큼 만 단위로 뛴다.
+    """
+    from dl_exp_manager.qt import QtGui
+    from dl_exp_manager.widgets.curve_chart import CurveChartWidget
+
+    widget = CurveChartWidget()
+    widget.resize(400, 300)
+    series_a = [(i, i / 100) for i in range(0, 101, 5)]  # 대각선 - 첫 번째로 그려짐
+    series_b = [(i, 0.3 + 0.4 * ((i // 10) % 2)) for i in range(0, 101, 5)]  # 지그재그
+    color_a = QtGui.QColor("#ff0000")
+    widget.set_series({"a": series_a, "b": series_b}, {"a": color_a, "b": QtGui.QColor("#00ff00")})
+
+    image = widget.grab().toImage()
+    matching = sum(
+        1
+        for x in range(image.width())
+        for y in range(image.height())
+        if abs(image.pixelColor(x, y).red() - color_a.red()) < 30
+        and abs(image.pixelColor(x, y).green() - color_a.green()) < 30
+        and abs(image.pixelColor(x, y).blue() - color_a.blue()) < 30
+    )
+    # 얇은 대각선 하나가 400x300 캔버스에 차지하는 픽셀 수(~500)의 몇 배까지는
+    # 안티에일리어싱 여유로 두되, 채워진 삼각형이 만드는 만 단위 픽셀과는
+    # 확실히 구분되는 값으로 잡는다.
+    assert matching < 5000, f"series 'a' color covers {matching} px - looks flood-filled, not a thin line"
+
+
+def test_curve_dialog_metric_checkbox_row_is_actually_sized(qapp):
+    """§ 회귀 테스트: 체크박스가 데이터 모델(metric_checks)엔 정상적으로
+    들어 있어도, 그걸 담은 QScrollArea 안 위젯이 크기를 안 늘려서 화면에는
+    빈 흰 칸만 보이던 문제(setWidgetResizable(False) 인데 생성 후 동적으로
+    체크박스를 추가만 하고 adjustSize() 를 안 불러서 생겼다).
+    """
+    from dl_exp_manager.widgets.curve_chart import CurveDialog
+
+    log_text = (
+        "[Epoch 1/10] Average loss:1.0 / Average psnr:10.0 / Average ssim:0.1\n"
+        "[Epoch 2/10] Average loss:0.9 / Average psnr:11.0 / Average ssim:0.2\n"
+    )
+    dialog = CurveDialog("", title="Test Curve", log_text=log_text)
+
+    assert len(dialog.metric_checks) == 3
+    # 체크박스 3개 + 간격을 감안하면 스크롤 영역 안 위젯 폭이 최소 이 정도는 돼야
+    # 한다 - adjustSize() 가 빠지면 이 값이 처음 만들어질 때의 폭(거의 0)에 머문다.
+    assert dialog._metrics_host.width() > 100
+    for box in dialog.metric_checks.values():
+        assert box.isVisibleTo(dialog._metrics_host)
+
+
 
 
 # --- Compare runs ---------------------------------------------------------------

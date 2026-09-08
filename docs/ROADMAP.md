@@ -1316,3 +1316,37 @@ to plot it." 를 보여줘서, 데이터가 없는 것과 아직 아무 것도 �
 전부 별도 분기 없이 통과시킨다. `tests/test_widgets.py::
 test_curve_dialog_handles_multiword_and_fullwidth_metric_annotations` 로
 신고받은 형식 그대로(전각 괄호 + 공백 섞인 한글 덧말) 회귀 테스트를 남겼다.
+
+### 24.4 검증 - 실제 형식으로 100 epoch 샘플을 만들어 렌더링까지 확인하다 발견한 시각 전용 버그 2개
+
+파싱 로직만 유닛 테스트로 확인하고 끝내지 않고, 사용자가 알려준 형식 그대로
+100 epoch x 4 지표(loss, psnr/ssim(윗 화살표 - 반각·전각·화살표 문자 표기를 3줄
+마다 돌아가며 섞음), lpips(아래 화살표)) 샘플 로그를 생성해 `CurveDialog` 를
+실제로 띄우고 체크박스를 하나씩/여러 개 토글하며 스크린샷을 남겨봤다. 파서
+결과(데이터 모델)는 전부 맞았는데, **렌더링 단계에서만 나타나는 버그 두 개**를
+이 과정에서 새로 찾았다 - 둘 다 기존 유닛 테스트는 데이터(`_series`, `metric_checks`
+딕셔너리)만 확인하고 실제 화면 픽셀/위젯 크기는 안 봐서 지금까지 안 걸렸다.
+
+1. **지표를 2개 이상 겹쳐 켜면 뒤 시리즈가 앞 시리즈 색으로 도배되듯 채워짐.**
+   `CurveChartWidget.draw_line()` 이 각 시리즈를 그린 뒤 "마지막 점 강조"용
+   점(dot)을 찍으려고 `painter.setBrush(QtGui.QBrush(color))` 를 해 두는데,
+   다음 시리즈의 `drawPath()` 호출 앞에서 이 브러시를 다시 지우지 않았다. Qt 는
+   열린 path 라도 채우기용 브러시가 있으면 끝점과 시작점을 이어 채우므로,
+   두 번째 시리즈부터는 선이 아니라 (바로 앞 시리즈의 색으로) 큰 삼각형이
+   채워져 버렸다 - 단일 시리즈만 볼 때는 애초에 브러시가 설정된 적이 없어
+   드러나지 않았다. `drawPath()` 직전에 `painter.setBrush(Qt.BrushStyle.NoBrush)`
+   를 추가해 고쳤다. `test_curve_chart_second_series_is_not_flood_filled` 로
+   렌더링된 이미지의 픽셀 수를 세어(얇은 선이면 수백~수천 px, 채워지면 만 단위)
+   회귀를 잡는다.
+2. **지표 체크박스 자체가 빈 흰 칸으로만 보임.** 체크박스를 담은 `QScrollArea`
+   가 `setWidgetResizable(False)` 인데, 안에 든 위젯(`metrics_host`)에 로그를
+   파싱한 뒤 동적으로 체크박스를 채워 넣기만 하고 크기를 다시 계산해 주지
+   않았다 - 생성 시점(체크박스가 하나도 없을 때)의 좁은 폭 그대로 남아,
+   나중에 채워 넣은 체크박스들이 스크롤 영역 밖(안 보이는 곳)에 놓였다.
+   `metrics_host` 를 `self._metrics_host` 로 승격해 두고, `_rebuild_metric_checks`
+   끝에서 `self._metrics_host.adjustSize()` 를 불러 실제 레이아웃 크기에 맞게
+   폭을 다시 잡아 준다. `test_curve_dialog_metric_checkbox_row_is_actually_sized`
+   로 위젯 폭과 각 체크박스의 가시성을 확인한다.
+
+두 버그 모두 되돌려서(수정 전 코드로) 새 테스트를 돌려 실제로 실패하는 것까지
+확인한 뒤 커밋했다 - 회귀 테스트가 진짜 그 버그를 잡는지 검증하는 절차.
