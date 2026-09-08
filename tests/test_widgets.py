@@ -1193,10 +1193,34 @@ def test_curve_dialog_parses_log_into_selectable_metric_series(qapp):
         )
 
     dialog = CurveDialog(folder, title="Test Curve")
-    items = [dialog.metric_combo.itemText(i) for i in range(dialog.metric_combo.count())]
-    assert "l_pix" in items
-    dialog.metric_combo.setCurrentText("l_pix")
-    assert dialog.chart._points == [(100, 5.0e-02), (200, 2.0e-02)]
+    assert "l_pix" in dialog.metric_checks
+    # 지표는 기본적으로 전부 체크된 상태 ("Plot 을 같이") 로 시작한다.
+    assert dialog.metric_checks["l_pix"].isChecked()
+    assert dialog._series["l_pix"] == [(100, 5.0e-02), (200, 2.0e-02)]
+    assert dialog.chart._series["l_pix"] == [(100, 5.0e-02), (200, 2.0e-02)]
+
+
+def test_curve_dialog_overlays_multiple_metrics_with_direction_annotations(qapp):
+    """§ 사용자 요청: `psnr(↑)` 처럼 방향 표시가 붙은 여러 지표도 모두 파싱해 같이 플롯."""
+    from dl_exp_manager.widgets.curve_chart import CurveDialog
+
+    log_text = (
+        "[Epoch 33/1000] Average loss:14.4 / Average psnr(↑): 15 / "
+        "Average ssim(↑):0.3\n"
+        "[Epoch 34/1000] Average loss:13.9 / Average psnr(↑): 15.4 / "
+        "Average ssim(↑):0.31\n"
+    )
+    dialog = CurveDialog("", title="Test Curve", log_text=log_text)
+
+    assert set(dialog.metric_checks) == {"loss", "psnr", "ssim"}
+    assert all(box.isChecked() for box in dialog.metric_checks.values())
+    # 전부 체크된 채로 시작하므로 세 지표가 모두 차트에 겹쳐 그려진다.
+    assert set(dialog.chart._series) == {"loss", "psnr", "ssim"}
+
+    dialog.metric_checks["loss"].setChecked(False)
+    assert set(dialog.chart._series) == {"psnr", "ssim"}
+    # 같은 지표는 체크를 껐다 켜도 항상 같은 색을 유지한다.
+    assert dialog.chart._colors["psnr"] == dialog._colors["psnr"]
 
 
 

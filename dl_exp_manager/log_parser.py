@@ -225,8 +225,13 @@ _HASH_METRIC_RE = re.compile(r"#\s*([A-Za-z][\w\-]*)\s*:\s*([-+]?\d+\.?\d*(?:[eE
 # `[Epoch 33/1000]` 처럼 대괄호 안에 현재/전체 epoch 을 적는 관례 (요청자의 _loss_log.txt 형식).
 _EPOCH_RE = re.compile(r"\[?\s*epoch\s*[:=]?\s*(\d+)\s*/\s*\d+\s*\]?", re.IGNORECASE)
 # `Average loss:14.4 / Average psnr: 15 / Average ssim:0.3 / ...` - "Average " 뒤의 이름을 키로 쓴다.
+# 지표 이름 뒤에 방향 표시(`psnr(↑)`, `ssim(up)`, 단위(`(dB)`) 등)가 붙기도 하므로,
+# 콜론 앞에서 괄호/대괄호로 묶인 덧말이나 화살표 같은 기호 하나는 건너뛰고 값을 찾는다.
 _AVERAGE_KV_RE = re.compile(
-    r"average\s+([A-Za-z][\w\-]*)\s*:\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)", re.IGNORECASE
+    r"average\s+([A-Za-z][\w\-]*)\s*"
+    r"(?:\([^)]*\)|\[[^\]]*\]|[^\w\s:=/]+)?\s*"
+    r"[:=]\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)",
+    re.IGNORECASE,
 )
 
 # 학습 곡선에 남길 만한 흔한 손실/지표 이름 (iter: 줄에서 KV 로 잡히는 잡음을 거른다)
