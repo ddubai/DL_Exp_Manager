@@ -1194,14 +1194,18 @@ def test_curve_dialog_parses_log_into_selectable_metric_series(qapp):
 
     dialog = CurveDialog(folder, title="Test Curve")
     assert "l_pix" in dialog.metric_checks
-    # 지표는 기본적으로 전부 체크된 상태 ("Plot 을 같이") 로 시작한다.
-    assert dialog.metric_checks["l_pix"].isChecked()
+    # 지표는 기본적으로 전부 꺼진 상태로 시작한다 - 한 번에 겹쳐 그리는 대신
+    # 사용자가 보고 싶은 것만 하나씩 켜서 확인한다.
+    assert not dialog.metric_checks["l_pix"].isChecked()
+    assert dialog.chart._series == {}
     assert dialog._series["l_pix"] == [(100, 5.0e-02), (200, 2.0e-02)]
+
+    dialog.metric_checks["l_pix"].setChecked(True)
     assert dialog.chart._series["l_pix"] == [(100, 5.0e-02), (200, 2.0e-02)]
 
 
-def test_curve_dialog_overlays_multiple_metrics_with_direction_annotations(qapp):
-    """§ 사용자 요청: `psnr(↑)` 처럼 방향 표시가 붙은 여러 지표도 모두 파싱해 같이 플롯."""
+def test_curve_dialog_toggles_metrics_with_direction_annotations_individually(qapp):
+    """§ 사용자 요청: `psnr(↑)` 처럼 방향 표시가 붙은 지표도 파싱해, 하나씩 켜고 끄며 확인."""
     from dl_exp_manager.widgets.curve_chart import CurveDialog
 
     log_text = (
@@ -1213,14 +1217,20 @@ def test_curve_dialog_overlays_multiple_metrics_with_direction_annotations(qapp)
     dialog = CurveDialog("", title="Test Curve", log_text=log_text)
 
     assert set(dialog.metric_checks) == {"loss", "psnr", "ssim"}
-    assert all(box.isChecked() for box in dialog.metric_checks.values())
-    # 전부 체크된 채로 시작하므로 세 지표가 모두 차트에 겹쳐 그려진다.
-    assert set(dialog.chart._series) == {"loss", "psnr", "ssim"}
+    # 전부 파싱은 되지만, 켜기 전까지는 아무것도 그려지지 않는다.
+    assert not any(box.isChecked() for box in dialog.metric_checks.values())
+    assert dialog.chart._series == {}
 
-    dialog.metric_checks["loss"].setChecked(False)
+    dialog.metric_checks["psnr"].setChecked(True)
+    assert set(dialog.chart._series) == {"psnr"}
+
+    dialog.metric_checks["ssim"].setChecked(True)
     assert set(dialog.chart._series) == {"psnr", "ssim"}
     # 같은 지표는 체크를 껐다 켜도 항상 같은 색을 유지한다.
     assert dialog.chart._colors["psnr"] == dialog._colors["psnr"]
+
+    dialog.metric_checks["psnr"].setChecked(False)
+    assert set(dialog.chart._series) == {"ssim"}
 
 
 
